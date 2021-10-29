@@ -1,3 +1,5 @@
+LaRT (Lyman-alpha Radiative Transfer)
+
 How to compile and run:
 
    1) The code is written in modern Fortran (Fortran 2003 or later is required).
