@@ -1,0 +1,11 @@
+FINE_STRUTURE
+
+This directory is to reproduce the results of DL2008 (Dijkstra & Loeb 2008).
+
+2020.08.31, comment added.
+   If the shell is too (geometrically) thin, the spectra given in DL2008 are not reproduced.
+      A too thin shell gives narrower spectra than those given in DL2008.
+   Do not use ../backup_f90/grid_mod_car_v1c.f90, which make a thinner shell.
+
+2020.09.14
+   In this models, I will use grid_mod_car_v1c.f90.

@@ -1,0 +1,29 @@
+&parameters
+ par%no_photons  = 1e7
+ par%temperature = 1.0e4
+ par%N_HI        = 1.0e19
+ par%scatt_mat_file = '../data/mueller_Lyalpha.dat'
+ par%DGR         = 0.0
+ par%velocity_type = 'constant_radial'
+ par%Vexp        = 200.0
+ par%use_stokes   = .true.
+ par%save_Jin     = .true.
+ par%use_master_slave     = .true.
+ par%spectral_type = 'gaussian'
+ par%gaussian_width_vel = 200.0
+ par%nx = 401
+ par%ny = 401
+ par%nz = 401
+ par%nxim = 129
+ par%nyim = 129
+ par%nxfreq    = 191
+ par%xfreq_min = -120.0
+ par%xfreq_max =   70.0
+ par%rmin   = 0.9
+ par%rmax   = 1.0
+
+ par%save_all_photons = .true.
+
+ par%nprint = 1e6
+ par%out_merge = .true.
+/

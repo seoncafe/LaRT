@@ -1,0 +1,20 @@
+&parameters
+ par%no_photons  = 1e7
+ par%temperature = 1.0e4
+ par%taumax      = 1.0e3
+ par%DGR         = 0.0
+ par%Vexp        = 0.0
+ par%xyz_symmetry    = .true.
+ par%comoving_source = .false.
+ par%save_all        = .false.
+ par%recoil          = .false.
+ par%spectral_type   = 'voigt'
+ par%nx = 101
+ par%ny = 101
+ par%nz = 101
+ par%xfreq_min = -6.0
+ par%xfreq_max =  6.0
+ par%nxfreq = 241
+ par%rmax   = 1.0
+ par%nprint = 1000000
+/

@@ -1,0 +1,117 @@
+--------------------------------------------------------------------------------
+-- Monte Carlo Simulation for Lyman-alpha scattering
+--    + the Wouthuysen-Field effect (2017-04-27)
+--    + Polarization (2020.09.00)
+--------------------------------------------------------------------------------
+
+Author:
+	Kwang-il Seon
+
+History:
+        2021-10-05 Bug-fixed in calculating FLUXFAC for stellar_illumination model.
+                   The old version gave a factor of 2 higher value.
+        2021-09.29 The limb darkening effect for "stellar_illumination" model seems to be treated correctly.
+                   Blocking of scattered light by the star is added in peelingoff subroutines.
+	2021-09-13 The diffuse emissivity model for stellar models use a one-dimensional PDF array, rather than 3D PDF.
+        2021-09-11 The rotation about an arbitrary position is now possible (par%rotation_center_x, ...).
+                   The rotation center for the stellar illumination model is the location of star in default.
+        2021-09-08 random_stellar_illumination and peeling-off routine for stellar illumination model added and tested.
+        2021-08-30 alias method is used for sampling discrete table functions.
+        2021-08-05 bug-fixed in sightline_tau.f90 (xfreq should be represented in the local cell frame).
+                   minor-bug (in sightline_tau) related to the cell indices.
+	2021-07-12 added stellar illumination model for exoplanet.
+	           updated memory module for a very big array allocation.
+	2021-05-06 added spherical atmosphere model for exoplanet.
+	           minor bug-fixed in peelingoff routine
+	2021-04-25 bugs-fixed for atmosphere model (scattering and gen_photon modules).
+	2021-04-22 added exoplanet atmosphere model.
+	2020-11-13 added copy_file routine in utility.f90 (execute_command_line is no longer used.)
+	2020-11-08 Now, memory_mod_mpi include get_window and destroy_mem, which can be used for shared_memory.
+	           par%save_all_photons option is added, instead of ALL_PHOTONS cpp directive.
+	           minor bug-fixed in output_sum_car and memory_mod_mpi.
+	2020-11-02 memory_mod is rewritten. create_shared_mem and create_mem do not require to pass "window" variable.
+	           allph arrays are defined to be shared memory.
+	2020-11-01 bug-fixed. allph pointers (ALL_PHOTONS) were not initialzed.
+	           mpar%SAME_HRANK_COMM, mpar%SAME_HRANK_NPROC are added.
+	2020-10-27 minor bug-fixed in write_mod_car_v2.f90
+	2020-10-23 bug-fixed in output_sum_car.f90, a factor (distance2cm**2) was mission for the case of xy_periodic.
+	2020-10-22 renamed "peeling_tau" to sightline_tau. The routine gives tau_HI, N_HI, tau_dust.
+	           FOV of image plane covers whole system, depending on the observer direction.
+                   Now, the code include Pnew method, which is the third method to investigate the WF effect.
+        2020-10-20 optical depth in "peeling_tau" is measured the direction from the sky to Earth
+	2020-10-19 bug-fixed in peeling_tau. (use raytrac_to_edge_car0 to avoid the cutting-off of optical depth).
+	           peeling_tau is performed for all frequencies.
+	           par%save_direc0 option is added.
+        2020-10-17 minor bug-fixed in write_mod_car.f90
+                   a potential bug-fixed in gen_photon.f90 (the suboutine was not contained in module)
+	           bug-fix in gen_photon.f90 (Jin is now calculated in a fixed lab frame.)
+	2020-10-10 bug-fixed for "rp0" record. Modified not to save "rp0" if source_geometry == "point."
+	           Some "_allph" files with "r0" field was combined that without "r0" files.
+                   "t4tau7dust_allph.fits.gz' in sphere_allph director should be discarded.
+	           There was also a bug in combine_allph.f90.
+	2020-10-10 peeling-off toward multiple observers are now possible.
+	           But, too many observers requires higher memory. Hybrid method might be better for this.
+	           bug-fixed in peeling_tau routine.
+	2020-09-27 bug-fixed in the subroutine "scattering" in scattering_car.f90
+	2020-09-20 The code can calculate the optical depth along sight lines that are projected
+                   to detector-plane pixels. See "peeling_tau" in peeling_mod.f90.
+	           Set par%peel_tau = .true. to calculate the optical depth.
+	2020-08-30 added make_radial_stokes routine.
+	           par%out_merge = .true. option now gives correct answers for peeling-off of radial polarizaiton.
+	2020-08-28 re-organized grid_mod_car.f90
+        2020-08-15 bug-fixes in output_sum_car.f90, peeling-off image had no physical unit.
+                   bug-fixes in grid_mod_car.f90,  observer%dxim, observer%dyim were not set.
+                   bug-fixes in write_mod_car.f90, DYIM (CR1_1) was always the same as DXIM.
+                   Now, the rotation matrix is defined for tranformation from initial galaxy frame to the observer frame.
+                        (previously, the rotation was defined from observer frame to galaxy frame.)
+                        rotation sequence is now z-y-z (not z-x-z).
+	2018-07-26, bug-fixed in memory_mod.f90. disp_unit should be the byte size of the array element (=wp_size)
+	2018-07-25, bug-fixed in polarization. S22 is not the same as S11 for resonace scattering.
+	            dynamic scheduling method is added (define.f90, run_simulation_mod.f90 and setup.f90)
+	2018-03-08, need to find a way to define optical depth at x = 0 for fine-structure case.
+	2018-02-10, bug-fix in setup (setup_scattering_matrix).
+	2018-02-06, bug-fix in scattering_car.f90 (the parts that are related to FINE_STRUCTURE).
+	2018-02-04, bug-fix in raytrace_to_edge_car and peelingoff_mod (Thanks, Hyunmi Song!)
+	            Frequency binning for peeling-off image should be done in observer's frame (lab frame).
+                    No frequency shift due to the spatial variation of temperature and velocity had been took into account.
+	2017-08-18, many, minor bugs fixed (which occur when compilered with gfortran)
+        2017-08-17, (1) minor upgrade.
+                        Memories (xface,..., rhokap, etc) which are not modified during the simulation are always created
+                        as shared memories even when use_shared_memory = .true. (default value is now .false.)
+                    (2) bug-fixed in creating memory of observer%direc (grid_mod_car.f90).
+        2017-08-16, minor bugs fixed, which are related to Jabs in scattering_car.f90 and output_sum.f90.
+                                      which are related to Jin  in grid_mod_car.f90 and gen_photon_car.f90.
+	2017-07-24, bug-fixed in calculating ionized (or neutral) fraction of H under the CIE condition.
+	2017-07-17, use_reduce_wgt = .false. : photon packet is removed, if absorbed by dust.
+                    use_reduce_wgt = .true.  : photon weight is reduced by a factor of (1-albedo). => original method.
+        2017-07-15, Fixed a bug related to par%Omega, which should be defined the same in all processes.
+        2017-07-14, (1) Shear effect is now appropriately taken into account.
+                        photon%vfy_shear is changed when the photon crosses the boundary,
+                        and this value is added to vfy (y-component of fluid velocity) in raytrace_to_tau_xyper_shear.
+                        gen_photon_car.f90 and raytrace_to_tau_xyper_shear routine is added in raytrac_car.f90
+                    (2) CIE condition is used to calculate the Neutral Hydrogen density if par%use_cie_condition = .true.
+        2017-06-18, bug-fixed in calculating dust density.
+	2017-06-16, set use_shared_memory = .true. or .false. in input parameter file.
+	            set use_master_slave  = .true. or .false. in input parameter file.
+	2017-06-11, shared memory and master & slave algorithm is used.
+			MASTER_SLAVE  = 1 in Makefile if you want to use master & slave algorithm.
+			SHARED_MEMORY = 1 in Makefile if you want to use shared memory.
+	2017-05-24, grid%J and grid%Pa should be double precision.
+	2017-05-17, bug-fixed in raytrace_to_tau
+	2016-10-28, pathlength bias schem does not work. (main_mpi_v2.f90 & scatt_res.f90)
+	2016-10-26, acceleration scheme.
+		Note that ./old/HII_resonance/V2 version is correct.
+		But, need to revise to use the fast raytrace routine.
+	2016-10-23, bug-fixed, cosmetic change
+
+--------------------------------------------------------------------------------
+Monte Carlo Simulation for Lyman-alpha scattering
++ the Wouthuysen-Field effect (2017-04-27)
++ Polarization (2020.09.00)
+--------------------------------------------------------------------------------
+
+grid%J              : mean intensity calculated in the fluid rest frame.
+par%comoving_source : indicates whether the photon is generated in the fluid rest frame or not.
+                      default is .true.
+raytrace_to_tau_car_xyzsym : may need to tested. this routine does not give a correct result. why?
+                      (2017-05-16)

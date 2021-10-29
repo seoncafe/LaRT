@@ -1,0 +1,23 @@
+&parameters
+ par%no_photons  = 1e5
+ par%temperature = 1.0e3
+ par%taumax      = 1.0e7
+ par%Vexp        = 0.0
+ par%hgg         = 0.6592
+ par%albedo      = 0.3899
+ par%DGR         = 0.0
+ par%use_stokes  = .true.
+ par%save_Jin    = .true.
+ par%nx = 1
+ par%ny = 1
+ par%nz = 1
+ par%xmax   = 100.0
+ par%ymax   = 100.0
+ par%zmax   = 1.0
+ par%distance = 1.0d4
+ par%nxim   = 201
+ par%nyim   = 201
+ par%dxim   = 0.0005d0
+ par%dyim   = 0.0005d0
+ par%nprint = 1000000
+/
