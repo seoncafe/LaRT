@@ -28,7 +28,7 @@ How to compile and run:
 
    6) See "params_type" in define_v2.f90 for the default values of the input parameters.
 
-IVersions:
+Versions:
   LaRT_v1.34 - pure MPI version
   LaRT_v1.34_hybrid - MPI + openmp hybrid version
 
