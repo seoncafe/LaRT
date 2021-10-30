@@ -1,10 +1,10 @@
 **LaRT (Ly&alpha; Radiative Transfer)**
 
-*What is LaRT?*
+**What is LaRT?**
 
 LaRT is a three-dimensional Monte Carlo Ly&alpha; radiative transfer code, which is developed to study the Ly&alpha RT, the Wouthuysen-Field effect, and the polarization of Ly&alpha; radiation.
 
-*How to compile and run:*
+**How to compile and run:**
 
 1. The code is written in modern Fortran (Fortran 2003 or later).\
       You need to install fortran/C compilers (e.g., Inten oneAPI Toolkit or GNU compilers).\
@@ -28,14 +28,14 @@ LaRT is a three-dimensional Monte Carlo Ly&alpha; radiative transfer code, which
 5. examples are located under the directories, sphere, slab, etc.
 6. See "params_type" in define_v2.f90 for the default values of the input parameters.
 
-*Versions:*
+**Versions:**
 LaRT is provided in two versions.
   - LaRT_v1.34 : pure MPI version
   - LaRT_v1.34_hybrid : MPI + openmp hybrid version (The hybrid versioin uses a less amount of RAM than the MPI version.)
 
-*How to setup a model:*
+**How to setup a model:**
   - Read README_HOWTO in each directory
   - Feel free to email me if you have any questions.
 
-*Examples:*
+**Examples:**
   - See the example directory in each version.
