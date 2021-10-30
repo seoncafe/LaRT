@@ -36,7 +36,7 @@ LaRT is provided in two versions.
 5. examples are located under the directories, sphere, slab, etc.
 6. See "params_type" in define_v2.f90 for the default values of the input parameters.
 
-### Setup a model:
+### Setup a model & Examples:
   - Read README_HOWTO in each directory
   - See the example directory in each version.
   - Feel free to email me if you have any questions.
