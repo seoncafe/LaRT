@@ -9,8 +9,8 @@ LaRT is provided in two versions.
   - LaRT_v1.34_hybrid : MPI + openmp hybrid version (The hybrid versioin uses a less amount of RAM than the MPI version.)
 
 ### References
-  - Seon & Kim (2020 ApJS, 250, 9)
-  - Seon, Song, & Chang (2021, ApJS, submitted)
+  - [Seon & Kim (2020 ApJS, 250, 9)](https://ui.adsabs.harvard.edu/abs/2020ApJS..250....9S/abstract)
+  - [Seon, Song, & Chang (2021, ApJS, submitted)](https://ui.adsabs.harvard.edu/abs/2021arXiv210515062S%2F/abstract)
 
 ## How to compile and run:
 
