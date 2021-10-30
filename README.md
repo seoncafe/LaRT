@@ -18,7 +18,8 @@
   - unix> cd examples/sphere
   - unix> mpirun -np 8 ../LaRT_peel_calcP.x t1tau4.in \
       Use the number of threads that your system has in the place of "8". \
-      A Quad-core CPU has 8 threads. Number of threads = 2 x number of cores. \
+      Note that a Quad-core CPU has 8 threads. \
+      Number of threads = 2 x number of cores. \
       Please refer to "run.sh" or "run_hybrid.sh" in each directory.
 5. examples are located under the directories, sphere, slab, etc.
 6. See "params_type" in define_v2.f90 for the default values of the input parameters.
