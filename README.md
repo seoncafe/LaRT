@@ -2,7 +2,16 @@
 
 **What is LaRT?**
 
-LaRT is a three-dimensional Monte Carlo Ly&alpha; radiative transfer code, which is developed to study the Ly&alpha; RT, the Wouthuysen-Field effect, and the polarization of Ly&alpha; radiation.
+LaRT is a three-dimensional Monte Carlo Ly&alpha; radiative transfer code, which is developed to study the Ly&alpha; RT. LaRT is capable of predicting (1) the emergent Ly&alpha; spectrum and surface brightness profile, (2) the Wouthuysen-Field effect, and (3) the polarization of Ly&alpha; radiation. The code is capable of treating arbitrary geometries, density distributions and source distributions. The current version of LaRT uses a Caresian grid to model the hydrogen gas. LaRT has been benchmarked for a number of standard cases.
+
+**Versions:** \
+LaRT is provided in two versions.
+  - LaRT_v1.34 : pure MPI version
+  - LaRT_v1.34_hybrid : MPI + openmp hybrid version (The hybrid versioin uses a less amount of RAM than the MPI version.)
+
+**References**
+  - Seon & Kim (2020 ApJS, 250, 9)
+  - Seon, Song, & Chang (2021, ApJS, submitted)
 
 **How to compile and run:**
 
@@ -27,11 +36,6 @@ LaRT is a three-dimensional Monte Carlo Ly&alpha; radiative transfer code, which
       Please refer to "run.sh" or "run_hybrid.sh" in each directory.
 5. examples are located under the directories, sphere, slab, etc.
 6. See "params_type" in define_v2.f90 for the default values of the input parameters.
-
-**Versions:**
-LaRT is provided in two versions.
-  - LaRT_v1.34 : pure MPI version
-  - LaRT_v1.34_hybrid : MPI + openmp hybrid version (The hybrid versioin uses a less amount of RAM than the MPI version.)
 
 **How to setup a model:**
   - Read README_HOWTO in each directory
