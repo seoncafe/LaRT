@@ -15,7 +15,7 @@ LaRT is provided in two versions.
 ## How to compile and run:
 
 1. The code is written in modern Fortran (Fortran 2003 or later).\
-      You need to install fortran/C compilers (e.g., Inten oneAPI Toolkit or GNU compilers).\
+      You need to install fortran/C compilers (e.g., Intel oneAPI Toolkit or GNU compilers).\
       Note that gfortran v4 does not supprt fortran 2003.\
       You may need to modify Makefile if you want to use GNU gfortran.
 2. You need to install CFITSIO library.\
