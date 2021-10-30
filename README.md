@@ -33,10 +33,9 @@ LaRT is provided in two versions.
       Note that a Quad-core CPU has 8 threads. \
       Number of threads = 2 x number of cores. \
       Please refer to "run.sh" or "run_hybrid.sh" in each directory.
-5. examples are located under the directories, sphere, slab, etc.
 6. See "params_type" in define_v2.f90 for the default values of the input parameters.
 
 ### Setup a model & Examples:
   - Read README_HOWTO in each directory
-  - See the example directory in each version.
+  - See the example directory in each version. Examples are located under the directories, sphere, slab, etc.
   - Feel free to email me if you have any questions.
