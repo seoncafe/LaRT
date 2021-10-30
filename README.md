@@ -1,4 +1,8 @@
-**LaRT (Lyman-alpha Radiative Transfer)**
+**LaRT (Ly&alpha; Radiative Transfer)**
+
+*What is LaRT?*
+
+LaRT is a three-dimensional Monte Carlo Ly&alpha; radiative transfer code, which is developed to study the Ly&alpha RT, the Wouthuysen-Field effect, and the polarization of Ly&alpha; radiation.
 
 *How to compile and run:*
 
