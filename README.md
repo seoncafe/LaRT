@@ -1,6 +1,6 @@
-## LaRT (Ly&alpha; Radiative Transfer)
+# LaRT (Ly&alpha; Radiative Transfer)
 
-### What is LaRT?
+## What is LaRT?
 LaRT is a three-dimensional Monte Carlo Ly&alpha; radiative transfer code, which is developed to study the Ly&alpha; RT. LaRT is capable of predicting (1) the emergent Ly&alpha; spectrum and surface brightness profile, (2) the Wouthuysen-Field effect, and (3) the polarization of Ly&alpha; radiation. The code is capable of treating arbitrary geometries, density distributions and source distributions. The current version of LaRT uses a Caresian grid to model the hydrogen gas. LaRT has been benchmarked for a number of standard cases.
 
 ### Versions
@@ -36,7 +36,7 @@ LaRT is provided in two versions.
 5. examples are located under the directories, sphere, slab, etc.
 6. See "params_type" in define_v2.f90 for the default values of the input parameters.
 
-### How to setup a model:
+### Setup a model:
   - Read README_HOWTO in each directory
   - Feel free to email me if you have any questions.
 
