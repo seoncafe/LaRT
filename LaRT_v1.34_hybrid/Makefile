@@ -89,7 +89,7 @@ OBJSB	= \
 	mathlib.o \
 	random_mt_v2.50.o \
 	random_sersic.o \
-	memory_mod_hybrid_v2.o \
+	memory_mod_hybrid_v2a.o \
 	fitsio_mod.o \
 	read_fits_data.o \
 	read_text_data.o \

@@ -1,6 +1,8 @@
 module memory_mod
   use, intrinsic :: iso_fortran_env, only: real32, real64, real128, int8, int16, int32, int64
+#ifdef MPI
   use mpi
+#endif
   !--
   !-- 2021-06-29. Now, the routines work for both "real32" and "real64" types.
   !--             The routines for "int8", "int16", "int32", and "inte64" type array are added.
@@ -32,10 +34,16 @@ contains
   !---------------------------
   subroutine init_mpi_parameters()
   integer :: ierr
+#ifdef MPI
   call MPI_COMM_SIZE(MPI_COMM_WORLD, num_nodes, ierr)
   call MPI_COMM_RANK(MPI_COMM_WORLD, p_rank,    ierr)
   mpi_parameters_defined = .true.
   call MPI_BARRIER(MPI_COMM_WORLD, ierr)
+#else
+  num_nodes = 1
+  p_rank    = 0
+  mpi_parameters_defined = .true.
+#endif
   end subroutine init_mpi_parameters
   !---------------------------
   subroutine create_mem_1D_real64(array,arrshape)
@@ -88,6 +96,7 @@ contains
   real(kind=real64), pointer, intent(inout) :: array(:)
   integer :: ierr, nsize
 
+#ifdef MPI
   if (.not.mpi_parameters_defined) call init_mpi_parameters()
   if (num_nodes > 1) then
      nsize = size(array)
@@ -97,6 +106,7 @@ contains
         call MPI_REDUCE(array(:),           0,nsize,MPI_REAL8,MPI_SUM,0,MPI_COMM_WORLD,ierr)
      endif
   endif
+#endif
   end subroutine reduce_mem_1D_real64
   !---------------------------
   subroutine reduce_mem_2D_real64(array)
@@ -104,6 +114,7 @@ contains
   real(kind=real64), pointer, intent(inout) :: array(:,:)
   integer :: ierr, nsize
 
+#ifdef MPI
   if (.not.mpi_parameters_defined) call init_mpi_parameters()
   if (num_nodes > 1) then
      nsize = size(array)
@@ -113,6 +124,7 @@ contains
         call MPI_REDUCE(array(:,:),           0,nsize,MPI_REAL8,MPI_SUM,0,MPI_COMM_WORLD,ierr)
      endif
   endif
+#endif
   end subroutine reduce_mem_2D_real64
   !---------------------------
   subroutine reduce_mem_3D_real64(array)
@@ -120,6 +132,7 @@ contains
   real(kind=real64), pointer, intent(inout) :: array(:,:,:)
   integer :: ierr, k, nsize
 
+#ifdef MPI
   if (.not.mpi_parameters_defined) call init_mpi_parameters()
   if (num_nodes > 1) then
      nsize = size(array(:,:,1))
@@ -131,6 +144,7 @@ contains
         endif
      enddo
   endif
+#endif
   end subroutine reduce_mem_3D_real64
   !---------------------------
   subroutine reduce_mem_4D_real64(array)
@@ -138,6 +152,7 @@ contains
   real(kind=real64), pointer, intent(inout) :: array(:,:,:,:)
   integer :: ierr, j, k, nsize
 
+#ifdef MPI
   if (.not.mpi_parameters_defined) call init_mpi_parameters()
   if (num_nodes > 1) then
      nsize = size(array(:,:,1,1))
@@ -151,6 +166,7 @@ contains
      enddo
      enddo
   endif
+#endif
   end subroutine reduce_mem_4D_real64
   !---------------------------
   subroutine reduce_mem_5D_real64(array)
@@ -158,6 +174,7 @@ contains
   real(kind=real64), pointer, intent(inout) :: array(:,:,:,:,:)
   integer :: ierr, i, j, k, nsize
 
+#ifdef MPI
   if (.not.mpi_parameters_defined) call init_mpi_parameters()
   if (num_nodes > 1) then
      nsize = size(array(:,:,1,1,1))
@@ -173,6 +190,7 @@ contains
      enddo
      enddo
   endif
+#endif
   end subroutine reduce_mem_5D_real64
   !---------------------------
   subroutine create_mem_1D_real32(array,arrshape)
@@ -225,6 +243,7 @@ contains
   real(kind=real32), pointer, intent(inout) :: array(:)
   integer :: ierr, nsize
 
+#ifdef MPI
   if (.not.mpi_parameters_defined) call init_mpi_parameters()
   if (num_nodes > 1) then
      nsize = size(array)
@@ -234,6 +253,7 @@ contains
         call MPI_REDUCE(array(:),           0,nsize,MPI_REAL4,MPI_SUM,0,MPI_COMM_WORLD,ierr)
      endif
   endif
+#endif
   end subroutine reduce_mem_1D_real32
   !---------------------------
   subroutine reduce_mem_2D_real32(array)
@@ -241,6 +261,7 @@ contains
   real(kind=real32), pointer, intent(inout) :: array(:,:)
   integer :: ierr, nsize
 
+#ifdef MPI
   if (.not.mpi_parameters_defined) call init_mpi_parameters()
   if (num_nodes > 1) then
      nsize = size(array)
@@ -250,6 +271,7 @@ contains
         call MPI_REDUCE(array(:,:),           0,nsize,MPI_REAL4,MPI_SUM,0,MPI_COMM_WORLD,ierr)
      endif
   endif
+#endif
   end subroutine reduce_mem_2D_real32
   !---------------------------
   subroutine reduce_mem_3D_real32(array)
@@ -257,6 +279,7 @@ contains
   real(kind=real32), pointer, intent(inout) :: array(:,:,:)
   integer :: ierr, k, nsize
 
+#ifdef MPI
   if (.not.mpi_parameters_defined) call init_mpi_parameters()
   if (num_nodes > 1) then
      nsize = size(array(:,:,1))
@@ -268,6 +291,7 @@ contains
         endif
      enddo
   endif
+#endif
   end subroutine reduce_mem_3D_real32
   !---------------------------
   subroutine reduce_mem_4D_real32(array)
@@ -275,6 +299,7 @@ contains
   real(kind=real32), pointer, intent(inout) :: array(:,:,:,:)
   integer :: ierr, j, k, nsize
 
+#ifdef MPI
   if (.not.mpi_parameters_defined) call init_mpi_parameters()
   if (num_nodes > 1) then
      nsize = size(array(:,:,1,1))
@@ -288,6 +313,7 @@ contains
      enddo
      enddo
   endif
+#endif
   end subroutine reduce_mem_4D_real32
   !---------------------------
   subroutine reduce_mem_5D_real32(array)
@@ -295,6 +321,7 @@ contains
   real(kind=real32), pointer, intent(inout) :: array(:,:,:,:,:)
   integer :: ierr, i, j, k, nsize
 
+#ifdef MPI
   if (.not.mpi_parameters_defined) call init_mpi_parameters()
   if (num_nodes > 1) then
      nsize = size(array(:,:,1,1,1))
@@ -310,6 +337,7 @@ contains
      enddo
      enddo
   endif
+#endif
   end subroutine reduce_mem_5D_real32
   !---------------------------
   subroutine create_mem_1D_int64(array,arrshape)
@@ -344,6 +372,7 @@ contains
   integer(int64), pointer, intent(inout) :: array(:)
   integer :: ierr, nsize
 
+#ifdef MPI
   if (.not.mpi_parameters_defined) call init_mpi_parameters()
   if (num_nodes > 1) then
      nsize = size(array)
@@ -353,6 +382,7 @@ contains
         call MPI_REDUCE(array(:),           0,nsize,MPI_INTEGER8,MPI_SUM,0,MPI_COMM_WORLD,ierr)
      endif
   endif
+#endif
   end subroutine reduce_mem_1D_int64
   !---------------------------
   subroutine reduce_mem_2D_int64(array)
@@ -360,6 +390,7 @@ contains
   integer(int64), pointer, intent(inout) :: array(:,:)
   integer :: ierr, nsize
 
+#ifdef MPI
   if (.not.mpi_parameters_defined) call init_mpi_parameters()
   if (num_nodes > 1) then
      nsize = size(array)
@@ -369,6 +400,7 @@ contains
         call MPI_REDUCE(array(:,:),           0,nsize,MPI_INTEGER8,MPI_SUM,0,MPI_COMM_WORLD,ierr)
      endif
   endif
+#endif
   end subroutine reduce_mem_2D_int64
   !---------------------------
   subroutine reduce_mem_3D_int64(array)
@@ -376,6 +408,7 @@ contains
   integer(int64), pointer, intent(inout) :: array(:,:,:)
   integer :: ierr, k, nsize
 
+#ifdef MPI
   if (.not.mpi_parameters_defined) call init_mpi_parameters()
   if (num_nodes > 1) then
      nsize = size(array(:,:,1))
@@ -387,6 +420,7 @@ contains
         endif
      enddo
   endif
+#endif
   end subroutine reduce_mem_3D_int64
   !---------------------------
   subroutine create_mem_1D_int32(array,arrshape)
@@ -421,6 +455,7 @@ contains
   integer(int32), pointer, intent(inout) :: array(:)
   integer :: ierr, nsize
 
+#ifdef MPI
   if (.not.mpi_parameters_defined) call init_mpi_parameters()
   if (num_nodes > 1) then
      nsize = size(array)
@@ -430,6 +465,7 @@ contains
         call MPI_REDUCE(array(:),           0,nsize,MPI_INTEGER4,MPI_SUM,0,MPI_COMM_WORLD,ierr)
      endif
   endif
+#endif
   end subroutine reduce_mem_1D_int32
   !---------------------------
   subroutine reduce_mem_2D_int32(array)
@@ -437,6 +473,7 @@ contains
   integer(int32), pointer, intent(inout) :: array(:,:)
   integer :: ierr, nsize
 
+#ifdef MPI
   if (.not.mpi_parameters_defined) call init_mpi_parameters()
   if (num_nodes > 1) then
      nsize = size(array)
@@ -446,6 +483,7 @@ contains
         call MPI_REDUCE(array(:,:),           0,nsize,MPI_INTEGER4,MPI_SUM,0,MPI_COMM_WORLD,ierr)
      endif
   endif
+#endif
   end subroutine reduce_mem_2D_int32
   !---------------------------
   subroutine reduce_mem_3D_int32(array)
@@ -453,6 +491,7 @@ contains
   integer(int32), pointer, intent(inout) :: array(:,:,:)
   integer :: ierr, k, nsize
 
+#ifdef MPI
   if (.not.mpi_parameters_defined) call init_mpi_parameters()
   if (num_nodes > 1) then
      nsize = size(array(:,:,1))
@@ -464,6 +503,7 @@ contains
         endif
      enddo
   endif
+#endif
   end subroutine reduce_mem_3D_int32
   !---------------------------
   subroutine create_mem_1D_int16(array,arrshape)
@@ -498,6 +538,7 @@ contains
   integer(int16), pointer, intent(inout) :: array(:)
   integer :: ierr, nsize
 
+#ifdef MPI
   if (.not.mpi_parameters_defined) call init_mpi_parameters()
   if (num_nodes > 1) then
      nsize = size(array)
@@ -507,6 +548,7 @@ contains
         call MPI_REDUCE(array(:),           0,nsize,MPI_INTEGER2,MPI_SUM,0,MPI_COMM_WORLD,ierr)
      endif
   endif
+#endif
   end subroutine reduce_mem_1D_int16
   !---------------------------
   subroutine reduce_mem_2D_int16(array)
@@ -514,6 +556,7 @@ contains
   integer(int16), pointer, intent(inout) :: array(:,:)
   integer :: ierr, nsize
 
+#ifdef MPI
   if (.not.mpi_parameters_defined) call init_mpi_parameters()
   if (num_nodes > 1) then
      nsize = size(array)
@@ -523,6 +566,7 @@ contains
         call MPI_REDUCE(array(:,:),           0,nsize,MPI_INTEGER2,MPI_SUM,0,MPI_COMM_WORLD,ierr)
      endif
   endif
+#endif
   end subroutine reduce_mem_2D_int16
   !---------------------------
   subroutine reduce_mem_3D_int16(array)
@@ -530,6 +574,7 @@ contains
   integer(int16), pointer, intent(inout) :: array(:,:,:)
   integer :: ierr, k, nsize
 
+#ifdef MPI
   if (.not.mpi_parameters_defined) call init_mpi_parameters()
   if (num_nodes > 1) then
      nsize = size(array(:,:,1))
@@ -541,6 +586,7 @@ contains
         endif
      enddo
   endif
+#endif
   end subroutine reduce_mem_3D_int16
   !---------------------------
   subroutine create_mem_1D_int8(array,arrshape)
@@ -575,6 +621,7 @@ contains
   integer(int8), pointer, intent(inout) :: array(:)
   integer :: ierr, nsize
 
+#ifdef MPI
   if (.not.mpi_parameters_defined) call init_mpi_parameters()
   if (num_nodes > 1) then
      nsize = size(array)
@@ -584,6 +631,7 @@ contains
         call MPI_REDUCE(array(:),           0,nsize,MPI_INTEGER1,MPI_SUM,0,MPI_COMM_WORLD,ierr)
      endif
   endif
+#endif
   end subroutine reduce_mem_1D_int8
   !---------------------------
   subroutine reduce_mem_2D_int8(array)
@@ -591,6 +639,7 @@ contains
   integer(int8), pointer, intent(inout) :: array(:,:)
   integer :: ierr, nsize
 
+#ifdef MPI
   if (.not.mpi_parameters_defined) call init_mpi_parameters()
   if (num_nodes > 1) then
      nsize = size(array)
@@ -600,6 +649,7 @@ contains
         call MPI_REDUCE(array(:,:),           0,nsize,MPI_INTEGER1,MPI_SUM,0,MPI_COMM_WORLD,ierr)
      endif
   endif
+#endif
   end subroutine reduce_mem_2D_int8
   !---------------------------
   subroutine reduce_mem_3D_int8(array)
@@ -607,6 +657,7 @@ contains
   integer(int8), pointer, intent(inout) :: array(:,:,:)
   integer :: ierr, k, nsize
 
+#ifdef MPI
   if (.not.mpi_parameters_defined) call init_mpi_parameters()
   if (num_nodes > 1) then
      nsize = size(array(:,:,1))
@@ -618,6 +669,7 @@ contains
         endif
      enddo
   endif
+#endif
   end subroutine reduce_mem_3D_int8
   !---------------------------
 end module memory_mod
