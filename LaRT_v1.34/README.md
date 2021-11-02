@@ -1,12 +1,12 @@
 # LaRT (Ly&alpha; Radiative Transfer)
 
 ## What is LaRT?
-LaRT is a three-dimensional Monte Carlo Ly&alpha; radiative transfer code, which is developed to study the Ly&alpha; radiative transfer. LaRT is capable of predicting (1) the Ly&alpha; spectrum and surface brightness profile, (2) the Wouthuysen-Field effect, and (3) the polarization of Ly&alpha; radiation. The code is capable of treating arbitrary geometries, density distributions and source distributions. LaRT uses the "peeling-off" (next event estimation) technique to obtain high signal-to-noise spectro-polarimetric images in a detector plane. LaRT is superb, compared to the preexisting codes, in that it uses a smoothly and seamlessly varying phase function as frequency changes to deal with the polarization of Ly&alpha; radiation. LaRT can place an observer in an arbitrary location and make a detector plane to have an arbitrary orientation in the sky. The current version of LaRT uses a Cartesian grid to model the density distribution of hydrogen gas. LaRT has been benchmarked for a number of standard cases.
+LaRT is a three-dimensional Monte Carlo Ly&alpha; radiative transfer code, developed to study the Ly&alpha; radiative transfer. LaRT is capable of predicting (1) the Ly&alpha; spectrum and surface brightness profile, (2) the Wouthuysen-Field effect, and (3) the polarization of Ly&alpha; radiation. The code is capable of treating arbitrary geometries, density distributions, and source distributions. LaRT uses the "peeling-off" (next event estimation) technique to obtain high signal-to-noise spectro-polarimetric images in a detector plane. LaRT is superb, compared to the preexisting codes, in that it uses a smoothly and seamlessly varying phase function as frequency changes to deal with the polarization of Ly&alpha; radiation. LaRT can place an observer in an arbitrary location and make a detector plane have an arbitrary orientation in the sky. The current version of LaRT uses a Cartesian grid to model the density distribution of hydrogen gas. LaRT has been benchmarked for a number of standard cases.
 
 ### Versions
 LaRT is provided in two versions.
   - LaRT_v1.34 : pure MPI version
-  - LaRT_v1.34_hybrid : MPI + openmp hybrid version (The hybrid versioin uses a less amount of RAM than the MPI version.)
+  - LaRT_v1.34_hybrid : MPI + openmp hybrid version (The hybrid version uses a smaller amount of RAM than the MPI version.)
 
 ### References
 If you use LaRT, please acknowledge the following two papers.
