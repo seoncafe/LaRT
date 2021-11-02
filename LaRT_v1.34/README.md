@@ -40,3 +40,7 @@ If you use LaRT, please acknowledge the following two papers.
   - Read README_HOWTO in each directory
   - See the example directory in each version. Examples are located under the directories, sphere, slab, etc.
   - Feel free to email me if you have any questions.
+
+
+## Author
+Kwang-Il Seon (kiseon dot kiseon dot re dot kr)
