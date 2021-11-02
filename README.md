@@ -3,9 +3,6 @@
 ## What is LaRT?
 LaRT is a three-dimensional Monte Carlo Ly&alpha; radiative transfer code, developed to study the Ly&alpha; radiative transfer. LaRT is capable of predicting (1) the Ly&alpha; spectrum and surface brightness profile, (2) the Wouthuysen-Field effect, and (3) the polarization of Ly&alpha; radiation. The code is capable of treating arbitrary geometries, density distributions, and source distributions. LaRT uses the "peeling-off" (next event estimation) technique to obtain high signal-to-noise spectro-polarimetric images in a detector plane. LaRT is superb, compared to the preexisting codes, in that it uses a smoothly and seamlessly varying phase function as frequency changes to deal with the polarization of Ly&alpha; radiation. LaRT can place an observer in an arbitrary location and make a detector plane have an arbitrary orientation in the sky. The current version of LaRT uses a Cartesian grid to model the density distribution of hydrogen gas. LaRT has been benchmarked for a number of standard cases.
 
-### Author
-Kwang-Il Seon (kiseon dot kiseon dot re dot kr)
-
 ### Versions
 LaRT is provided in two versions.
   - LaRT_v1.34 : pure MPI version
@@ -43,3 +40,7 @@ If you use LaRT, please acknowledge the following two papers.
   - Read README_HOWTO in each directory
   - See the example directory in each version. Examples are located under the directories, sphere, slab, etc.
   - Feel free to email me if you have any questions.
+
+
+## Author
+Kwang-Il Seon (kiseon dot kiseon dot re dot kr)
