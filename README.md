@@ -43,4 +43,4 @@ If you use LaRT, please acknowledge the following two papers.
 
 
 ## Author
-Kwang-Il Seon (kiseon dot kasi dot re dot kr; kwangil.seon dot gmail dot com)
+Kwang-Il Seon, KASI
