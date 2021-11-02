@@ -43,4 +43,4 @@ If you use LaRT, please acknowledge the following two papers.
 
 
 ## Author
-Kwang-Il Seon, KASI
+Kwang-Il Seon / KASI, UST
