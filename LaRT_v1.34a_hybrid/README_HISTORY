@@ -8,6 +8,7 @@ Author:
 	Kwang-il Seon
 
 History:
+        2022-04-13 Bug-fixed in setup.f90 (velocity_type setting).
 	2021-10-05 Bug-fixed in calculating FLUXFAC for stellar_illumination model.
 	           The old version gave a factor of 2 higher value.
 	2021-09.29 The limb darkening effect for "stellar_illumination" model seems to be treated correctly.

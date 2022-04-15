@@ -179,7 +179,8 @@ contains
 
   !--- galaxy model in Song, Seon, & Hwang (2020).
   if (trim(par%source_geometry) == 'ssh') then
-     par%velocity_type = 'ssh'
+     !--- bug-fixed (2022.04.13) velocity_type should not be changed.
+     !par%velocity_type = 'ssh'
      par%sersic_m      = 1.0_wp
      par%Reff          = 1.67834607093866_wp * par%source_rscale
   endif
