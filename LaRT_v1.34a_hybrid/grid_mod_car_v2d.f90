@@ -235,9 +235,9 @@ contains
   !--- (2) setup density
   !---
   if (len_trim(par%dens_file) > 0) then
-     if (get_extension(par%temp_file) == 'fits') then
+     if (get_extension(par%dens_file) == 'fits') then
         call read_3D(trim(par%dens_file),grid%rhokap,reduce_factor=par%reduce_factor,centering=par%centering)
-     else if (get_extension(par%temp_file) == 'txt') then
+     else if (get_extension(par%dens_file) == 'txt') then
         if (trim(par%geometry) == 'plane_atmosphere') then
            call read_plane_data(trim(par%dens_file),grid%rhokap,grid)
         else
