@@ -284,36 +284,40 @@ contains
      par%distance2cm    = 1.0_wp
      grid%rhokap(:,:,:) = 1.0_wp
      if (par%DGR > 0.0_wp) grid%rhokapD(:,:,:) = par%cext_dust * par%DGR
-  endif
 
-  if (par%rmax > 0.0_wp) then
-     radial_cell_width = minval([grid%dx,grid%dy,grid%dz])
-     if (par%rmin > 0.0_wp) then
-        density_rmin   = par%rmin + radial_cell_width/2.1_wp
-     else
-        density_rmin   = par%rmin
+     if (par%rmax > 0.0_wp) then
+        ! This setting was to simulate Dijkstra shell model. But now, this seems weird (2022.04.15).
+        !radial_cell_width = minval([grid%dx,grid%dy,grid%dz])
+        !if (par%rmin > 0.0_wp) then
+        !   density_rmin   = par%rmin + radial_cell_width/2.1_wp
+        !else
+        !   density_rmin   = par%rmin
+        !endif
+        !density_rmax      = par%rmax - radial_cell_width/2.1_wp
+        density_rmin = par%rmin
+        density_rmax = par%rmax
+
+        !$OMP parallel do collapse(3) &
+        !$OMP default(shared) &
+        !$OMP private(i,j,k,rr)
+        do k=1,grid%nz
+        do j=1,grid%ny
+        do i=1,grid%nx
+           !if (rr < par%rmin .or. rr > par%rmax) then
+           !--- 2020.08.31. we are using an approximate sphere. a cell has a radial width of dz.
+           rr = sqrt(xx(i)**2 + yy(j)**2 + zz(k)**2)
+           if (rr < density_rmin .or. rr > density_rmax) then
+              grid%rhokap(i,j,k) = 0.0_wp
+              if (par%DGR > 0.0_wp) grid%rhokapD(i,j,k) = 0.0_wp
+           endif
+           if (par%density_rscale > 0.0_wp) then
+              grid%rhokap(i,j,k) = grid%rhokap(i,j,k)*exp(-rr/par%density_rscale)
+           endif
+        enddo
+        enddo
+        enddo
+        !$OMP end parallel do
      endif
-     density_rmax      = par%rmax - radial_cell_width/2.1_wp
-     !$OMP parallel do collapse(3) &
-     !$OMP default(shared) &
-     !$OMP private(i,j,k,rr)
-     do k=1,grid%nz
-     do j=1,grid%ny
-     do i=1,grid%nx
-        !if (rr < par%rmin .or. rr > par%rmax) then
-        !--- 2020.08.31. we are using an approximate sphere. a cell has a radial width of dz.
-        rr = sqrt(xx(i)**2 + yy(j)**2 + zz(k)**2)
-        if (rr < density_rmin .or. rr > density_rmax) then
-           grid%rhokap(i,j,k) = 0.0_wp
-           if (par%DGR > 0.0_wp) grid%rhokapD(i,j,k) = 0.0_wp
-        endif
-        if (par%density_rscale > 0.0_wp) then
-           grid%rhokap(i,j,k) = grid%rhokap(i,j,k)*exp(-rr/par%density_rscale)
-        endif
-     enddo
-     enddo
-     enddo
-     !$OMP end parallel do
   endif
 
   !--- Calculate Neutral Fraction of Hydrogen in Collisional Ionization Equilibtrium (2017-07-14)
