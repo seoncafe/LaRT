@@ -5,13 +5,13 @@ LaRT is a three-dimensional Monte Carlo Ly&alpha; radiative transfer code, devel
 
 ### Versions
 LaRT is provided in two versions.
-  - LaRT_v1.34 : pure MPI version
-  - LaRT_v1.34_hybrid : MPI + openmp hybrid version (The hybrid version uses a smaller amount of RAM than the MPI version.)
+  - LaRT_v1.34a : pure MPI version
+  - LaRT_v1.34a_hybrid : MPI + openmp hybrid version (The hybrid version uses a smaller amount of RAM than the MPI version.)
 
 ### References
 If you use LaRT, please acknowledge the following two papers.
   - [Seon & Kim (2020 ApJS, 250, 9)](https://ui.adsabs.harvard.edu/abs/2020ApJS..250....9S/abstract)
-  - [Seon, Song, & Chang (2021, ApJS, submitted)](https://ui.adsabs.harvard.edu/abs/2021arXiv210515062S%2F/abstract)
+  - [Seon, Song, & Chang (2021, ApJS, 259, 3)](https://ui.adsabs.harvard.edu/abs/2022ApJS..259....3S/abstract)
 
 ## How to compile and run:
 
@@ -43,4 +43,5 @@ If you use LaRT, please acknowledge the following two papers.
 
 
 ## Author
-Kwang-Il Seon / KASI, UST
+Dr./Prof. Kwang-Il Seon
+KASI/UST
