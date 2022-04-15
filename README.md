@@ -27,7 +27,7 @@ If you use LaRT, please acknowledge the following two papers.
   - OPENMPI -> www.open-mpi.org \
    In order to install openmpi on MacOSX, you may need to do "setenv TMPDIR /tmp" in tcsh shell or "export TMPDIR=/tmp" in bash.
 4. How to compile and run:
-  - unix> cd LaRT_v1.34 ; make
+  - unix> cd LaRT_v1.34a ; make
   - unix> cd examples/sphere
   - unix> mpirun -np 8 ../LaRT_calcP.x t1tau4.in \
       Use the number of threads that your system has in the place of "8". \
