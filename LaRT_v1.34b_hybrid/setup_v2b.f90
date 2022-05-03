@@ -81,6 +81,9 @@ contains
      endif
   endif
 
+  !--- If the continuum is generated in the comoving frame, the input spectral shape won't be constant (2022.04.26).
+  if (trim(par%spectral_type) == 'continuum') par%comoving_source = .false.
+
   !--- temperature0 is a temperature of the photon source, which is independent of the cell temperature.
   !--- comment added, 2020.09.02.
   if (par%temperature0 <= 0.0_wp) par%temperature0 = par%temperature

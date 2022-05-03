@@ -81,6 +81,9 @@ contains
      endif
   endif
 
+  !--- If the continuum is generated in the comoving frame, the input spectral shape won't be constant (2022.04.26).
+  if (trim(par%spectral_type) == 'continuum') par%comoving_source = .false.
+
   !--- temperature0 is a temperature of the photon source, which is independent of the cell temperature.
   !--- comment added, 2020.09.02.
   if (par%temperature0 <= 0.0_wp) par%temperature0 = par%temperature
@@ -99,6 +102,12 @@ contains
   call MPI_COMM_SIZE(mpar%hostcomm, mpar%h_nproc, ierr)
   call MPI_COMM_SPLIT(MPI_COMM_WORLD, mpar%h_rank, mpar%p_rank, mpar%SAME_HRANK_COMM, ierr)
   call MPI_COMM_SIZE(mpar%SAME_HRANK_COMM, mpar%SAME_HRANK_NPROC, ierr)
+
+  !!--- 2022.04.30
+  !if (par%no_photons < 5.0 * mpar%nproc * par%num_send_at_once) then
+  !   par%num_send_at_once = floor(par%no_photons/(5.0*mpar%nproc))
+  !   !if (mpar%p_rank == 0) write(*,*) ' num_send_at_once = ', par%num_send_at_once
+  !endif
 
   if (par%nx == 1 .or. par%ny == 1 .or. par%nz == 1) par%xyz_symmetry = .false.
 
