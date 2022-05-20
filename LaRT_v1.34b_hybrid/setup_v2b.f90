@@ -156,6 +156,15 @@ contains
      endif
      if (par%source_rmax < 0.0_wp) par%source_rmax = par%rmax
   endif
+  if (trim(par%source_geometry) == 'sersic' .or. trim(par%source_geometry) == 'ssh') then
+     if (par%source_rmax <= 0.0_wp) then
+        if (par%rmax <= 0.0_wp) then
+           par%source_rmax = minval([par%xmax, par%ymax, par%zmax])
+        else
+           par%source_rmax = par%rmax
+        endif
+     endif
+  endif
 
 #if defined (CALCJ) || defined (CALCP) || defined (CALCPnew)
   !--- for Jx(x,y,z) and Pa(x,y,z)

@@ -95,11 +95,11 @@ OBJSB	= \
 	read_text_data.o \
 	voigt_mod_v2b.o \
 	observer_mod_v2d.o \
-	grid_mod_car_v2d.o \
+	grid_mod_car_v2e.o \
 	$(raytrace).o \
 	output_sum_car_v2d.o \
 	write_mod_car_v2d.o \
-	peelingoff_mod_v2.2.o \
+	peelingoff_mod_v2.3.o \
 	stellar_illumination_v2d.o \
 	gen_photon_car_v2a.o \
 	scattering_car_v1e.o \
