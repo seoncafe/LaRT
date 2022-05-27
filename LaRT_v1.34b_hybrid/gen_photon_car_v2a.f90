@@ -38,6 +38,13 @@ contains
      photon%y = rp*sint*sin(phi)
      photon%z = rp*cost
      call setup_isotropic_injection(grid,photon)
+  else if (trim(par%source_geometry) == 'uniform_cylinder' .and. par%source_rmax > 0.0_wp) then
+     rp   = sqrt(rand_number()) * par%source_rmax
+     phi  = twopi*rand_number()
+     photon%x = rp*cos(phi)
+     photon%y = rp*sin(phi)
+     photon%z = grid%zrange*rand_number() + grid%zmin
+     call setup_isotropic_injection(grid,photon)
   else if (trim(par%source_geometry) == 'uniform' .and. par%source_rmax <= 0.0_wp) then
      photon%x = grid%xrange*rand_number() + grid%xmin
      photon%y = grid%yrange*rand_number() + grid%ymin
@@ -57,6 +64,22 @@ contains
      photon%x = grid%xrange*rand_number()+grid%xmin
      photon%y = grid%yrange*rand_number()+grid%ymin
      photon%z = par%source_zscale*rand_zexp(par%zmax/par%source_zscale)
+     call setup_isotropic_injection(grid,photon)
+  else if (trim(par%source_geometry) == 'exponential_sphere') then
+     rp   = rand_r2exp(par%source_rmax/par%source_rscale) * par%source_rscale
+     cost = 2.0_wp*rand_number()-1.0_wp
+     sint = sqrt(1.0_wp-cost*cost)
+     phi  = twopi*rand_number()
+     photon%x = rp*sint*cos(phi)
+     photon%y = rp*sint*sin(phi)
+     photon%z = rp*cost
+     call setup_isotropic_injection(grid,photon)
+  else if (trim(par%source_geometry) == 'exponential_cylinder') then
+     rp   = rand_rexp(par%source_rmax/par%source_rscale) * par%source_rscale
+     phi  = twopi*rand_number()
+     photon%x = rp*cos(phi)
+     photon%y = rp*sin(phi)
+     photon%z = grid%zrange*rand_number() + grid%zmin
      call setup_isotropic_injection(grid,photon)
   else if (trim(par%source_geometry) == 'sersic' .or. trim(par%source_geometry) == 'ssh') then
      !--- galaxy model in Song, Seon, & Hwang (2020).

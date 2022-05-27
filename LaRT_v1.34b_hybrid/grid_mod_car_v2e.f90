@@ -304,17 +304,15 @@ contains
      do k=1,grid%nz
      do j=1,grid%ny
      do i=1,grid%nx
-        !if (rr < par%rmin .or. rr > par%rmax) then
-        !--- 2020.08.31. we are using an approximate sphere. a cell has a radial width of dz.
-        rr = sqrt(xx(i)**2 + yy(j)**2 + zz(k)**2)
+        if (trim(par%geometry) == 'cylinder') then
+           rr = sqrt(xx(i)**2 + yy(j)**2)
+        else
+           rr = sqrt(xx(i)**2 + yy(j)**2 + zz(k)**2)
+        endif
         if (rr < density_rmin .or. rr > density_rmax) then
            grid%rhokap(i,j,k) = 0.0_wp
            if (par%DGR > 0.0_wp) grid%rhokapD(i,j,k) = 0.0_wp
         endif
-        !if (par%density_rscale > 0.0_wp) then
-        !   grid%rhokap(i,j,k) = grid%rhokap(i,j,k)*exp(-rr/par%density_rscale)
-        !   if (par%DGR > 0.0_wp) grid%rhokapD(i,j,k) = grid%rhokapD(i,j,k)*exp(-rr/par%density_rscale)
-        !endif
      enddo
      enddo
      enddo
@@ -328,7 +326,11 @@ contains
      do k=1,grid%nz
      do j=1,grid%ny
      do i=1,grid%nx
-        rr = sqrt(xx(i)**2 + yy(j)**2 + zz(k)**2)
+        if (trim(par%geometry) == 'cylinder') then
+           rr = sqrt(xx(i)**2 + yy(j)**2)
+        else
+           rr = sqrt(xx(i)**2 + yy(j)**2 + zz(k)**2)
+        endif
         grid%rhokap(i,j,k) = grid%rhokap(i,j,k)*exp(-rr/par%density_rscale)
         if (par%DGR > 0.0_wp) grid%rhokapD(i,j,k) = grid%rhokapD(i,j,k)*exp(-rr/par%density_rscale)
      enddo
