@@ -36,7 +36,7 @@ module random
 !   v2.30 (2018/08/01) init_random_seed has been slightly modified (with regard to pid) for hybrid programming (MPI+openMP).
 !   v2.29 (2018/06/29) added rand_planck and rand_planck_num.
 !   v2.28 (2018/02/08) numerical bugs fixed in rand_resonance_vz_seon, Negative values in sqrt (x1) and Division by zero (h1).
-!   v2.27 (2018/01/23) added rand_r2exp and rand_pick. rand_rexp is now faster than the algorithm given by Baes (2003).
+!   v2.27 (2018/01/23) added rand_r2exp and rand_pick. rand_r1exp is now faster than the algorithm given by Baes (2003).
 !   v2.26 (2017/12/19) added rand_resonance_vz_seon, hoping to be faster.
 !   v2.25 (2017/09/05) added rand_resonance, rand_resonance_rybicki, and "new" rand_voigt.
 !         changed the name of "old" rand_voigt into rand_resonance_vz
@@ -83,7 +83,7 @@ module random
 
   public init_random_seed
   public random_seed, random_number, random_gauss, random_3Dsphere, random_sphere, random_t
-  public rand_number, rand_gauss, rand_exp, rand_rexp, rand_r2exp, rand_zexp, rand_sech2
+  public rand_number, rand_gauss, rand_exp, rand_r1exp, rand_r2exp, rand_zexp, rand_sech2
   public rand_permutation, rand_pick, rand_cyclic_permutation, rand_index, rand_binomial, rand_multinomial
   public rand_t, rand_gamma, rand_scaled_inv_chi2
   public rand_bactrian
@@ -1012,8 +1012,8 @@ contains
   ! random number generator for exponential distribution in radial direction (for cylindrical coordinate system).
   ! p(r) dr = r x exp(-r) dr when r <= rmax
   !         = 0              otherwise
-  ! This is faster than rand_rexp_baes (2018-01-23).
-  function rand_rexp(rmax) result(rand)
+  ! This is faster than rand_r1exp_baes (2018-01-23).
+  function rand_r1exp(rmax) result(rand)
     implicit none
     real(kind=wp), intent(in) :: rmax
     real(kind=wp) :: rand
@@ -1026,7 +1026,7 @@ contains
        rand = r1 + r2
        if (rand <= rmax) exit
     enddo
-  end function rand_rexp
+  end function rand_r1exp
   !-----------------
   ! random number generator for exponential distribution in radial direction (for spherical coordinate system).
   ! p(r) dr = r^2 x exp(-r) dr when r <= rmax
@@ -1054,7 +1054,7 @@ contains
   ! see, Baes et al. (2003, MNRAS, 343, 1081)
   ! History:
   !      2015-12-07, bug-fixed
-  function rand_rexp_baes(rmax) result(r)
+  function rand_r1exp_baes(rmax) result(r)
     implicit none
     real(dp), intent(in) :: rmax
     integer, parameter   :: n=2001
@@ -1092,7 +1092,7 @@ contains
        r = log(rarr(i+1)/rarr(i))/log(parr(i+1)/parr(i)) * log(p/parr(i)) + log(rarr(i))
        r = exp(r)
     endif
-  end function rand_rexp_baes
+  end function rand_r1exp_baes
   !--------------------------
   ! Solver of the Lambert W function with Halley Interation Method.
   ! Input parameter range: -1/exp(1.0) < z < 0.0

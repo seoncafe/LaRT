@@ -75,7 +75,7 @@ contains
      photon%z = rp*cost
      call setup_isotropic_injection(grid,photon)
   else if (trim(par%source_geometry) == 'exponential_cylinder') then
-     rp   = rand_rexp(par%source_rmax/par%source_rscale) * par%source_rscale
+     rp   = rand_r1exp(par%source_rmax/par%source_rscale) * par%source_rscale
      phi  = twopi*rand_number()
      photon%x = rp*cos(phi)
      photon%y = rp*sin(phi)
