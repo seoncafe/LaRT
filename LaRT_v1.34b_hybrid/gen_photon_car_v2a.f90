@@ -183,7 +183,7 @@ contains
      photon%xfreq = photon%xfreq + rand_voigt(grid%voigt_a(photon%icell,photon%jcell,photon%kcell))
   else if (trim(par%spectral_type) == 'gaussian') then
      !--- bug-fixed (2022.05.28)
-     photon%xfreq = photon%xfreq + rand_gauss() * (par%gaussian_width_vel / (0.12843374_wp * sqrt(par%temperature))
+     photon%xfreq = photon%xfreq + rand_gauss() * (par%gaussian_width_vel / (0.12843374_wp * sqrt(par%temperature)))
      photon%xfreq = photon%xfreq / (grid%Dfreq(photon%icell,photon%jcell,photon%kcell) / grid%Dfreq_ref)
   else if (trim(par%spectral_type) == 'line_prof_file') then
      photon%xfreq = rand_alias_constant(line_prof%PDF, line_prof%alias, line_prof%xfreq)
