@@ -3409,7 +3409,7 @@ contains
            grid%J(ix,icell,jcell,kcell)                = grid%J(ix,icell,jcell,kcell) + del * photon%wgt
         case (2)
            !$OMP ATOMIC UPDATE
-           grid%J2(ix,grid%ind_cyl(icell,jcell),kcell) = grid%J2(ix,grid%grid%ind_cyl(icell,jcell),kcell) + del * photon%wgt
+           grid%J2(ix,grid%ind_cyl(icell,jcell),kcell) = grid%J2(ix,grid%ind_cyl(icell,jcell),kcell) + del * photon%wgt
         case (1)
            !$OMP ATOMIC UPDATE
            grid%J1(ix,grid%ind_sph(icell,jcell,kcell)) = grid%J1(ix,grid%ind_sph(icell,jcell,kcell)) + del * photon%wgt
