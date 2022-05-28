@@ -175,15 +175,16 @@ contains
      !--- xfreq should be transformed into units of local cell (2021-05-18).
      photon%xfreq = photon%xfreq / (grid%Dfreq(photon%icell,photon%jcell,photon%kcell) / grid%Dfreq_ref)
   else if (trim(par%spectral_type) == 'voigt0') then
-     !--- voigt0 is intended to make photons from a temperature gas that is independent of the cell temperature.
+     !--- voigt0 is intended to make photons from a temperature that is independent of the cell temperature.
      !--- xfreq should be transformed into units of local cell (2019-08-18).
      photon%xfreq = photon%xfreq + &
                     rand_voigt(par%voigt_a0) * par%Dfreq0 / grid%Dfreq(photon%icell, photon%jcell, photon%kcell)
   else if (trim(par%spectral_type) == 'voigt') then
      photon%xfreq = photon%xfreq + rand_voigt(grid%voigt_a(photon%icell,photon%jcell,photon%kcell))
   else if (trim(par%spectral_type) == 'gaussian') then
-     !photon%xfreq = photon%xfreq + 1.0_wp/sqrttwo * rand_gauss() * (par%gaussian_width_vel / 12.843374_wp)
-     photon%xfreq = photon%xfreq + rand_gauss() * (par%gaussian_width_vel / 12.843374_wp)
+     !--- bug-fixed (2022.05.28)
+     photon%xfreq = photon%xfreq + rand_gauss() * (par%gaussian_width_vel / (0.12843374_wp * sqrt(par%temperature))
+     photon%xfreq = photon%xfreq / (grid%Dfreq(photon%icell,photon%jcell,photon%kcell) / grid%Dfreq_ref)
   else if (trim(par%spectral_type) == 'line_prof_file') then
      photon%xfreq = rand_alias_constant(line_prof%PDF, line_prof%alias, line_prof%xfreq)
      !--- xfreq should be transformed into units of local cell.
