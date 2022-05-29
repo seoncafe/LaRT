@@ -261,7 +261,7 @@ contains
   if (mpar%p_rank == 0) then
      write(*,'(a)')        ''
      write(*,'(3a)')       '+++++ ',trim(model_infile),' +++++'
-     write(*,'(2a)')       ' >>> START                : ', get_date_time()
+     write(*,'(2a)')       ' >>> START @ ', get_date_time()
      write(*,'(a,L1)')     'Use_Master_Slave          : ', par%use_master_slave
      write(*,'(a,f7.4)')   'oscillator strength (f12) : ', par%f12
      write(*,'(a,es12.3)') 'damping constant    (A21) : ', par%A21
