@@ -323,9 +323,9 @@ contains
    function get_date_time() result(date_time)
    implicit none
    integer,dimension(8) :: values
-   character(len=20)    :: date_time
+   character(len=19)    :: date_time
    call date_and_time(VALUES=values)
-   write(date_time,'(i4,a,i2.2,a,i2.2,2x,i2.2,a,i2.2,a,i2.2)') &
+   write(date_time,'(i4,a,i2.2,a,i2.2,x,i2.2,a,i2.2,a,i2.2)') &
                values(1),'/',values(2),'/',values(3), values(5),':',values(6),':',values(7)
    return
    end function get_date_time
