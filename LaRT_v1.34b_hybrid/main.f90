@@ -59,6 +59,7 @@
      write(6,'(a,es12.4)')  'Average Number of scattering : ', par%nscatt_tot
      write(6,'(a,2es12.4)') 'Nscatt_dust, Nscatt_HI       : ', par%nscatt_dust, par%nscatt_HI
      write(6,'(a,f8.3,a)')  'Total Excution Time          : ', par%exetime,' mins'
+     write(6,'(2a)')        'END                          : ', get_date_time()
   endif
 
   call grid_destroy(grid)
