@@ -11,7 +11,7 @@ LaRT is provided in two versions.
 ### References
 If you use LaRT, please acknowledge the following two papers.
   - [Seon & Kim (2020 ApJS, 250, 9)](https://ui.adsabs.harvard.edu/abs/2020ApJS..250....9S/abstract)
-  - [Seon, Song, & Chang (2021, ApJS, 259, 3)](https://ui.adsabs.harvard.edu/abs/2022ApJS..259....3S/abstract)
+  - [Seon, Song, & Chang (2022, ApJS, 259, 3)](https://ui.adsabs.harvard.edu/abs/2022ApJS..259....3S/abstract)
 
 ## How to compile and run:
 
