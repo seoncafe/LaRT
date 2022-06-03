@@ -271,7 +271,7 @@ contains
   character(len=*), intent(in) :: scatt_mat_file
 
   character(len=128) :: string_tmp
-  real(kind=wp) :: lambda,albedo,hgg
+  real(kind=wp) :: lambda,cext,albedo,hgg
   real(kind=wp) :: S11_norm
   integer       :: i, unit, ierr
 
@@ -281,7 +281,8 @@ contains
   if (len_trim(scatt_mat_file) > 0) then
      open(newunit=unit,file=trim(scatt_mat_file),status='old')
      read(unit,*) string_tmp
-     read(unit,*) lambda,albedo,hgg,scatt_mat%nPDF
+     read(unit,*) lambda,cext,albedo,hgg,scatt_mat%nPDF
+     !read(unit,*) lambda,albedo,hgg,scatt_mat%nPDF
      par%albedo  = albedo
      par%hgg     = hgg
      ! par%lambda0 and lambda is in units of micron.
