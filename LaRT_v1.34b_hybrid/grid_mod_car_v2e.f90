@@ -652,9 +652,9 @@ contains
   !--- (3) setup velocity field
   !---
   if (len_trim(par%velo_file) > 0) then
-     if (get_extension(par%temp_file) == 'fits') then
+     if (get_extension(par%velo_file) == 'fits') then
         call read_velocity(trim(par%velo_file),grid%vfx,grid%vfy,grid%vfz,reduce_factor=par%reduce_factor)
-     else if (get_extension(par%temp_file) == 'txt') then
+     else if (get_extension(par%velo_file) == 'txt') then
         if (trim(par%geometry) == 'plane_atmosphere') then
            call read_plane_data(trim(par%velo_file),grid%vfz,grid)
         else
@@ -760,7 +760,7 @@ contains
   !--- (4) Emissivity
   !---
   if (len_trim(par%emiss_file) > 0) then
-     if (get_extension(par%temp_file) == 'txt') then
+     if (get_extension(par%emiss_file) == 'txt') then
         if (trim(par%geometry) == 'plane_atmosphere') then
            !call read_plane_data(trim(par%emiss_file),grid%Pem,grid)
            call setup_plane_emissivity(trim(par%emiss_file),emiss_prof,grid,par%sampling_method,par%f_composite)
@@ -768,7 +768,7 @@ contains
            !call read_spherical_data(trim(par%emiss_file),grid%Pem,grid)
            call setup_spherical_emissivity(trim(par%emiss_file),emiss_prof,grid,par%sampling_method,par%f_composite)
         endif
-     else if (get_extension(par%temp_file) == 'fits') then
+     else if (get_extension(par%emiss_file) == 'fits') then
         !--- grid%Pem : emissivity and PDF for the alias or rejection method.
         call create_mem(grid%Pem, [grid%nx,grid%ny,grid%nz])
         call read_3D(trim(par%emiss_file),grid%Pem,reduce_factor=par%reduce_factor,centering=par%centering)
