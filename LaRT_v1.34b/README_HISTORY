@@ -8,6 +8,8 @@ Author:
 	Kwang-il Seon
 
 History:
+        2022-07-23 updated the random number library
+	2022-04-26 Bug-dixed in peelingoff_mod_v2.2.f90 (observer%direc was the same as observer%direc0 when save_direct0 = .true.)
         2022-04-13 Bug-fixed in setup.f90 (velocity_type setting).
         2021-10-05 Bug-fixed in calculating FLUXFAC for stellar_illumination model.
                    The old version gave a factor of 2 higher value.

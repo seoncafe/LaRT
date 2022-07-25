@@ -88,7 +88,7 @@ OBJSB	= \
 	utility_c.o \
 	utility.o \
 	mathlib.o \
-	random_mt_v2.50.o \
+	random_mt_v2.52.o \
 	random_sersic.o \
 	memory_mod_mpi_v2.o \
 	fitsio_mod.o \

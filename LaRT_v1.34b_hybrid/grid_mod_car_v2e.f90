@@ -1157,6 +1157,7 @@ contains
            else
               nadd = 1
            endif
+           !$OMP ATOMIC UPDATE
            grid%ncount_sph(grid%ind_sph(i,j,k)) = grid%ncount_sph(grid%ind_sph(i,j,k)) + nadd
         endif
      enddo
@@ -1183,6 +1184,7 @@ contains
            else
               nadd = 1
            endif
+           !$OMP ATOMIC UPDATE
            grid%ncount_cyl(grid%ind_cyl(i,j),k) = grid%ncount_cyl(grid%ind_cyl(i,j),k) + nadd
         endif
      enddo
@@ -1198,6 +1200,7 @@ contains
      do i=1,grid%nx
         !--- Internal radiation field and scattering rate are defined only in cells with positive density. (2021.05.10)
         if (grid%rhokap(i,j,k) > 0.0_wp) then
+           !$OMP ATOMIC UPDATE
            grid%ncount_plane(k) = grid%ncount_plane(k) + 1
         endif
      enddo
