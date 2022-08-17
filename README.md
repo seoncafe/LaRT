@@ -26,15 +26,27 @@ If you use LaRT, please acknowledge the following two papers.
   - MPICH   -> www.mpich.org
   - OPENMPI -> www.open-mpi.org \
    In order to install openmpi on MacOSX, you may need to do "setenv TMPDIR /tmp" in tcsh shell or "export TMPDIR=/tmp" in bash.
-4. How to compile and run:
-  - unix> cd LaRT_v1.34b ; make
+4. Edit Makefile
+  - unix> cd LaRT_v1.34
+   Before you compile the code, edit Makefile to set the four preprocessor options (CALCPnew, CALCJ, CALCP, FINE_STRUCTURE).
+   For the usual purpose, it would be good to set all four options to 0.
+
+   CALCPnew        = 1 to calculate the "scattering rate" using the faster second method, described in Seon & Kim (2020).
+   CALCJ           = 1 to calculate the "mean intensity" within the medium, as decribed in Seon & Kim (2020).
+   CALCP           = 1 to calculate the "scattering rate" using the slower first method, described in Seon & Kim (2020).
+   FINE_STRUCTURE  = 1 to consider the fine structure levels of the n = 2 state.
+
+   "CALCPnew = 1" "CALCJ = 1" and/or "CALCP = 1" will reauire a large amount of RAM memories.
+   "FINE STRUCTURE = 1" will make the code much slower.
+5. How to compile and run:
+  - unix> make
   - unix> cd examples/sphere
   - unix> mpirun -np 8 ../LaRT_calcP.x t1tau4.in \
       Use the number of threads that your system has in the place of "8". \
       Note that a Quad-core CPU has 8 threads. \
       Number of threads = 2 x number of cores. \
       Please refer to "run.sh" or "run_hybrid.sh" in each directory.
-5. See "params_type" in define_v2.f90 for the default values of the input parameters.
+6. See "params_type" in define_v2.f90 for the default values of the input parameters.
 
 ### Setup a model & Examples:
   - Read README_HOWTO in each directory
