@@ -36,7 +36,7 @@ If you use LaRT, please acknowledge the following two papers.
    FINE_STRUCTURE = 1 to consider the fine structure levels of the n = 2 state.\
    "CALCPnew = 1" "CALCJ = 1" and/or "CALCP = 1" will reauire a large amount of RAM memories.\
    "FINE STRUCTURE = 1" will make the code much slower.
-5. How to compile and run:
+5. Compile and run:
   - unix> make
   - unix> cd examples/sphere
   - unix> mpirun -np 8 ../LaRT_calcP.x t1tau4.in \
