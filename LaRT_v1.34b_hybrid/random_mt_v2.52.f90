@@ -138,7 +138,7 @@ module random
   !=================================================================================
 
   !=================================================================================
-  !--- If you want to use Marsaglis KISS (Keep It Simple and Stupid) RNGs, then comment out the following lines.
+  !--- If you want to use Mersenne Twister Random Number Generator (MT199937), then uncomment the following lines.
   interface init_random_seed
      module procedure init_random_mt_seed
   end interface init_random_seed
