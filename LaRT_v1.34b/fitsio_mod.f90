@@ -1131,10 +1131,10 @@ contains
   call ftgkns(unit,'TFORM',colnum,numkeys,tform,nfound,status)
   nrows = size(array)
   if (trim(tform) == '1D') then
-     call ftgcvd(unit,colnum,frow,felem,nrows,null32,array,anynull,status)
+     call ftgcvd(unit,colnum,frow,felem,nrows,null64,array,anynull,status)
   else
      if (.not. allocated(arr)) allocate(arr(nrows))
-     call ftgcve(unit,colnum,frow,felem,nrows,null64,arr,anynull,status)
+     call ftgcve(unit,colnum,frow,felem,nrows,null32,arr,anynull,status)
      array = arr
      if (allocated(arr)) deallocate(arr)
   endif
@@ -1146,7 +1146,7 @@ contains
   integer(int32),   intent(out) :: array(:)
   integer,        intent(inout) :: status
 
-  real(real64), allocatable :: arr(:)
+  integer(int64), allocatable :: arr(:)
   character(len=16) :: tform
   integer :: numkeys=1, nfound, frow=1, felem=1, nrows
   logical :: anynull
@@ -1170,7 +1170,7 @@ contains
   integer(int64),   intent(out) :: array(:)
   integer,        intent(inout) :: status
 
-  real(real32), allocatable :: arr(:)
+  integer(int32), allocatable :: arr(:)
   character(len=16) :: tform
   integer :: numkeys=1, nfound, frow=1, felem=1, nrows
   logical :: anynull

@@ -8,6 +8,7 @@ Author:
 	Kwang-il Seon
 
 History:
+        2022-08-20 big-fixed in fitsio_mod.f90 and modified is_finite (utility.f90) to make it work with "gfortran -Ofast"
         2022-07-23 updated the random number library
 	2022-04-26 Bug-dixed in peelingoff_mod_v2.2.f90 (observer%direc was the same as observer%direc0 when save_direct0 = .true.)
         2022-04-13 Bug-fixed in setup.f90 (velocity_type setting).

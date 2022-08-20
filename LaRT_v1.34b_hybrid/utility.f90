@@ -44,7 +44,7 @@ contains
       if (angle < 0.0_real64) angle = angle + twopi
    end function arctan64
    elemental logical function is_finite32(x)
-      use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
+      use, intrinsic :: ieee_arithmetic
       real(real32),intent(in) :: x
       !is_finite32 = .not. (isnan(x) .or. abs(x) > huge(x))
       !--- in polaris machine, it is not allowed to compare NaN with huge(x).
@@ -52,11 +52,15 @@ contains
       !--- in PGI fortran, isnan is not defined. (2020.11.05)
       !is_finite32 = (x == x)
       !if (is_finite32) is_finite32 = .not. (abs(x) > huge(x))
-      !--- this is the easiest way to do (2020.11.05).
-      is_finite32 = ieee_is_finite(x)
+      !--- the following is the easiest way to do (2020.11.05).
+      !--- But, this does not work when gfortran is used with -Ofast option (2022.08.20).
+      !is_finite32 = ieee_is_finite(x)
+      !--- All the above does not work when gfortran is used with -Ofast option (2022.08.20).
+      is_finite32 = (ieee_class(x) /= ieee_quiet_nan) .and.&
+                    (ieee_class(x) /= ieee_negative_inf) .and. (ieee_class(x) /= ieee_positive_inf)
    end function is_finite32
    elemental logical function is_finite64(x)
-      use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
+      use, intrinsic :: ieee_arithmetic
       real(real64),intent(in) :: x
       !is_finite64 = .not. (isnan(x) .or. abs(x) > huge(x))
       !--- in polaris machine, it is not allowed to compare NaN with huge(x).
@@ -64,8 +68,11 @@ contains
       !--- in PGI fortran, isnan is not defined. (2020.11.05)
       !is_finite64 = (x == x)
       !if (is_finite64) is_finite64 = .not. (abs(x) > huge(x))
-      !--- this is the easiest way to do (2020.11.05).
-      is_finite64 = ieee_is_finite(x)
+      !--- the following is the easiest way to do (2020.11.05).
+      !is_finite64 = ieee_is_finite(x)
+      !--- All the above does not work when gfortran is used with -Ofast option (2022.08.20).
+      is_finite64 = (ieee_class(x) /= ieee_quiet_nan) .and.&
+                    (ieee_class(x) /= ieee_negative_inf) .and. (ieee_class(x) /= ieee_positive_inf)
    end function is_finite64
  
    function strupcase(input_string) result(output_string)

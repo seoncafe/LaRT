@@ -40,6 +40,7 @@ exec  := $(exec).x
 #exec := $(exec)_$(HOST).x
 
 ifeq ($(UNAME), Linux)
+    #--- intel compilers
     CC      = mpiicc
     FC      = mpiifort
     ifeq ($(HOST), mocafe)
@@ -48,13 +49,16 @@ ifeq ($(UNAME), Linux)
     endif
     CFLAGS += -ipo -O3 -no-prec-div -fp-model fast=2
     FFLAGS += -ipo -O3 -no-prec-div -fp-model fast=2 $(FLAGS) $(EXTRAFLAG)
+
+    #--- GNU compilers
+    #CC      = mpicc
+    #FC      = mpif90
+    #CFLAGS += -Ofast
+    #FFLAGS += -Ofast -ffpe-summary=invalid,zero,overflow -w -fallow-argument-mismatch $(FLAGS) $(EXTRAFLAG)
 else ifeq ($(UNAME), Darwin)
+    #--- intel compilers
     CC      = mpicc
     FC      = mpif90
-    #--- gcc + gfortran
-    #CFLAGS  = -Ofast
-    #FFLAGS  = -Ofast $(FLAGS) -w -fallow-argument-mismatch
-    #--- intel
     # 10440 warning: Use of IPO with macOS* SDK 11 or higher is not supported, disabling the warning. (2021.01.12)
     CFLAGS  = -xhost -fast -diag-disable 10440
     FFLAGS  = -xhost -fast -diag-disable 10440 $(FLAGS)
@@ -64,6 +68,10 @@ else ifeq ($(UNAME), Darwin)
     #ifeq ($(shell uname -r), 20.2.0)
     #   extra = -diag-disable 11012,11013,11021
     #endif
+
+    #--- GNU compilers
+    #CFLAGS  = -Ofast
+    #FFLAGS  = -Ofast $(FLAGS) -w -fallow-argument-mismatch
 endif
 ifeq ($(DEBUG), 1)
    FFLAGS  = -check all,noarg_temp_created -fpe0 -debug all -traceback -g -O0 $(FLAGS)

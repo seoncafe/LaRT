@@ -41,32 +41,36 @@ module memory_mod
                       create_shared_mem_1D_int8,  create_shared_mem_2D_int8,  create_shared_mem_3D_int8
   end interface create_shared_mem
   interface create_mem
-     module procedure create_mem_1D_real64, create_mem_2D_real64, create_mem_3D_real64, create_mem_4D_real64, create_mem_5D_real64, &
-                      create_mem_1D_real32, create_mem_2D_real32, create_mem_3D_real32, create_mem_4D_real32, create_mem_5D_real32, &
+     module procedure create_mem_1D_real64, create_mem_2D_real64, create_mem_3D_real64, create_mem_4D_real64, &
+                      create_mem_1D_real32, create_mem_2D_real32, create_mem_3D_real32, create_mem_4D_real32, &
+                      create_mem_5D_real64, create_mem_5D_real32, &
                       create_mem_1D_int64, create_mem_2D_int64, create_mem_3D_int64, &
                       create_mem_1D_int32, create_mem_2D_int32, create_mem_3D_int32, &
                       create_mem_1D_int16, create_mem_2D_int16, create_mem_3D_int16, &
                       create_mem_1D_int8,  create_mem_2D_int8,  create_mem_3D_int8
   end interface create_mem
   interface reduce_mem
-     module procedure reduce_mem_1D_real64, reduce_mem_2D_real64, reduce_mem_3D_real64, reduce_mem_4D_real64, reduce_mem_5D_real64, &
-                      reduce_mem_1D_real32, reduce_mem_2D_real32, reduce_mem_3D_real32, reduce_mem_4D_real32, reduce_mem_5D_real32, &
+     module procedure reduce_mem_1D_real64, reduce_mem_2D_real64, reduce_mem_3D_real64, reduce_mem_4D_real64, &
+                      reduce_mem_1D_real32, reduce_mem_2D_real32, reduce_mem_3D_real32, reduce_mem_4D_real32, &
+                      reduce_mem_5D_real64, reduce_mem_5D_real32, &
                       reduce_mem_1D_int64, reduce_mem_2D_int64, reduce_mem_3D_int64, &
                       reduce_mem_1D_int32, reduce_mem_2D_int32, reduce_mem_3D_int32, &
                       reduce_mem_1D_int16, reduce_mem_2D_int16, reduce_mem_3D_int16, &
                       reduce_mem_1D_int8,  reduce_mem_2D_int8,  reduce_mem_3D_int8
   end interface reduce_mem
   interface get_window
-     module procedure get_window_1D_real64, get_window_2D_real64, get_window_3D_real64, get_window_4D_real64, get_window_5D_real64, &
-                      get_window_1D_real32, get_window_2D_real32, get_window_3D_real32, get_window_4D_real32, get_window_5D_real32, &
+     module procedure get_window_1D_real64, get_window_2D_real64, get_window_3D_real64, get_window_4D_real64, &
+                      get_window_1D_real32, get_window_2D_real32, get_window_3D_real32, get_window_4D_real32, &
+                      get_window_5D_real64, get_window_5D_real32, &
                       get_window_1D_int64, get_window_2D_int64, get_window_3D_int64, &
                       get_window_1D_int32, get_window_2D_int32, get_window_3D_int32, &
                       get_window_1D_int16, get_window_2D_int16, get_window_3D_int16, &
                       get_window_1D_int8,  get_window_2D_int8,  get_window_3D_int8
   end interface get_window
   interface destroy_mem
-     module procedure destroy_mem_1D_real64, destroy_mem_2D_real64, destroy_mem_3D_real64, destroy_mem_4D_real64, destroy_mem_5D_real64, &
-                      destroy_mem_1D_real32, destroy_mem_2D_real32, destroy_mem_3D_real32, destroy_mem_4D_real32, destroy_mem_5D_real32, &
+     module procedure destroy_mem_1D_real64, destroy_mem_2D_real64, destroy_mem_3D_real64, destroy_mem_4D_real64, &
+                      destroy_mem_1D_real32, destroy_mem_2D_real32, destroy_mem_3D_real32, destroy_mem_4D_real32, &
+                      destroy_mem_5D_real64, destroy_mem_5D_real32, &
                       destroy_mem_1D_int64, destroy_mem_2D_int64, destroy_mem_3D_int64, &
                       destroy_mem_1D_int32, destroy_mem_2D_int32, destroy_mem_3D_int32, &
                       destroy_mem_1D_int16, destroy_mem_2D_int16, destroy_mem_3D_int16, &
