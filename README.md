@@ -36,9 +36,9 @@ If you use LaRT, please acknowledge the following two papers.
 
    |option | explanation |
    |------------------|---------------------------------------|
-   |CALCPnew       = 1| to calculate the "scattering rate" using the faster second method, described in Seon & Kim (2020).|
-   |CALCJ          = 1| to calculate the "radiation field strength (mean intensity)" within the medium, as decribed in Seon & Kim (2020).|
-   |CALCP          = 1| to calculate the "scattering rate" using the slower first method, described in Seon & Kim (2020).|
+   |CALCPnew       = 1| to calculate the "scattering rate" using the faster second method (Seon & Kim 2020).|
+   |CALCJ          = 1| to calculate the "radiation field strength (mean intensity)" within the medium (Seon & Kim 2020).|
+   |CALCP          = 1| to calculate the "scattering rate" using the slower first method (Seon & Kim 2020).|
    |FINE_STRUCTURE = 1| to consider the fine structure levels of the n = 2 state.|
 
    "CALCPnew = 1" "CALCJ = 1" and/or "CALCP = 1" will reauire a large amount of RAM memories.\
