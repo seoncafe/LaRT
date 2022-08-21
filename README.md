@@ -29,7 +29,7 @@ If you use LaRT, please acknowledge the following two papers.
 4. Edit Makefile
   - unix> cd LaRT_v1.34b
   - Before you compile the code, edit Makefile to set the four preprocessor options (CALCPnew, CALCJ, CALCP, FINE_STRUCTURE).
-   For the usual purpose, it would be good to set all four options to 0.\
+   For the usual purpose, it would be good to set all four options to 0.\ \
    CALCPnew       = 1 to calculate the "scattering rate" using the faster second method, described in Seon & Kim (2020).\
    CALCJ          = 1 to calculate the "radiation field strength (mean intensity)" within the medium, as decribed in Seon & Kim (2020).\
    CALCP          = 1 to calculate the "scattering rate" using the slower first method, described in Seon & Kim (2020).\
