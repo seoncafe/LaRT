@@ -1,4 +1,4 @@
-# LaRT (Ly&alpha; Radiative Transfer)
+ # LaRT (Ly&alpha; Radiative Transfer)
 
 ## What is LaRT?
 LaRT is a three-dimensional Monte Carlo Ly&alpha; radiative transfer code, developed to study the Ly&alpha; radiative transfer. LaRT is capable of predicting (1) the Ly&alpha; spectrum and surface brightness profile, (2) the Wouthuysen-Field effect, and (3) the polarization of Ly&alpha; radiation. The code is capable of treating arbitrary geometries, density distributions, and source distributions. LaRT uses the "peeling-off" (next event estimation) technique to obtain high signal-to-noise spectro-polarimetric images in a detector plane. LaRT is superb, compared to the preexisting codes, in that it uses a smoothly and seamlessly varying phase function as frequency changes to deal with the polarization of Ly&alpha; radiation. LaRT can place an observer in an arbitrary location and make a detector plane have an arbitrary orientation in the sky. The current version of LaRT uses a Cartesian grid to model the density distribution of hydrogen gas. LaRT has been benchmarked for a number of standard cases.
@@ -29,12 +29,15 @@ If you use LaRT, please acknowledge the following two papers.
 4. Edit Makefile
   - unix> cd LaRT_v1.34b
   - Before you compile the code, edit Makefile to set the four preprocessor options (CALCPnew, CALCJ, CALCP, FINE_STRUCTURE).
-   For the usual purpose, it would be good to set all four options to 0.\
-   \
-   CALCPnew       = 1 to calculate the "scattering rate" using the faster second method, described in Seon & Kim (2020).\
-   CALCJ          = 1 to calculate the "radiation field strength (mean intensity)" within the medium, as decribed in Seon & Kim (2020).\
-   CALCP          = 1 to calculate the "scattering rate" using the slower first method, described in Seon & Kim (2020).\
-   FINE_STRUCTURE = 1 to consider the fine structure levels of the n = 2 state.\
+   For the usual purpose, it would be good to set all four options to 0.
+  
+   |option | explanation |
+   |------------------|---------------------------------------|
+   |CALCPnew       = 1| to calculate the "scattering rate" using the faster second method, described in Seon & Kim (2020).|
+   |CALCJ          = 1| to calculate the "radiation field strength (mean intensity)" within the medium, as decribed in Seon & Kim (2020).|
+   |CALCP          = 1| to calculate the "scattering rate" using the slower first method, described in Seon & Kim (2020).|
+   |FINE_STRUCTURE = 1| to consider the fine structure levels of the n = 2 state.|
+
    "CALCPnew = 1" "CALCJ = 1" and/or "CALCP = 1" will reauire a large amount of RAM memories.\
    "FINE STRUCTURE = 1" will make the code much slower.
 5. Compile and run:
