@@ -65,4 +65,4 @@ If you use LaRT, please acknowledge the following two papers.
 Dr./Prof. Kwang-Il Seon \
 [KASI](http://www.kasi.re.kr)/[UST](http://ust.ac.kr) \
 [https://seoncafe.github.io](https://seoncafe.github.io) \
-kiseon at kasi dot re dot kr / kwangil.seon at gmail dot com
+kiseon at kasi dot re dot kr / kwangil dot seon at gmail dot com
