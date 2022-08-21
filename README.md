@@ -47,12 +47,12 @@ If you use LaRT, please acknowledge the following two papers.
 5. Compile and run:
   - unix> make
   - unix> cd examples/sphere
-  - unix> mpirun -np 8 ../LaRT.x t1tau4.in \
+  - unix> mpirun -np 8 ../../LaRT.x t1tau4.in \
       Use the number of threads that your system has in the place of "8". \
       Note that a Quad-core CPU has 8 threads. \
       Number of threads = 2 x number of cores. \
       Please refer to "run.sh" or "run_hybrid.sh" in each directory.
-      
+
 6. See "params_type" in define_v2.f90 for the default values of the input parameters.
 
 ### Setup a model & Examples:
