@@ -16,7 +16,7 @@ If you use LaRT, please acknowledge the following two papers.
 ## How to compile and run:
 
 1. The code is written in modern Fortran (Fortran 2003 or later).\
-      You need to install fortran/C compilers (e.g., [Intel oneAPI Toolkit](https://www.intel.com/content/www/us/en/developer/tools/oneapi/toolkits.html#hpc-kit) or GNU compilers).\
+      You need to install fortran/C compilers (e.g., [Intel oneAPI HPC Toolkit](https://www.intel.com/content/www/us/en/developer/tools/oneapi/toolkits.html#hpc-kit) or GNU compilers).\
       Note that gfortran v4 does not supprt fortran 2003.\
       You may need to modify Makefile if you want to use GNU gfortran.
 2. You need to install CFITSIO library.\
