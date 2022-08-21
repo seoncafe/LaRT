@@ -63,6 +63,6 @@ If you use LaRT, please acknowledge the following two papers.
 
 ## Author
 Dr./Prof. Kwang-Il Seon \
-[KASI](http://www.kasi.re.kr)/[UST](http://ust.ac.kr) \
+[Korea Astronomy and Space Science Institute (KASI)](http://www.kasi.re.kr)/[University of Science and Technology (UST)](http://ust.ac.kr) \
 [https://seoncafe.github.io](https://seoncafe.github.io) \
 kiseon at kasi dot re dot kr / kwangil dot seon at gmail dot com
