@@ -40,6 +40,7 @@ If you use LaRT, please acknowledge the following two papers.
 
    "CALCPnew = 1" "CALCJ = 1" and/or "CALCP = 1" will reauire a large amount of RAM memories.\
    "FINE STRUCTURE = 1" will make the code much slower.\
+
 5. Compile and run:
   - unix> make
   - unix> cd examples/sphere
