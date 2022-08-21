@@ -35,7 +35,7 @@ If you use LaRT, please acknowledge the following two papers.
    For the usual purpose, it would be good to set all four options to 0.
 
    |option | explanation |
-   |------------------|---------------------------------------|
+   |---------------------------|---------------------------------------|
    |CALCPnew       = 1| to calculate the "scattering rate" using the faster second method (Seon & Kim 2020).|
    |CALCJ          = 1| to calculate the "radiation field strength (mean intensity)" within the medium (Seon & Kim 2020).|
    |CALCP          = 1| to calculate the "scattering rate" using the slower first method (Seon & Kim 2020).|
