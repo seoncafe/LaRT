@@ -30,7 +30,7 @@ If you use LaRT, please acknowledge the following two papers.
   - unix> cd LaRT_v1.34b
   - Before you compile the code, edit Makefile to set the four preprocessor options (CALCPnew, CALCJ, CALCP, FINE_STRUCTURE).
    For the usual purpose, it would be good to set all four options to 0.
-  
+
    |option | explanation |
    |------------------|---------------------------------------|
    |CALCPnew       = 1| to calculate the "scattering rate" using the faster second method, described in Seon & Kim (2020).|
@@ -39,7 +39,7 @@ If you use LaRT, please acknowledge the following two papers.
    |FINE_STRUCTURE = 1| to consider the fine structure levels of the n = 2 state.|
 
    "CALCPnew = 1" "CALCJ = 1" and/or "CALCP = 1" will reauire a large amount of RAM memories.\
-   "FINE STRUCTURE = 1" will make the code much slower.
+   "FINE STRUCTURE = 1" will make the code much slower.\
 5. Compile and run:
   - unix> make
   - unix> cd examples/sphere
