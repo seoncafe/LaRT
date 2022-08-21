@@ -24,7 +24,7 @@ If you use LaRT, please acknowledge the following two papers.
 (https://heasarc.gsfc.nasa.gov/fitsio/fitsio.html)
 
 3. You need to install an MPI library. (Either mpich or openmpi is okay.)
-  - Intel oneAPI HPC toolkit for Linux contains an MPI library, called intel mpi.
+  - Intel oneAPI HPC toolkit for Linux contains an MPI library, called intel mpi (so no need to install a separate MPI library).
   - MPICH   -> www.mpich.org
   - OPENMPI -> www.open-mpi.org \
    In order to install openmpi on MacOSX, you may need to do "setenv TMPDIR /tmp" in tcsh shell or "export TMPDIR=/tmp" in bash.
