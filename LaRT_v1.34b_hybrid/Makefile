@@ -62,8 +62,8 @@ else ifeq ($(UNAME), Darwin)
     # 10440 warning: Use of IPO with macOS* SDK 11 or higher is not supported, disabling the warning. (2021.01.12)
     CFLAGS  = -xhost -fast -diag-disable 10440
     FFLAGS  = -xhost -fast -diag-disable 10440 $(FLAGS)
-    # Disable the warnings for a while (Big Sur gives the warnings. 2020-11-15).
-    # this is no longer required (2021.01.12).
+    # Disable the warnings for a while (Catalina/Big Sur gives the warnings. 2020-11-15).
+    # this is no longer required (2021.01.12 for Monterey).
     #ifeq ($(shell uname -r), 20.1.0)
     #ifeq ($(shell uname -r), 20.2.0)
     #   extra = -diag-disable 11012,11013,11021
