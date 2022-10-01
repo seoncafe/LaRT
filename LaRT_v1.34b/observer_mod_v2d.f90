@@ -26,7 +26,8 @@ contains
   !-- setup the origin of rotation.
   if (trim(par%source_geometry) == 'stellar_illumination') then
      !-- the location of star is the origin of rotation for this model.
-     if (.not. (is_finite(par%rotation_center_x) .and. is_finite(par%rotation_center_y) .and. is_finite(par%rotation_center_z)) ) then
+     if (.not. (is_finite(par%rotation_center_x) .and. is_finite(par%rotation_center_y) .and. &
+                is_finite(par%rotation_center_z)) ) then
         par%rotation_center_x = 0.0_wp
         par%rotation_center_y = 0.0_wp
         par%rotation_center_z = -par%distance_star_to_planet

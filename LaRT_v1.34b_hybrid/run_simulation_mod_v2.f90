@@ -148,7 +148,7 @@ contains
   real(kind=wp) :: tau
 #ifdef __GFORTRAN__
   !--- reduction variable should be private in outer context? what about intel compiler?
-  real(kind=wp), save :: nscatt_HI, nscatt_dust
+  real(kind=wp), save :: nscatt_HI, nscatt_dust, nrejected, flux_factor
 #else
   real(kind=wp) :: nscatt_HI, nscatt_dust, nrejected, flux_factor
 #endif
