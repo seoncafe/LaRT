@@ -292,19 +292,28 @@ contains
    array(i:i) = C_NULL_CHAR
    end function str2arr
    !------------------------------------------------
-   subroutine time_stamp(dtime)
+   subroutine time_stamp(dtime, reset)
 #ifdef MPI
    use mpi
 #elif _OPENMP
    use omp_lib
 #endif
    implicit none
-   real(kind=real64), save :: time1
-   real(kind=real64) :: time2
-   real(kind=real64) :: dtime
-   logical, save :: first_time_stamp__ = .true.
+   real(kind=real64), intent(out) :: dtime
+   logical, optional, intent(in)  :: reset
+   !--- local variables
+   real(kind=real64)  :: time2
+   logical            :: time_stamp_reset
+   real(real64), save :: time1
+   logical,      save :: first_time_stamp__ = .true.
 
-   if (first_time_stamp__) then
+   if (present(reset)) then
+      time_stamp_reset = reset
+   else
+      time_stamp_reset = .false.
+   endif
+
+   if (first_time_stamp__ .or. time_stamp_reset) then
 #ifdef MPI
       time1 = MPI_WTIME()
 #elif _OPENMP
@@ -313,7 +322,7 @@ contains
       call cpu_time(time1)
 #endif
       first_time_stamp__ = .false.
-      dtime = 0.0_real64
+      dtime              = 0.0_real64
       return
    endif
 
