@@ -1,5 +1,5 @@
 fname = 'mueller_Lyalpha.dat'
-readcol,fname,wavl,albedo,hgg,nang,skip=1,numline=1
+readcol,fname,wavl,cext,albedo,hgg,nang,skip=1,numline=1
 wavl   = wavl[0]
 albedo = albedo[0]
 hgg    = hgg[0]

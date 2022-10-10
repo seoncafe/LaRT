@@ -1,5 +1,5 @@
-fname = 'mueller_Lyalpha.dat'
-;fname = 'mueller_matrix.dat'
+;fname = 'mueller_Lyalpha.dat'
+fname = 'mueller_matrix.dat'
 readcol,fname,wavl,cext,albedo,hgg,nang,skip=1,numline=1
 wavl   = wavl[0]
 albedo = albedo[0]
