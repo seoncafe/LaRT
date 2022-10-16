@@ -60,8 +60,8 @@ else ifeq ($(UNAME), Darwin)
     CC      = mpicc
     FC      = mpif90
     # 10440 warning: Use of IPO with macOS* SDK 11 or higher is not supported, disabling the warning. (2021.01.12)
-    CFLAGS  = -xhost -fast -diag-disable 10440
-    FFLAGS  = -xhost -fast -diag-disable 10440 $(FLAGS)
+    CFLAGS  = -xhost -fast -diag-disable 10440,10441
+    FFLAGS  = -xhost -fast -diag-disable 10440,10441 $(FLAGS)
     # Disable the warnings for a while (Catalina/Big Sur gives the warnings. 2020-11-15).
     # this is no longer required for Monterey (2021.01.12).
     #ifeq ($(shell uname -r), 20.1.0)
