@@ -64,13 +64,13 @@ public
 
 ! h_planck    = Planck's constant in m^2 kg/s
 ! massH       = Hydrogen mass in kg
-! lambda_LyaH = Lya H line (2S1/2-2P1/2) wavelength in um.
+! wavelength_LyaH = Lya H line (2S1/2-2P1/2) wavelength in um.
 ! DnuHK_Hz    = Frequency difference between 2P1/2 - 2P3/2 of Hydrogen atom in Hz.
   real(kind=wp), parameter :: h_planck    = 6.62607004e-34_wp
   real(kind=wp), parameter :: massH       = 1.6737236e-27_wp
- !real(kind=wp), parameter :: lambda_LyaH = 0.12156709409529872_wp
-  real(kind=wp), parameter :: lambda_LyaH = 0.1215668237310_wp
-  real(kind=wp), parameter :: g_recoil0   = (h_planck/massH)/(lambda_LyaH*um2m)**2
+ !real(kind=wp), parameter :: wavelength_LyaH = 0.12156709409529872_wp
+  real(kind=wp), parameter :: wavelength_LyaH = 0.1215668237310_wp
+  real(kind=wp), parameter :: g_recoil0   = (h_planck/massH)/(wavelength_LyaH*um2m)**2
   real(kind=wp), parameter :: DnuHK_Hz      = 1.0969e10_wp
   real(kind=wp), parameter :: DnuHK_Hz_half = DnuHK_Hz/2.0_wp
 
@@ -119,13 +119,13 @@ public
      real(kind=wp) :: ymin,ymax,yrange
      real(kind=wp) :: zmin,zmax,zrange
      real(kind=wp) :: dx,dy,dz,dr
-     real(kind=wp) :: xfreq_min, xfreq_max, dxfreq, dlambda
+     real(kind=wp) :: xfreq_min, xfreq_max, dxfreq, dwavelength
      real(kind=wp) :: Dfreq_ref, DnuHK_ref, DnuHK_ref_half
      real(kind=wp) :: voigt_amean, Dfreq_mean
      real(kind=wp) :: xcrit, xcrit2
      real(kind=wp), pointer :: xfreq(:)       => null()
      real(kind=wp), pointer :: velocity(:)    => null()
-     real(kind=wp), pointer :: lambda(:)      => null()
+     real(kind=wp), pointer :: wavelength(:)      => null()
      real(kind=wp), pointer :: xface(:)       => null()
      real(kind=wp), pointer :: yface(:)       => null()
      real(kind=wp), pointer :: zface(:)       => null()
@@ -210,7 +210,7 @@ public
      real(kind=wp) :: A21          = 6.265e8_wp
      real(kind=wp) :: cross0       = 0.02656_wp/sqrt(pi)*0.4126
      !--- wavelength for Lyman-alpha H (1S1/2 - 2P1/2) line in um.
-     real(kind=wp) :: lambda0      = lambda_LyaH
+     real(kind=wp) :: wavelength0      = wavelength_LyaH
      !--- parameter for Hubble-like expansion
      real(kind=wp) :: Vexp          = 0.0_wp
      !--- parameters for Song, Seon, & Hwang (2020) model
@@ -262,9 +262,9 @@ public
      real(kind=wp) :: velocity_min = nan64
      real(kind=wp) :: velocity_max = nan64
      integer       :: nvelocity    = 0
-     real(kind=wp) :: lambda_min   = nan64
-     real(kind=wp) :: lambda_max   = nan64
-     integer       :: nlambda      = 0
+     real(kind=wp) :: wavelength_min   = nan64
+     real(kind=wp) :: wavelength_max   = nan64
+     integer       :: nwavelength      = 0
      !--- TIGRESS model
      !--- background y-velocity due to shearing box
      !--- vy0 = -q * Omega * x (Omega in km/s/kpc and x in kpc)

@@ -131,7 +131,7 @@ contains
 
   !--- intensity unit.
   if (par%intensity_unit == 1) then
-     intensity_bin_unit = grid%dlambda
+     intensity_bin_unit = grid%dwavelength
   else
      intensity_bin_unit = grid%dxfreq
   endif
@@ -355,7 +355,7 @@ contains
 
   !--- intensity unit.
   if (par%intensity_unit == 1) then
-     intensity_bin_unit = grid%dlambda
+     intensity_bin_unit = grid%dwavelength
   else
      intensity_bin_unit = grid%dxfreq
   endif
@@ -422,7 +422,7 @@ contains
 
   !--- intensity unit.
   if (par%intensity_unit == 1) then
-     intensity_bin_unit = grid%dlambda
+     intensity_bin_unit = grid%dwavelength
   else
      intensity_bin_unit = grid%dxfreq
   endif

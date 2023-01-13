@@ -15,8 +15,8 @@ module memory_mod
   public create_mem, reduce_mem
   interface create_mem
      module procedure create_mem_1D_real64, create_mem_2D_real64, create_mem_3D_real64, create_mem_4D_real64, &
-                      create_mem_1D_real32, create_mem_2D_real32, create_mem_3D_real32, create_mem_4D_real32, &
                       create_mem_5D_real64, create_mem_5D_real32, &
+                      create_mem_1D_real32, create_mem_2D_real32, create_mem_3D_real32, create_mem_4D_real32, &
                       create_mem_1D_int64, create_mem_2D_int64, create_mem_3D_int64, &
                       create_mem_1D_int32, create_mem_2D_int32, create_mem_3D_int32, &
                       create_mem_1D_int16, create_mem_2D_int16, create_mem_3D_int16, &
@@ -24,8 +24,8 @@ module memory_mod
   end interface create_mem
   interface reduce_mem
      module procedure reduce_mem_1D_real64, reduce_mem_2D_real64, reduce_mem_3D_real64, reduce_mem_4D_real64, &
-                      reduce_mem_1D_real32, reduce_mem_2D_real32, reduce_mem_3D_real32, reduce_mem_4D_real32, &
                       reduce_mem_5D_real64, reduce_mem_5D_real32, &
+                      reduce_mem_1D_real32, reduce_mem_2D_real32, reduce_mem_3D_real32, reduce_mem_4D_real32, &
                       reduce_mem_1D_int64, reduce_mem_2D_int64, reduce_mem_3D_int64, &
                       reduce_mem_1D_int32, reduce_mem_2D_int32, reduce_mem_3D_int32, &
                       reduce_mem_1D_int16, reduce_mem_2D_int16, reduce_mem_3D_int16, &

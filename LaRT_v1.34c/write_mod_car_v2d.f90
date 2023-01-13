@@ -215,10 +215,10 @@ contains
   !--- open main FITS file.
   call fits_open_new(unit,trim(filename),status)
 
-  !--- xfreq, (relative) frequency, velocity, and dlambda
+  !--- xfreq, (relative) frequency, velocity, and dwavelength
   call fits_append_table_column(unit,'Xfreq',   grid%xfreq,   status,bitpix=par%out_bitpix)
   call fits_append_table_column(unit,'velocity',grid%velocity,status,bitpix=par%out_bitpix)
-  call fits_append_table_column(unit,'lambda',  grid%lambda,  status,bitpix=par%out_bitpix)
+  call fits_append_table_column(unit,'wavelength',  grid%wavelength,  status,bitpix=par%out_bitpix)
 
   !--- Jout, emerging spectrum
   call fits_append_table_column(unit,'Jout',grid%Jout,status,bitpix=par%out_bitpix)
@@ -258,7 +258,7 @@ contains
   call fits_put_keyword(unit,'Xfreq1',   grid%xfreq_min,     'Xfreq_min',status)
   call fits_put_keyword(unit,'Xfreq2',   grid%xfreq_max,     'Xfreq_max',status)
   call fits_put_keyword(unit,'Dxfreq',   grid%dxfreq,        'Dxfreq', status)
-  call fits_put_keyword(unit,'Dlambda',  grid%dlambda,       'Dlambda (angstrom)', status)
+  call fits_put_keyword(unit,'Dwavelength',  grid%dwavelength,       'Dwavelength (angstrom)', status)
   call fits_put_keyword(unit,'I_unit',   par%intensity_unit, 'Intensity Unit (0:no dimension, 1:cm^-2 A^-1)', status)
   call fits_put_keyword(unit,'Dfreq',    grid%Dfreq_ref,     'Doppler Freq. (Hz)',status)
   call fits_put_keyword(unit,'Nsc_dust', par%nscatt_dust,    'Nscatt_dust/photon',status)
@@ -719,7 +719,7 @@ contains
   call fits_put_keyword(unit,'Xfreq1'  , grid%xfreq_min,   'Xfreq_min',status)
   call fits_put_keyword(unit,'Xfreq2'  , grid%xfreq_max,   'Xfreq_max',status)
   call fits_put_keyword(unit,'Dxfreq'  , grid%dxfreq,      'Dxfreq', status)
-  call fits_put_keyword(unit,'Dlambda',  grid%dlambda,     'Dlambda (angstrom)', status)
+  call fits_put_keyword(unit,'Dwavelength',  grid%dwavelength,     'Dwavelength (angstrom)', status)
   call fits_put_keyword(unit,'I_unit',   par%intensity_unit, 'Intensity Unit (0:no dimension, 1:cm^-2 A^-1)', status)
   call fits_put_keyword(unit,'Dfreq'   , grid%Dfreq_ref,   'Doppler Freq.  (Hz)',status)
   call fits_put_keyword(unit,'nphotons', nph_tot,          'number of photons',status)
@@ -834,7 +834,7 @@ contains
      call fits_put_keyword(unit,'Xfreq1' ,grid%xfreq_min, 'Xfreq_min',status)
      call fits_put_keyword(unit,'Xfreq2' ,grid%xfreq_max, 'Xfreq_max',status)
      call fits_put_keyword(unit,'Dxfreq' ,grid%dxfreq,    'Dxfreq', status)
-     call fits_put_keyword(unit,'Dlambda',grid%dlambda,   'Dlambda (angstrom)', status)
+     call fits_put_keyword(unit,'Dwavelength',grid%dwavelength,   'Dwavelength (angstrom)', status)
      call fits_put_keyword(unit,'I_unit' ,par%intensity_unit, 'Intensity Unit (0:no dimension, 1:cm^-2 A^-1)', status)
      call fits_put_keyword(unit,'Dfreq'  ,grid%Dfreq_ref, 'Doppler Freq. (Hz)',status)
      call fits_put_keyword(unit,'nphotons', nph_tot,      'number of photons',status)

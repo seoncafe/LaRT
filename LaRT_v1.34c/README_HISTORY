@@ -8,50 +8,49 @@ Author:
 	Kwang-il Seon
 
 History:
+        2023-01-13 All variable names containing "lambda" were changed to "wavelength."
+                   (In python, lambda is a function, so a variable "lambda" cannot be used when plotting using python)
         2022-08-20 big-fixed in fitsio_mod.f90 and modified is_finite (utility.f90) to make it work with "gfortran -Ofast"
-	2022-07-23 updated the random number library
+        2022-07-23 updated the random number library
 	2022-04-26 Bug-dixed in peelingoff_mod_v2.2.f90 (observer%direc was the same as observer%direc0 when save_direct0 = .true.)
         2022-04-13 Bug-fixed in setup.f90 (velocity_type setting).
-	2021-10-05 Bug-fixed in calculating FLUXFAC for stellar_illumination model.
-	           The old version gave a factor of 2 higher value.
-	2021-09.29 The limb darkening effect for "stellar_illumination" model seems to be treated correctly.
-	           Blocking of scattered light by the star is added in peelingoff subroutines.
+        2021-10-05 Bug-fixed in calculating FLUXFAC for stellar_illumination model.
+                   The old version gave a factor of 2 higher value.
+        2021-09.29 The limb darkening effect for "stellar_illumination" model seems to be treated correctly.
+                   Blocking of scattered light by the star is added in peelingoff subroutines.
 	2021-09-13 The diffuse emissivity model for stellar models use a one-dimensional PDF array, rather than 3D PDF.
-	2021-09-11 The rotation about an arbitrary position is now possible (par%rotation_center_x, ...).
-	           The rotation center for the stellar illumination model is the location of star in default.
+        2021-09-11 The rotation about an arbitrary position is now possible (par%rotation_center_x, ...).
+                   The rotation center for the stellar illumination model is the location of star in default.
         2021-09-08 random_stellar_illumination and peeling-off routine for stellar illumination model added and tested.
         2021-08-30 alias method is used for sampling discrete table functions.
         2021-08-05 bug-fixed in sightline_tau.f90 (xfreq should be represented in the local cell frame).
                    minor-bug (in sightline_tau) related to the cell indices.
-        2021-07-14 bug-fixed in gen_photon_car..f90. "!$OMP ATOMIC UPDATE" was missing for Jin.
-        2021-07-12 added stellar illumination model for exoplanet.
-                   updated memory module for a very big array allocation.
+	2021-07-12 added stellar illumination model for exoplanet.
+	           updated memory module for a very big array allocation.
 	2021-05-06 added spherical atmosphere model for exoplanet.
 	           minor bug-fixed in peelingoff routine
-	           major bug-fixed in "master-slave" subroutine in run_simulaiton.
-        2021-04-22 bug-fixed in scattering_car, nostokes routines.
+	2021-04-25 bugs-fixed for atmosphere model (scattering and gen_photon modules).
+	2021-04-22 added exoplanet atmosphere model.
 	2020-11-13 added copy_file routine in utility.f90 (execute_command_line is no longer used.)
-	2020-11-08 par%save_all_photons option is added, instead of ALL_PHOTONS cpp directive.
-	           minor bug-fixed in output_sum_car.
-	2020-11-02 memory_mod is rewritten.
+	2020-11-08 Now, memory_mod_mpi include get_window and destroy_mem, which can be used for shared_memory.
+	           par%save_all_photons option is added, instead of ALL_PHOTONS cpp directive.
+	           minor bug-fixed in output_sum_car and memory_mod_mpi.
+	2020-11-02 memory_mod is rewritten. create_shared_mem and create_mem do not require to pass "window" variable.
+	           allph arrays are defined to be shared memory.
 	2020-11-01 bug-fixed. allph pointers (ALL_PHOTONS) were not initialzed.
-	2020-10-31 Now "par%use_master_slave = .true." works fine.
-`	           par%num_send_at_once should be adjusted to make the mode fast.
-	           (par%num_send_at_once = 10 should be ok for most systems.)
-        2020-10-27 minor bug-fixed in write_mod_car_v2.f90
-        2020-10-23 bug-fixed in output_sum_car.f90, a factor (distance2cm**2) was mission for the case of xy_periodic.
-        2020-10-22 renamed "peeling_tau" to sightline_tau. The routine gives tau_HI, N_HI, tau_dust.
-                   FOV of image plane covers whole system, depending on the observer direction.
+	           mpar%SAME_HRANK_COMM, mpar%SAME_HRANK_NPROC are added.
+	2020-10-27 minor bug-fixed in write_mod_car_v2.f90
+	2020-10-23 bug-fixed in output_sum_car.f90, a factor (distance2cm**2) was mission for the case of xy_periodic.
+	2020-10-22 renamed "peeling_tau" to sightline_tau. The routine gives tau_HI, N_HI, tau_dust.
+	           FOV of image plane covers whole system, depending on the observer direction.
                    Now, the code include Pnew method, which is the third method to investigate the WF effect.
-	2020-10-20 optical depth in "peeling_tau" is measured the direction from the sky to Earth
-	2020-10-19 This will be the first hybrid version (MPI + openmp) of LaRT.
-	           Do not try to parallelize grid_mod.f90, which setup global memory, unless you know perfectly what you are doing.
-        2020-10-19 bug-fixed in peeling_tau. (use raytrac_to_edge_car0 to avoid the cutting-off of optical depth).
-                   peeling_tau is performed for all frequencies.
-                   par%save_direc0 option is added.
+        2020-10-20 optical depth in "peeling_tau" is measured the direction from the sky to Earth
+	2020-10-19 bug-fixed in peeling_tau. (use raytrac_to_edge_car0 to avoid the cutting-off of optical depth).
+	           peeling_tau is performed for all frequencies.
+	           par%save_direc0 option is added.
         2020-10-17 minor bug-fixed in write_mod_car.f90
                    a potential bug-fixed in gen_photon.f90 (the suboutine was not contained in module)
-                   bug-fix in gen_photon.f90 (Jin is now calculated in a fixed lab frame.)
+	           bug-fix in gen_photon.f90 (Jin is now calculated in a fixed lab frame.)
 	2020-10-10 bug-fixed for "rp0" record. Modified not to save "rp0" if source_geometry == "point."
 	           Some "_allph" files with "r0" field was combined that without "r0" files.
                    "t4tau7dust_allph.fits.gz' in sphere_allph director should be discarded.
@@ -111,6 +110,11 @@ History:
 		But, need to revise to use the fast raytrace routine.
 	2016-10-23, bug-fixed, cosmetic change
 
+--------------------------------------------------------------------------------
+Monte Carlo Simulation for Lyman-alpha scattering
++ the Wouthuysen-Field effect (2017-04-27)
++ Polarization (2020.09.00)
+--------------------------------------------------------------------------------
 
 grid%J              : mean intensity calculated in the fluid rest frame.
 par%comoving_source : indicates whether the photon is generated in the fluid rest frame or not.

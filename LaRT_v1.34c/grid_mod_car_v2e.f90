@@ -192,7 +192,7 @@ contains
   call MPI_BARRIER(MPI_COMM_WORLD, ierr)
 
   !--- reference temperature and Doppler frequencey.
-  grid%Dfreq_ref      = 0.12843374_wp*sqrt(par%temperature)/(par%lambda0*um2km)
+  grid%Dfreq_ref      = 0.12843374_wp*sqrt(par%temperature)/(par%wavelength0*um2km)
 #ifdef FINE_STRUCTURE
   grid%DnuHK_ref      = DnuHK_Hz
   grid%DnuHK_ref_half = DnuHK_Hz/2.0_wp
@@ -228,7 +228,7 @@ contains
         !--- Dfreq should have non-zero values even in zero-density cells.
         if (Temp(i,j,k) <= 0.0_wp) Temp(i,j,k) = par%temperature
         vtherm                  = 0.12843374_wp*sqrt(Temp(i,j,k))
-        grid%Dfreq(i,j,k)       = vtherm/(par%lambda0*um2km)
+        grid%Dfreq(i,j,k)       = vtherm/(par%wavelength0*um2km)
         grid%voigt_a(i,j,k)     = (par%A21/fourpi)/grid%Dfreq(i,j,k)
      enddo
      enddo
@@ -871,12 +871,12 @@ contains
   par%atau3        = (atau0)**(1.0_wp/3.0_wp)
 
   ! set up frequency, wavelength, and velocity grid. (2021.07.16)
-  if (is_finite(par%lambda_min) .and. is_finite(par%lambda_max)) then
-     if (par%nlambda == 0 .and. par%nxfreq > 0) par%nlambda = par%nxfreq
-     if (par%nlambda > 0) par%nxfreq = par%nlambda
+  if (is_finite(par%wavelength_min) .and. is_finite(par%wavelength_max)) then
+     if (par%nwavelength == 0 .and. par%nxfreq > 0) par%nwavelength = par%nxfreq
+     if (par%nwavelength > 0) par%nxfreq = par%nwavelength
      vtherm        = 0.12843374_wp*sqrt(par%temperature)
-     par%xfreq_min = -(par%lambda_max - par%lambda0*1e4)/(par%lambda0*1e4)*(speedc/vtherm)
-     par%xfreq_max = -(par%lambda_min - par%lambda0*1e4)/(par%lambda0*1e4)*(speedc/vtherm)
+     par%xfreq_min = -(par%wavelength_max - par%wavelength0*1e4)/(par%wavelength0*1e4)*(speedc/vtherm)
+     par%xfreq_max = -(par%wavelength_min - par%wavelength0*1e4)/(par%wavelength0*1e4)*(speedc/vtherm)
   else if (is_finite(par%velocity_min) .and. is_finite(par%velocity_max)) then
      if (par%nvelocity == 0 .and. par%nxfreq > 0) par%nvelocity = par%nxfreq
      if (par%nvelocity > 0) par%nxfreq = par%nvelocity
@@ -918,7 +918,7 @@ contains
   !--- allocate frequency, velocity, and wavelength arrays for spectral outputs.
   call create_shared_mem(grid%xfreq,    [grid%nxfreq])
   call create_shared_mem(grid%velocity, [grid%nxfreq])
-  call create_shared_mem(grid%lambda,   [grid%nxfreq])
+  call create_shared_mem(grid%wavelength,   [grid%nxfreq])
 
   grid%dxfreq    = (par%xfreq_max - par%xfreq_min)/par%nxfreq
   grid%xfreq_max = par%xfreq_max
@@ -926,8 +926,8 @@ contains
   if (mpar%h_rank == 0) then
      grid%xfreq(:)    = [ ((i-0.5_wp)*grid%dxfreq + grid%xfreq_min, i=1, grid%nxfreq) ]
      grid%velocity(:) = -0.12843374_wp*sqrt(par%temperature) * grid%xfreq(:)
-     grid%dlambda     =  0.12843374_wp*sqrt(par%temperature) / speedc * (par%lambda0 * 1e4_wp) * grid%dxfreq
-     grid%lambda(:)   = (grid%velocity(:)/speedc + 1.0_wp) * (par%lambda0 * 1e4_wp)
+     grid%dwavelength     =  0.12843374_wp*sqrt(par%temperature) / speedc * (par%wavelength0 * 1e4_wp) * grid%dxfreq
+     grid%wavelength(:)   = (grid%velocity(:)/speedc + 1.0_wp) * (par%wavelength0 * 1e4_wp)
   endif
 
   !--- J(freq,x,y,z)  = mean intensity
