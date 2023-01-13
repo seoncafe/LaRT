@@ -1,5 +1,0 @@
-This directory contains the model developed by Song et al. (2020).
-
-(1) python mk_inputs
-(2) edit run.sh and all_hosts for your system.
-(3) ./run.sh > out.txt &

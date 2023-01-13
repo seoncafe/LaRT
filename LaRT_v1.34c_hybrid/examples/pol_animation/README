@@ -1,6 +1,0 @@
-mk_animation.py demonstrates how to make a nice animation file (mp4).
-To run the python script, ffmpeg must be installed. (sudo apt install ffmpeg in Ubuntu Linux).
-
-(1) run.sh > out.txt &
-    or run_hybrid.sh > out.txt &
-(2) mk_animation.py --all
