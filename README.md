@@ -5,8 +5,8 @@ LaRT is a three-dimensional Monte Carlo Ly&alpha; radiative transfer code, devel
 
 ### Versions
 LaRT is provided in two versions.
-  - LaRT_v1.34c : pure MPI version
-  - LaRT_v1.34c_hybrid : MPI + openmp hybrid version (The hybrid version uses a smaller amount of RAM than the MPI version.)
+  - LaRT_v1.34d : pure MPI version
+  - LaRT_v1.34d_hybrid : MPI + openmp hybrid version (The hybrid version uses a smaller amount of RAM than the MPI version.)
 
 ### References
 If you use LaRT, please acknowledge the following two papers.
@@ -30,7 +30,7 @@ If you use LaRT, please acknowledge the following two papers.
    In order to install openmpi on MacOSX, you may need to do "setenv TMPDIR /tmp" in tcsh shell or "export TMPDIR=/tmp" in bash.
 
 4. Edit Makefile
-  - unix> cd LaRT_v1.34c
+  - unix> cd LaRT_v1.34d
   - Before you compile the code, edit Makefile to set the four preprocessor options (CALCPnew, CALCJ, CALCP, FINE_STRUCTURE).
    For the usual purpose, it would be good to set all four options to 0.
 
