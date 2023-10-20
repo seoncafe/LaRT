@@ -30,7 +30,7 @@ If you use LaRT, please acknowledge the following two papers.
    In order to install openmpi on MacOSX, you may need to do "setenv TMPDIR /tmp" in tcsh shell or "export TMPDIR=/tmp" in bash.
 
 4. Edit Makefile
-  - unix> cd LaRT_v1.34g
+  - unix> cd LaRT_v1.34h
   - Before you compile the code, edit Makefile to set the four preprocessor options (CALCPnew, CALCJ, CALCP, FINE_STRUCTURE).
    For the usual purpose, it would be good to set all four options to 0.
 
