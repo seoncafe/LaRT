@@ -1,0 +1,4 @@
+In each directory,
+
+   run "run.sh"        when using the pure MPI version of LaRT.
+   run "run_hybrid.sh" when using the MPI+OpenMP hybrid version of LaRT.

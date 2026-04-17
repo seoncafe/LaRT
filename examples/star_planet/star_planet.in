@@ -1,0 +1,76 @@
+&parameters
+ par%no_photons  = 1e7
+
+ !par%temperature = 1.0e4
+ !par%taumax      = 1.0e4
+ !par%hgg         = 0.6592
+ !par%albedo      = 0.3899
+
+ par%DGR         = 0.0
+ par%use_stokes  = .false.
+
+ par%comoving_source = .false.
+ par%save_Jin        = .true.
+ par%save_direc0     = .true.
+ par%recoil          = .true.
+ par%save_all            = .false.
+ !par%save_sightline_tau = .true.
+ !par%save_input_grid    = .true.
+
+ par%spectral_type       = 'line_prof_file'
+ par%line_prof_file      = './line_profile.txt'
+ par%line_prof_file_type = 1
+
+ par%geometry        = 'spherical_atmosphere'
+ par%source_geometry = 'stellar_illumination'
+ par%dens_file       = './dens_profile.txt'
+ par%temp_file       = './temp_profile.txt'
+ par%velo_file       = './velo_profile.txt'
+
+ !-- distance unit in cm
+ par%distance2cm  = 1.0d10
+
+ !-- if xfreq_min and xfreq_max are not specified, they are automatically chosen.
+ par%wavelength_min = 1214.0
+ par%wavelength_max = 1217.4
+ par%nwavelength    = 101
+ par%nx     = 201
+ par%ny     = 201
+ par%nz     = 201
+ par%xmax   = 10
+ par%ymax   = 10
+ par%zmax   = 10
+ par%rmin   = 1.0
+ par%rmax   = 10
+
+ !-- distance between star and planet, and stellar radius
+ par%distance_star_to_planet = 30.0
+ par%stellar_radius          = 10.0
+
+ !-- distance to the system.
+ par%distance = 5.0d10
+
+ !-- observer & detector
+ par%save_peeloff_2D = .true.
+ par%save_peeloff_3D = .false.
+ par%nxim = 241
+ par%nyim = 241
+ par%dxim = 3.8E-10
+ par%dyim = 3.8E-10
+ par%out_bitpix = -64
+
+ par%alpha =   0.0  10.0  20.0  30.0  40.0  50.0  60.0  70.0  80.0  90.0 100.0 110.0 120.0 130.0 140.0
+             150.0 160.0 170.0 180.0 190.0 200.0 210.0 220.0 230.0 240.0 250.0 260.0 270.0 280.0 290.0
+             300.0 310.0 320.0 330.0 340.0 350.0
+ par%beta  =  60.0  60.0  60.0  60.0  60.0  60.0  60.0  60.0  60.0  60.0  60.0  60.0  60.0  60.0  60.0
+              60.0  60.0  60.0  60.0  60.0  60.0  60.0  60.0  60.0  60.0  60.0  60.0  60.0  60.0  60.0
+              60.0  60.0  60.0  60.0  60.0  60.0
+ par%gamma =  90.0  90.0  90.0  90.0  90.0  90.0  90.0  90.0  90.0  90.0  90.0  90.0  90.0  90.0  90.0
+              90.0  90.0  90.0  90.0  90.0  90.0  90.0  90.0  90.0  90.0  90.0  90.0  90.0  90.0  90.0
+              90.0  90.0  90.0  90.0  90.0  90.0
+
+ !-- to increase SNR by combining  previous results.
+ !par%out_merge = .false.
+ par%out_merge = .true.
+ par%nprint = 1e6
+/

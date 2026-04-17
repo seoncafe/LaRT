@@ -1,0 +1,30 @@
+&parameters
+ par%line_id     = 'FeII_UV2'
+ par%no_photons  = 1e8
+ par%bturb = 90.0
+ par%taumax      = 2.0e1
+ par%dens_file       = '../../../b040_fbm3d_128/M010b040_001.fits.gz'
+
+ par%use_stokes   = .true.
+ !par%scatt_mat_file = '../data/mueller_Lyalpha.dat'
+ par%DGR         = 0.0
+ par%spectral_type = 'continuum'
+ par%velocity_type = 'hubble'
+ par%Vexp        = 100.0
+ par%save_Jin     = .true.
+ par%nx = 201
+ par%ny = 201
+ par%nz = 201
+ par%rmax   = 1.0
+ par%wavelength_min = 2373.0
+ par%wavelength_max = 2398.0
+ par%nwavelength    = 500
+ par%nxim   = 129
+ par%nyim   = 129
+
+ par%save_all_photons = .false.
+ par%save_radial_profile = .true.
+
+ par%nprint = 1e7
+ par%out_merge = .false.
+/

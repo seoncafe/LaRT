@@ -1,0 +1,36 @@
+&parameters
+ par%no_photons  = 1e6
+ par%temperature = 1.0e4
+ par%N_HImax     = 1.0e18
+ par%DGR         = 0.0
+
+ par%geometry      = 'sphere'
+ par%velocity_type = 'rotating_solid_body'
+ par%Vrot          = 300.0
+ par%rmax          = 1.0
+
+ par%comoving_source = .false.
+ par%save_all        = .false.
+ par%recoil          = .false.
+ !par%spectral_type   = 'voigt'
+ par%spectral_type   = 'monochromatic'
+ par%nx = 201
+ par%ny = 201
+ par%nz = 201
+ par%nprint = 1000000
+
+ par%velocity_min = -1400.0
+ par%velocity_max =  1400.0
+ par%nvelocity    = 480
+
+ !par%save_input_grid = .true.
+
+ !-- observer
+ par%nxim = 129
+ par%nyim = 129
+ par%distance = 1e4
+
+ par%alpha = -90.0, -90.0, -90.0, -90.0
+ par%beta  =   0.0,  30.0,  60.0,  90.0
+ par%gamma =   0.0,   0.0,   0.0,   0.0
+/

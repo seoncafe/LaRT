@@ -1,0 +1,294 @@
+
+Running ../../LaRT.x on lart4 with  threads.
+   with the machinefile /tmp/host_file_14654
+
++++++ FeII_UV1.in +++++
+ >>> START @ 2024/09/21 17:58:23
+Use_Master_Slave          : T
+Line ID                   : FeII_UV1
+Dust Parameters(a, g)     :  0.3253 0.6761
+Dust-to-Gas Ratio         :    0.000E+00
+Total number of photons   :    1.000E+08
+voigt_a          :        2.226E-03
+temperature (K)  :        1.000E+05
+N(Fe II)_pole     :        1.176E+14
+N(Fe II)_homo     :        1.176E+14
+tau_pole  (Fe II) :        2.000E+01
+tau_homo  (Fe II) :        2.000E+01
+tau_pole  (dust) :        0.000E+00
+tau_homo  (dust) :        0.000E+00
+---> Now starting simulation...  @    0.023 mins
+   1.00000E+07 photons calculated:    0.438 mins
+   2.00000E+07 photons calculated:    0.849 mins
+   3.00000E+07 photons calculated:    1.260 mins
+   4.00000E+07 photons calculated:    1.673 mins
+   5.00000E+07 photons calculated:    2.084 mins
+   6.00000E+07 photons calculated:    2.495 mins
+   7.00000E+07 photons calculated:    2.906 mins
+   8.00000E+07 photons calculated:    3.318 mins
+   9.00000E+07 photons calculated:    3.728 mins
+   1.00000E+08 photons calculated:    4.141 mins
+---> Now Gathering Results...
+Average Number of scattering :   1.0053E+00
+Nscatt_dust, Nscatt_gas      :   0.0000E+00  1.0053E+00
+Total Excution Time          :    4.149 mins
+ >>> STOP  @ 2024/09/21 18:02:44
+
+Running ../../LaRT.x on lart4 with  threads.
+   with the machinefile /tmp/host_file_16574
+
++++++ FeII_UV1_V050.in +++++
+ >>> START @ 2024/09/21 18:11:53
+Use_Master_Slave          : T
+Line ID                   : FeII_UV1
+Dust Parameters(a, g)     :  0.3253 0.6761
+Dust-to-Gas Ratio         :    0.000E+00
+Total number of photons   :    1.000E+08
+voigt_a          :        2.226E-03
+temperature (K)  :        1.000E+05
+N(Fe II)_pole     :        1.176E+14
+N(Fe II)_homo     :        1.176E+14
+tau_pole  (Fe II) :        2.000E+01
+tau_homo  (Fe II) :        2.000E+01
+tau_pole  (dust) :        0.000E+00
+tau_homo  (dust) :        0.000E+00
+---> Now starting simulation...  @    0.024 mins
+   1.00000E+07 photons calculated:    0.438 mins
+   2.00000E+07 photons calculated:    0.850 mins
+   3.00000E+07 photons calculated:    1.262 mins
+   4.00000E+07 photons calculated:    1.674 mins
+   5.00000E+07 photons calculated:    2.086 mins
+   6.00000E+07 photons calculated:    2.497 mins
+   7.00000E+07 photons calculated:    2.909 mins
+   8.00000E+07 photons calculated:    3.320 mins
+   9.00000E+07 photons calculated:    3.731 mins
+   1.00000E+08 photons calculated:    4.142 mins
+---> Now Gathering Results...
+Average Number of scattering :   1.0091E+00
+Nscatt_dust, Nscatt_gas      :   0.0000E+00  1.0091E+00
+Total Excution Time          :    4.150 mins
+ >>> STOP  @ 2024/09/21 18:16:14
+
++++++ FeII_UV1_V100.in +++++
+ >>> START @ 2024/09/21 18:16:16
+Use_Master_Slave          : T
+Line ID                   : FeII_UV1
+Dust Parameters(a, g)     :  0.3253 0.6761
+Dust-to-Gas Ratio         :    0.000E+00
+Total number of photons   :    1.000E+08
+voigt_a          :        2.226E-03
+temperature (K)  :        1.000E+05
+N(Fe II)_pole     :        1.176E+14
+N(Fe II)_homo     :        1.176E+14
+tau_pole  (Fe II) :        2.000E+01
+tau_homo  (Fe II) :        2.000E+01
+tau_pole  (dust) :        0.000E+00
+tau_homo  (dust) :        0.000E+00
+---> Now starting simulation...  @    0.024 mins
+   1.00000E+07 photons calculated:    0.438 mins
+   2.00000E+07 photons calculated:    0.849 mins
+   3.00000E+07 photons calculated:    1.260 mins
+   4.00000E+07 photons calculated:    1.671 mins
+   5.00000E+07 photons calculated:    2.082 mins
+   6.00000E+07 photons calculated:    2.493 mins
+   7.00000E+07 photons calculated:    2.904 mins
+   8.00000E+07 photons calculated:    3.315 mins
+   9.00000E+07 photons calculated:    3.726 mins
+   1.00000E+08 photons calculated:    4.137 mins
+---> Now Gathering Results...
+Average Number of scattering :   1.0113E+00
+Nscatt_dust, Nscatt_gas      :   0.0000E+00  1.0113E+00
+Total Excution Time          :    4.145 mins
+ >>> STOP  @ 2024/09/21 18:20:37
+
++++++ FeII_UV2.in +++++
+ >>> START @ 2024/09/21 18:20:39
+Use_Master_Slave          : T
+Line ID                   : FeII_UV2
+Dust Parameters(a, g)     :  0.3253 0.6761
+Dust-to-Gas Ratio         :    0.000E+00
+Total number of photons   :    1.000E+08
+voigt_a          :        1.088E-03
+temperature (K)  :        1.000E+05
+N(Fe II)_pole     :        9.571E+13
+N(Fe II)_homo     :        9.571E+13
+tau_pole  (Fe II) :        2.000E+01
+tau_homo  (Fe II) :        2.000E+01
+tau_pole  (dust) :        0.000E+00
+tau_homo  (dust) :        0.000E+00
+---> Now starting simulation...  @    0.017 mins
+   1.00000E+07 photons calculated:    0.457 mins
+   2.00000E+07 photons calculated:    0.895 mins
+   3.00000E+07 photons calculated:    1.332 mins
+   4.00000E+07 photons calculated:    1.769 mins
+   5.00000E+07 photons calculated:    2.206 mins
+   6.00000E+07 photons calculated:    2.643 mins
+   7.00000E+07 photons calculated:    3.082 mins
+   8.00000E+07 photons calculated:    3.523 mins
+   9.00000E+07 photons calculated:    3.961 mins
+   1.00000E+08 photons calculated:    4.398 mins
+---> Now Gathering Results...
+Average Number of scattering :   1.3035E+00
+Nscatt_dust, Nscatt_gas      :   0.0000E+00  1.3035E+00
+Total Excution Time          :    4.405 mins
+ >>> STOP  @ 2024/09/21 18:25:09
+
++++++ FeII_UV2_V050.in +++++
+ >>> START @ 2024/09/21 18:25:11
+Use_Master_Slave          : T
+Line ID                   : FeII_UV2
+Dust Parameters(a, g)     :  0.3253 0.6761
+Dust-to-Gas Ratio         :    0.000E+00
+Total number of photons   :    1.000E+08
+voigt_a          :        1.088E-03
+temperature (K)  :        1.000E+05
+N(Fe II)_pole     :        9.571E+13
+N(Fe II)_homo     :        9.571E+13
+tau_pole  (Fe II) :        2.000E+01
+tau_homo  (Fe II) :        2.000E+01
+tau_pole  (dust) :        0.000E+00
+tau_homo  (dust) :        0.000E+00
+---> Now starting simulation...  @    0.017 mins
+   1.00000E+07 photons calculated:    0.447 mins
+   2.00000E+07 photons calculated:    0.864 mins
+   3.00000E+07 photons calculated:    1.283 mins
+   4.00000E+07 photons calculated:    1.708 mins
+   5.00000E+07 photons calculated:    2.125 mins
+   6.00000E+07 photons calculated:    2.542 mins
+   7.00000E+07 photons calculated:    2.965 mins
+   8.00000E+07 photons calculated:    3.382 mins
+   9.00000E+07 photons calculated:    3.819 mins
+   1.00000E+08 photons calculated:    4.236 mins
+---> Now Gathering Results...
+Average Number of scattering :   1.0822E+00
+Nscatt_dust, Nscatt_gas      :   0.0000E+00  1.0822E+00
+Total Excution Time          :    4.243 mins
+ >>> STOP  @ 2024/09/21 18:29:32
+
++++++ FeII_UV2_V100.in +++++
+ >>> START @ 2024/09/21 18:29:33
+Use_Master_Slave          : T
+Line ID                   : FeII_UV2
+Dust Parameters(a, g)     :  0.3253 0.6761
+Dust-to-Gas Ratio         :    0.000E+00
+Total number of photons   :    1.000E+08
+voigt_a          :        1.088E-03
+temperature (K)  :        1.000E+05
+N(Fe II)_pole     :        9.571E+13
+N(Fe II)_homo     :        9.571E+13
+tau_pole  (Fe II) :        2.000E+01
+tau_homo  (Fe II) :        2.000E+01
+tau_pole  (dust) :        0.000E+00
+tau_homo  (dust) :        0.000E+00
+---> Now starting simulation...  @    0.017 mins
+   1.00000E+07 photons calculated:    0.435 mins
+   2.00000E+07 photons calculated:    0.851 mins
+   3.00000E+07 photons calculated:    1.269 mins
+   4.00000E+07 photons calculated:    1.683 mins
+   5.00000E+07 photons calculated:    2.098 mins
+   6.00000E+07 photons calculated:    2.513 mins
+   7.00000E+07 photons calculated:    2.929 mins
+   8.00000E+07 photons calculated:    3.344 mins
+   9.00000E+07 photons calculated:    3.759 mins
+   1.00000E+08 photons calculated:    4.174 mins
+---> Now Gathering Results...
+Average Number of scattering :   1.0693E+00
+Nscatt_dust, Nscatt_gas      :   0.0000E+00  1.0693E+00
+Total Excution Time          :    4.181 mins
+ >>> STOP  @ 2024/09/21 18:33:51
+
++++++ FeII_UV3.in +++++
+ >>> START @ 2024/09/21 18:33:52
+Use_Master_Slave          : T
+Line ID                   : FeII_UV3
+Dust Parameters(a, g)     :  0.3253 0.6761
+Dust-to-Gas Ratio         :    0.000E+00
+Total number of photons   :    1.000E+08
+voigt_a          :        8.991E-04
+temperature (K)  :        1.000E+05
+N(Fe II)_pole     :        2.730E+14
+N(Fe II)_homo     :        2.730E+14
+tau_pole  (Fe II) :        2.000E+01
+tau_homo  (Fe II) :        2.000E+01
+tau_pole  (dust) :        0.000E+00
+tau_homo  (dust) :        0.000E+00
+---> Now starting simulation...  @    0.022 mins
+   1.00000E+07 photons calculated:    0.377 mins
+   2.00000E+07 photons calculated:    0.728 mins
+   3.00000E+07 photons calculated:    1.080 mins
+   4.00000E+07 photons calculated:    1.432 mins
+   5.00000E+07 photons calculated:    1.784 mins
+   6.00000E+07 photons calculated:    2.136 mins
+   7.00000E+07 photons calculated:    2.488 mins
+   8.00000E+07 photons calculated:    2.840 mins
+   9.00000E+07 photons calculated:    3.192 mins
+   1.00000E+08 photons calculated:    3.544 mins
+---> Now Gathering Results...
+Average Number of scattering :   1.0094E+00
+Nscatt_dust, Nscatt_gas      :   0.0000E+00  1.0094E+00
+Total Excution Time          :    3.551 mins
+ >>> STOP  @ 2024/09/21 18:37:37
+
++++++ FeII_UV3_V050.in +++++
+ >>> START @ 2024/09/21 18:37:38
+Use_Master_Slave          : T
+Line ID                   : FeII_UV3
+Dust Parameters(a, g)     :  0.3253 0.6761
+Dust-to-Gas Ratio         :    0.000E+00
+Total number of photons   :    1.000E+08
+voigt_a          :        8.991E-04
+temperature (K)  :        1.000E+05
+N(Fe II)_pole     :        2.730E+14
+N(Fe II)_homo     :        2.730E+14
+tau_pole  (Fe II) :        2.000E+01
+tau_homo  (Fe II) :        2.000E+01
+tau_pole  (dust) :        0.000E+00
+tau_homo  (dust) :        0.000E+00
+---> Now starting simulation...  @    0.022 mins
+   1.00000E+07 photons calculated:    0.378 mins
+   2.00000E+07 photons calculated:    0.730 mins
+   3.00000E+07 photons calculated:    1.082 mins
+   4.00000E+07 photons calculated:    1.434 mins
+   5.00000E+07 photons calculated:    1.786 mins
+   6.00000E+07 photons calculated:    2.139 mins
+   7.00000E+07 photons calculated:    2.492 mins
+   8.00000E+07 photons calculated:    2.844 mins
+   9.00000E+07 photons calculated:    3.196 mins
+   1.00000E+08 photons calculated:    3.548 mins
+---> Now Gathering Results...
+Average Number of scattering :   1.0148E+00
+Nscatt_dust, Nscatt_gas      :   0.0000E+00  1.0148E+00
+Total Excution Time          :    3.559 mins
+ >>> STOP  @ 2024/09/21 18:41:23
+
++++++ FeII_UV3_V100.in +++++
+ >>> START @ 2024/09/21 18:41:25
+Use_Master_Slave          : T
+Line ID                   : FeII_UV3
+Dust Parameters(a, g)     :  0.3253 0.6761
+Dust-to-Gas Ratio         :    0.000E+00
+Total number of photons   :    1.000E+08
+voigt_a          :        8.991E-04
+temperature (K)  :        1.000E+05
+N(Fe II)_pole     :        2.730E+14
+N(Fe II)_homo     :        2.730E+14
+tau_pole  (Fe II) :        2.000E+01
+tau_homo  (Fe II) :        2.000E+01
+tau_pole  (dust) :        0.000E+00
+tau_homo  (dust) :        0.000E+00
+---> Now starting simulation...  @    0.022 mins
+   1.00000E+07 photons calculated:    0.378 mins
+   2.00000E+07 photons calculated:    0.730 mins
+   3.00000E+07 photons calculated:    1.082 mins
+   4.00000E+07 photons calculated:    1.435 mins
+   5.00000E+07 photons calculated:    1.787 mins
+   6.00000E+07 photons calculated:    2.143 mins
+   7.00000E+07 photons calculated:    2.495 mins
+   8.00000E+07 photons calculated:    2.847 mins
+   9.00000E+07 photons calculated:    3.203 mins
+   1.00000E+08 photons calculated:    3.555 mins
+---> Now Gathering Results...
+Average Number of scattering :   1.0173E+00
+Nscatt_dust, Nscatt_gas      :   0.0000E+00  1.0173E+00
+Total Excution Time          :    3.562 mins
+ >>> STOP  @ 2024/09/21 18:45:10

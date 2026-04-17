@@ -1,0 +1,19 @@
+# Compiled objects and modules
+*.o
+*.mod
+*.smod
+
+# Executables
+*.x
+
+# FITS output files
+*.fits
+*.fits.gz
+
+# Editor backups / swap
+*~
+*.swp
+*.bak
+
+# macOS
+.DS_Store

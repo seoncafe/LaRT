@@ -1,0 +1,36 @@
+
+Running ../../LaRT.x on lart4,lart3,lart2,lart1 with  threads.
+   with the machinefile /tmp/host_file_23788
+
++++++ t1tau3.in +++++
+ >>> START @ 2023/07/04 17:12:27
+Use_Master_Slave          : T
+Line ID                   : ly_alpha
+Dust Parameters(a, g)     :  0.3253 0.6761
+Dust Extinction per H     :    1.606E-21
+Dust-to-Gas Ratio         :    0.000E+00
+Total number of photons   :    1.000E+07
+voigt_a          :        1.492E-02
+temperature (K)  :        1.000E+01
+N(H  I)_pole     :        5.449E+14
+N(H  I)_homo     :        5.449E+14
+tau_pole  (H  I) :        1.000E+03
+tau_homo  (H  I) :        1.000E+03
+tau_pole  (dust) :        0.000E+00
+tau_homo  (dust) :        0.000E+00
+---> Now starting simulation...  @    0.086 mins
+   1.00000E+06 photons calculated:    0.644 mins
+   2.00000E+06 photons calculated:    1.194 mins
+   3.00000E+06 photons calculated:    1.747 mins
+   4.00000E+06 photons calculated:    2.297 mins
+   5.00000E+06 photons calculated:    2.846 mins
+   6.00000E+06 photons calculated:    3.395 mins
+   7.00000E+06 photons calculated:    3.943 mins
+   8.00000E+06 photons calculated:    4.492 mins
+   9.00000E+06 photons calculated:    5.042 mins
+   1.00000E+07 photons calculated:    5.592 mins
+---> Now Gathering Results...
+Average Number of scattering :   1.7898E+03
+Nscatt_dust, Nscatt_gas      :   0.0000E+00  1.7898E+03
+Total Excution Time          :    5.675 mins
+ >>> STOP  @ 2023/07/04 17:18:08

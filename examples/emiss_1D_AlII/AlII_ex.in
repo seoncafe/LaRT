@@ -1,0 +1,53 @@
+&parameters
+ par%no_photons  = 1e7
+ par%line_id     = 'AlII_1671'
+
+ !- Dust-to-Gas ratio
+ par%DGR         = 0.0
+ par%use_stokes  = .false.
+
+ par%comoving_source = .true.
+ par%save_Jin        = .true.
+ par%save_direc0     = .true.
+ par%recoil          = .true.
+ par%save_sightline_tau = .true.
+ !par%save_all            = .false.
+
+ par%spectral_type   = 'voigt'
+
+ par%geometry        = 'sphere'
+ ! density (cm^-3) and temperature (K) vs. radius (in units of par%distance_unit)
+ par%dens_file       = './AlII_dens_profile.txt'
+ par%temp_file       = './AlII_temp_profile.txt'
+
+ ! emissivity (normalized profile is okay) vs. radius (in units of par%distance_unit)
+ par%source_geometry  = 'diffuse_emissivity'
+ par%emiss_file       = './AlII_emiss_profile.txt'
+
+ !-- distance unit
+ par%distance_unit  = 'pc'
+
+ !-- if xfreq_min and xfreq_max are not specified, they are automatically chosen.
+ par%nwavelength    = 200
+ par%nx     = 200
+ par%ny     = 200
+ par%nz     = 200
+ par%xmax   = 12
+ par%ymax   = 12
+ par%zmax   = 12
+ par%rmin   = 0.0
+ par%rmax   = 12
+
+ !-- distance from the system to the observer (in units of par%distance_unit).
+ par%distance = 1.0d4
+
+ !-- observer & detector
+ par%nxim = 120
+ par%nyim = 120
+ par%out_bitpix = -64
+
+ !-- to increase SNR by combining  previous results.
+ !par%out_merge = .false.
+
+ par%nprint = 1e6
+/

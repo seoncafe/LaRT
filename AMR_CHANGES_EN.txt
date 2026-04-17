@@ -1,0 +1,534 @@
+================================================================================
+LaRT_v2.00 AMR (Adaptive Mesh Refinement) Extension
+================================================================================
+Date: 2026-04-17
+Author: Claude Code (Anthropic)
+
+--------------------------------------------------------------------------------
+Overview
+--------------------------------------------------------------------------------
+This document describes the changes made to extend LaRT_v2.00 with octree-based
+AMR grid support. The extension includes reading RAMSES simulation data and a
+generic text-format reader that allows arbitrary octree structures to be
+supported by providing a custom reader subroutine.
+
+The design uses Fortran procedure pointers so that existing modules
+(run_simulation_mod_v2a, gen_photon_car_v2b, etc.) require no modification.
+When par%use_amr_grid = .true., the procedure pointers are reassigned to the
+AMR variants at startup.
+
+--------------------------------------------------------------------------------
+New Files
+--------------------------------------------------------------------------------
+
+1. octree_mod.f90
+   Module: octree_mod
+
+   Defines the AMR grid type (amr_grid_type) and the global variable amr_grid.
+
+   amr_grid_type fields:
+     Tree structure:
+       ncell              -- total number of cells in the octree
+       nleaf              -- number of leaf cells
+       parent(:)          -- parent cell index (1-based; 0 = root)
+       children(:,8)      -- eight child cell indices (0 = leaf/absent)
+       level(:)           -- refinement level of each cell
+       cx(:), cy(:), cz(:)-- cell centre coordinates (code units, 0--1)
+       ch(:)              -- octant index (1--8) of cell within its parent
+       ileaf(:)           -- leaf index for each cell (-1 if not a leaf)
+       icell_of_leaf(:)   -- cell index for each leaf
+
+     Physical arrays (size nleaf):
+       rhokap(:)          -- HI line-centre opacity per unit length
+       rhokapD(:)         -- dust opacity per unit length (if DGR > 0)
+       Dfreq(:)           -- local Doppler frequency width (Hz)
+       voigt_a(:)         -- Voigt damping parameter
+       vfx(:), vfy(:), vfz(:) -- bulk velocity / v_thermal (dimensionless)
+
+     Frequency grid:
+       xfreq_min, xfreq_max, dxfreq, nxfreq
+       Dfreq_ref          -- reference Doppler frequency
+       xfreq(:)           -- frequency array (Doppler units)
+       velocity(:)        -- velocity array (km/s)
+       wavelength(:)      -- wavelength array (Angstrom)
+
+     Output accumulation arrays (size nxfreq):
+       Jout(:)            -- escaping photon spectrum
+       Jin(:)             -- injected photon spectrum
+       Jabs(:)            -- absorbed photon spectrum
+
+     Core-skip parameters:
+       xcrit, xcrit2      -- critical frequency and its square
+
+     Box geometry:
+       box_xmin/xmax, box_ymin/ymax, box_zmin/zmax  (cm)
+       boxlen             -- box side length (cm)
+       voigt_amean        -- mean Voigt damping parameter
+
+   Key subroutines/functions:
+     amr_find_leaf(x,y,z)
+         Returns the leaf index for the given position.
+         Descends the octree from the root by comparing (x,y,z) against
+         each node's centre until a leaf is reached.
+
+     amr_find_cell(x,y,z)
+         Returns the cell index (internal use).
+
+     amr_cell_exit(icell, x,y,z, kx,ky,kz, t_exit, iface)
+         Computes the exit time t_exit and exit face iface for a ray
+         starting at (x,y,z) with direction (kx,ky,kz) inside icell.
+         Six-face slab intersection: t = (face - coord) / direction.
+
+     amr_build_tree(xleaf,yleaf,zleaf, leaf_level, nleaf, box_*min/max)
+         Builds the full octree from a list of leaf cell positions and
+         levels. Inserts each leaf by descending from the root and
+         creating intermediate nodes as needed. Uses grow_tree_arrays
+         for dynamic resizing.
+
+     amr_alloc_phys(use_dust)
+         Allocates rhokap, rhokapD (if use_dust), Dfreq, voigt_a,
+         vfx, vfy, vfz arrays (size nleaf).
+
+     amr_alloc_output(save_jin, save_jabs, use_dust)
+         Allocates Jout (always), Jin (if save_jin), Jabs (if save_jabs)
+         output arrays (size nxfreq).
+
+     grow_tree_arrays(new_max)
+         Doubles (or sets to new_max) the allocation size of all tree
+         structure arrays using Fortran move_alloc.
+
+
+2. read_ramses_amr.f90
+   Module: read_ramses_amr_mod
+
+   Reads leaf-cell data from RAMSES AMR simulations and provides a generic
+   text-format reader for other octree codes.
+
+   ramses_read_leaf_cells(repository, snapnum, xleaf,yleaf,zleaf,
+                          leaf_level, nH_arr, T_arr, vx/vy/vz_arr,
+                          nleaf, boxlen_cm)
+       Top-level RAMSES reader. Calls ramses_read_info to get unit scales,
+       then ramses_count_leaves (pass 1) and ramses_read_all_cpus (pass 2).
+       Outputs positions in physical units (cm), nH (cm^-3), T (K),
+       velocities (cm/s).
+
+   ramses_read_info(repository, snapnum, ncpu, unit_l, unit_d, unit_t,
+                    unit_v, boxlen, gamma_eos)
+       Parses info_{snapnum:05d}.txt for the number of CPUs, length unit
+       (unit_l, cm), density unit (unit_d, g/cm^3), time unit (unit_t, s),
+       velocity unit (unit_v, cm/s), box length (code units), and adiabatic
+       index gamma.
+
+   ramses_count_leaves(repository, snapnum, ncpu, unit_l, boxlen_code,
+                       nleaf_total)
+       First pass over all amr_*.out* files. Counts cells where son == 0
+       (leaf cells) to determine the total number of leaves before
+       allocating output arrays.
+
+   ramses_read_all_cpus(repository, snapnum, ncpu, unit_l, unit_d, unit_v,
+                        gamma_eos, boxlen_code, xleaf, yleaf, zleaf,
+                        leaf_level, nH_arr, T_arr, vx/vy/vz_arr,
+                        nleaf_total)
+       Second pass. For each CPU file reads:
+         - AMR header: ncpu, ndim, nx/ny/nz, nlevelmax, nboundary
+         - ngridlevel, ngridfile, ngridbound arrays
+         - Grid positions (xg) and son arrays per level
+         - Hydro variables: density, momentum x/y/z, total energy
+       Leaf identification: son == 0 for all 8 children of a cell.
+       Position conversion:
+         xleaf = (xg + xc - xbound) / nx + 0.5   (fraction of boxlen)
+       Temperature from total energy:
+         eint = (E_tot - 0.5*rho*v^2) / rho
+         T = (gamma-1) * eint * unit_v^2 * mu*mH / kB
+       where mu = 1.22 (mean molecular weight for ionised gas).
+
+   generic_amr_read(filename, xleaf,yleaf,zleaf, leaf_level,
+                    nH_arr, T_arr, vx/vy/vz_arr, nleaf, boxlen_cm)
+       Reads a plain-text AMR file. Format:
+         Line 1: nleaf  boxlen_kpc
+         Lines 2..(nleaf+1):
+           x(kpc) y(kpc) z(kpc) level nH(cm^-3) T(K) vx(km/s) vy(km/s) vz(km/s)
+       Positions are converted from kpc to cm internally.
+       Velocities are converted from km/s to cm/s.
+
+   skip_records(unit, n)
+       Helper that reads and discards n Fortran unformatted records from
+       the given unit number. Used to skip header records in RAMSES files.
+
+
+3. raytrace_amr.f90
+   Module: raytrace_amr_mod
+
+   AMR ray-tracing routines with identical call signatures to the Cartesian
+   procedure pointer targets in raytrace_car_v2h_refactored.f90. When
+   par%use_amr_grid = .true., the procedure pointers are reassigned to these.
+
+   raytrace_to_tau_amr(photon, grid, tau_in)
+       Advances the photon until it has accumulated optical depth tau_in,
+       or exits the box. At each step:
+         1. amr_cell_exit gives t_exit and iface for the current leaf.
+         2. tau_cell = rhokap(il) * voigt(xfreq, voigt_a(il)) * ds
+                     + rhokapD(il) * ds    [if dust present]
+         3. If tau_cell >= tau_remaining, interpolate exact crossing point
+            and stop; otherwise advance to the face.
+         4. Push the photon epsilon past the face (tiny*1e6 in code units)
+            and call amr_find_leaf to enter the next cell.
+         5. At cell boundaries, apply Doppler frequency shift:
+            xfreq_new = (xfreq_old + u_old) * Dfreq_old/Dfreq_new - u_new
+       Escaped photons (iface = 0, outside box) are recorded in
+       amr_grid%Jout with atomic update.
+       Early exit when accumulated tau exceeds tau_huge = 745.2.
+
+   raytrace_to_edge_amr(photon0, grid, tau)
+       Returns total optical depth (gas + dust) from photon0's current
+       position to the box boundary, without modifying photon0.
+
+   raytrace_to_edge_tau_gas_amr
+       Returns gas-only optical depth to the box boundary.
+
+   raytrace_to_edge_column_amr
+       Returns column density N_gas (cm^-2) and dust optical depth
+       tau_dust separately, traversing to the box boundary.
+       N_gas = sum( rhokap(il) * Dfreq(il) / sigma0 * ds )
+
+   raytrace_to_dist_amr(photon0, grid, dist, tau)
+       Returns total optical depth over a given distance dist (cm).
+
+   raytrace_to_dist_tau_gas_amr
+       Gas-only optical depth over a given distance.
+
+   raytrace_to_dist_column_amr
+       N_gas and tau_dust over a given distance.
+
+
+4. scattering_amr.f90
+   Module: scattering_amr_mod
+
+   AMR scattering routines (no Stokes polarisation) that read physical
+   quantities from amr_grid instead of the Cartesian grid arrays.
+   Mirrors scattering_car_v2a.f90 in structure.
+
+   scattering_amr_dispatch(photon, grid)
+       Top-level dispatcher. Determines dust vs. resonance scattering
+       probability using amr_grid%rhokapD(il) and amr_grid%rhokap(il),
+       then calls scatter_dust or scatter_resonance via the procedure
+       pointers (which have already been reassigned to the AMR variants).
+
+   scatter_dust_nostokes_amr(photon, grid)
+       Dust scattering event:
+         - Stochastic absorption test (or reduced-weight albedo weighting).
+         - Records absorbed weight in amr_grid%Jabs(ix) if save_Jabs.
+         - Frequency shift to the fluid rest frame using amr_grid%vfx/vfy/vfz
+           and amr_grid%Dfreq(il).
+         - New direction sampled from Henyey-Greenstein phase function
+           (isotropic if hgg = 0).
+
+   scatter_resonance_nostokes_amr(photon, grid)
+       Resonance (line) scattering event:
+         - Calls do_resonance procedure pointer (reassigned to an AMR variant)
+           to sample the scattering atom velocity uz and new direction
+           cosines cost, sint.
+         - Core-skip acceleration using amr_grid%xcrit / xcrit2.
+         - Recoil correction: xfreq -= g_recoil*(1-cost) if par%recoil.
+         - Updates photon direction vector.
+
+   do_resonance1_amr(photon, grid, uz, xfreq_atom, cost, sint [, Sij])
+       Single-line resonance (Ly-alpha H I, Fe II, etc.).
+       Samples uz from rand_resonance_vz(xfreq, amr_grid%voigt_a(il)),
+       sets xfreq_atom = xfreq - uz, samples cost from rand_resonance(E1).
+       Optional Stokes matrix elements S11, S22, S12, S33, S44 returned
+       if called with those arguments.
+
+   do_resonance2_amr
+       Two-line resonance (C II, Ca II H&K doublet, etc.).
+       Selects the H or K component based on their relative Voigt profiles
+       at the current frequency, then samples uz from the chosen component.
+       Uses amr_grid%Dfreq(il) to convert DnuHK_Hz to Doppler units.
+
+   do_resonance4_amr
+       Multi-branch resonance (Fe II 2374, etc.).
+       Currently implemented as a single-line approximation; full multi-
+       transition sampling is deferred to future work.
+
+
+5. grid_mod_amr.f90
+   Module: grid_mod_amr
+
+   AMR grid creation and destruction. Called from main.f90 when
+   par%use_amr_grid = .true.
+
+   grid_create_amr(grid)
+       Full AMR grid setup in ten steps:
+         (1) Rank 0 reads leaf positions, levels, and physical data
+             from disk (RAMSES or generic format, selected by par%amr_type).
+         (2) Broadcasts all raw arrays to every MPI rank via MPI_BCAST.
+         (3) Calls amr_build_tree to construct the octree from the leaf list.
+         (4) Computes reference Doppler frequency Dfreq_ref (at mean T),
+             mean Voigt parameter voigt_amean, and mean Doppler width
+             Dfreq_mean.
+         (5) Allocates physical arrays via amr_alloc_phys.
+         (6) For each leaf il:
+               Dfreq(il)    = line%nu0 / c * sqrt(2kT/mH)
+               voigt_a(il)  = line%A21 / (4*pi*Dfreq(il))
+               Neutral fraction via CIE (Collisional Ionisation Equilibrium)
+               rhokap(il)   = nH * f_neutral * sigma0 * Dfreq_ref/Dfreq(il)
+               rhokapD(il)  = nH * mu_H * DGR * kappa_dust  (if DGR > 0)
+               vfx/vfy/vfz  = bulk velocity / v_thermal
+         (7) Normalises opacities to par%taumax (optical depth along the
+             box diagonal) or par%N_HImax (HI column density), depending
+             on which parameter is set.
+         (8) Sets core-skip threshold:
+               xcrit  = (amr_grid%voigt_amean / pi)^(1/3)
+               xcrit2 = xcrit^2
+         (9) Calls amr_setup_freq_grid to set up the output frequency axis.
+         (10) Allocates output arrays via amr_alloc_output.
+
+   grid_destroy_amr()
+       Deallocates all AMR arrays (tree structure, physical fields, output).
+
+   amr_setup_freq_grid(atau0, boxlen_cm)
+       Determines xfreq_min and xfreq_max (either from par% values or
+       auto-scaled from atau0 = (voigt_a * taumax)^(1/3)), sets dxfreq,
+       and allocates xfreq, velocity, and wavelength arrays.
+
+--------------------------------------------------------------------------------
+Modified Existing Files
+--------------------------------------------------------------------------------
+
+1. define_v2.f90
+   Added to photon_type:
+     integer :: icell_amr = 0
+         Current AMR leaf index. Updated by raytrace_to_tau_amr after each
+         cell crossing. Analogous to photon%icell/jcell/kcell in Cartesian mode.
+
+   Added to params_type:
+     logical            :: use_amr_grid = .false.
+         Master switch. Set .true. in the input namelist to activate AMR mode.
+     character(len=128) :: amr_type     = 'ramses'
+         Data format selector: 'ramses' or 'generic'.
+     character(len=256) :: amr_file     = ''
+         Path to RAMSES output directory, or path to generic text file.
+     integer            :: amr_snapnum  = 0
+         Snapshot number (used only for RAMSES format).
+
+2. scattering_car_v2a.f90
+   In subroutine scattering():
+     Added at module level within the subroutine:
+       use octree_mod, only: amr_grid
+
+     Added an early AMR dispatch branch before the Cartesian code:
+       if (par%use_amr_grid) then
+          i1 = photon%icell_amr
+          if (par%DGR > 0.0_wp .and. allocated(amr_grid%rhokapD)) then
+             p_dust = amr_grid%rhokapD(i1) / &
+                 (amr_grid%rhokap(i1)*voigt(photon%xfreq,amr_grid%voigt_a(i1)) &
+                  + amr_grid%rhokapD(i1))
+             if (rand_number() <= p_dust) then
+                call scatter_dust(photon,grid)
+             else
+                call scatter_resonance(photon,grid)
+             endif
+          else
+             call scatter_resonance(photon,grid)
+          endif
+          return
+       endif
+
+3. setup_v2c.f90
+   In subroutine setup_procedure():
+     Added use statements:
+       use raytrace_amr_mod
+       use scattering_amr_mod
+
+     Added AMR procedure pointer assignment block executed before
+     the Cartesian assignments and returning early:
+       if (par%use_amr_grid) then
+          raytrace_to_tau          => raytrace_to_tau_amr
+          raytrace_to_edge         => raytrace_to_edge_amr
+          raytrace_to_edge_tau_gas => raytrace_to_edge_tau_gas_amr
+          raytrace_to_edge_column  => raytrace_to_edge_column_amr
+          raytrace_to_dist         => raytrace_to_dist_amr
+          raytrace_to_dist_tau_gas => raytrace_to_dist_tau_gas_amr
+          raytrace_to_dist_column  => raytrace_to_dist_column_amr
+          scatter_dust             => scatter_dust_nostokes_amr
+          scatter_resonance        => scatter_resonance_nostokes_amr
+          select case(line%line_type)
+          case (1);     do_resonance => do_resonance1_amr
+          case (2);     do_resonance => do_resonance2_amr
+          case (4);     do_resonance => do_resonance4_amr
+          case default; do_resonance => do_resonance1_amr
+          end select
+          return
+       end if
+
+4. Makefile
+   Added five new object files to OBJSB in dependency order:
+
+     octree_mod.o is placed immediately after gen_photon_car_v2b.o and
+     before scattering_car_v2a.o, because scattering_car_v2a.f90 contains
+     a USE octree_mod statement and therefore requires the compiled module
+     to be available.
+
+     read_ramses_amr.o, raytrace_amr.o, scattering_amr.o, and grid_mod_amr.o
+     are placed after sightline_tau_heal.o and before setup_v2c.o.
+
+   Resulting order around the new entries:
+     ... gen_photon_car_v2b.o \
+         octree_mod.o \
+         scattering_car_v2a.o \
+         run_simulation_mod_v2a.o \
+         sightline_tau_rect.o \
+         sightline_tau_heal.o \
+         read_ramses_amr.o \
+         raytrace_amr.o \
+         scattering_amr.o \
+         grid_mod_amr.o \
+         setup_v2c.o \
+
+5. main.f90
+   Added:
+     use grid_mod_amr
+
+   Replaced the unconditional call grid_create(grid) with:
+     if (par%use_amr_grid) then
+        call grid_create_amr(grid)
+     else
+        call grid_create(grid)
+     end if
+
+   Replaced the unconditional call grid_destroy(grid) with:
+     if (par%use_amr_grid) then
+        call grid_destroy_amr()
+     else
+        call grid_destroy(grid)
+     end if
+
+--------------------------------------------------------------------------------
+Bugs Fixed During Compilation
+--------------------------------------------------------------------------------
+
+1. read_ramses_amr.f90, line 282 — mixed exponent notation
+   Problem:  real(kind=8) :: dx, massH_cgs = 1.6726e-24d0
+             Intel ifort rejects 'e' and 'd' exponent markers in the same
+             literal constant (error #5082).
+   Fix:      Removed the initialiser from the declaration.
+             Added an executable statement after all declarations:
+               massH_cgs = 1.6726e-24_8
+
+2. scattering_amr.f90, do_resonance2_amr — name conflict with mathlib
+   Problem:  Local parameters named one_over_three and two_over_three
+             clashed with identically named public constants exported by
+             the mathlib module (error #6401).
+   Fix:      Removed the local parameter declarations.
+             Replaced references with inline expressions (1.0_wp/3.0_wp)
+             and (2.0_wp/3.0_wp).
+             Also removed unused local variables qH and qK.
+
+3. grid_mod_amr.f90 — missing USE utility
+   Problem:  The function is_finite() (used to test NaN sentinel values
+             in par%xfreq_max and par%xfreq_min) is defined in the utility
+             module, which was not listed in grid_mod_amr's USE statements
+             (error #6404).
+   Fix:      Added   use utility   to the module header of grid_mod_amr.
+
+--------------------------------------------------------------------------------
+Input File Usage
+--------------------------------------------------------------------------------
+
+To enable AMR mode add the following to the input namelist file (.in):
+
+  &parameters
+   par%use_amr_grid = .true.
+
+   ! RAMSES format
+   par%amr_type    = 'ramses'
+   par%amr_file    = '/path/to/simulation/output_00001'
+   par%amr_snapnum = 1
+
+   ! or generic text format
+   ! par%amr_type = 'generic'
+   ! par%amr_file = '/path/to/amr_data.txt'
+
+   par%taumax   = 1.0e6     ! normalise to this HI line-centre optical depth
+   par%nxfreq   = 201       ! number of output frequency channels
+   ...
+  /
+
+Generic text file format:
+  Line 1:             nleaf  boxlen_kpc
+  Lines 2..(nleaf+1): x(kpc)  y(kpc)  z(kpc)  level  nH(cm^-3)  T(K)
+                       vx(km/s)  vy(km/s)  vz(km/s)
+
+--------------------------------------------------------------------------------
+Design Notes
+--------------------------------------------------------------------------------
+
+Procedure pointer dispatch
+  LaRT uses Fortran procedure pointers (raytrace_to_tau, scatter_resonance,
+  do_resonance, etc.) declared in define_v2.f90. setup_v2c.f90 assigns the
+  correct targets at startup. When par%use_amr_grid = .true., all pointers
+  are redirected to the AMR variants and the routine returns immediately,
+  so none of the Cartesian targets are ever called in AMR mode.
+
+Octree storage
+  The octree is stored as a set of flat integer/real arrays indexed by cell
+  number (1-based). The root is cell 1. Child ordering follows the standard
+  octant convention: child_index = 1 + ix + 2*iy + 4*iz, where ix=1 if
+  x >= cell centre x, and similarly for iy, iz. Leaf cells have all eight
+  children equal to zero.
+
+Frequency shift at cell boundaries
+  When a photon crosses from leaf il_old to leaf il_new, its dimensionless
+  frequency is updated as:
+    xfreq_new = (xfreq_old + u_dot_k_old) * Dfreq_old/Dfreq_new - u_dot_k_new
+  where u_dot_k = vfx*kx + vfy*ky + vfz*kz is the line-of-sight bulk
+  velocity in thermal units. This preserves the photon's physical frequency.
+
+MPI distribution
+  Rank 0 reads all leaf data from disk, then broadcasts the raw arrays to
+  all other ranks using MPI_BCAST. Every rank therefore holds a complete
+  copy of the AMR tree and physical data. This is simple but memory-
+  intensive for large simulations; shared-memory (MPI-3 windows) support
+  is deferred to future work.
+
+Thread safety
+  The AMR leaf arrays are read-only during the photon loop. Only the Jout
+  and Jabs output accumulation arrays are written, using !$OMP ATOMIC UPDATE
+  to ensure correctness in OpenMP mode.
+
+Extensibility
+  To support a new AMR data format, write a reader subroutine in (or beside)
+  read_ramses_amr.f90 that fills the same output arrays (xleaf, yleaf, zleaf,
+  leaf_level, nH_arr, T_arr, vx/vy/vz_arr, nleaf, boxlen_cm), then add a
+  new case branch in grid_create_amr (grid_mod_amr.f90) keyed on par%amr_type.
+  No other files need to change.
+
+--------------------------------------------------------------------------------
+Not Yet Implemented / Future Work
+--------------------------------------------------------------------------------
+
+- Output coupling: write_output_rect and write_output_heal use grid%Jout,
+  grid%Jin, grid%xfreq, etc. In AMR mode these fields are stored in amr_grid
+  and must either be copied into grid before calling write_output, or the
+  write routines must be made AMR-aware.
+
+- Photon injection: gen_photon_car_v2b.f90 generates photon positions within
+  Cartesian grid cells. In AMR mode it currently falls back to uniform
+  sampling within the bounding box. Emissivity-weighted sampling from the
+  AMR leaf cells is not yet implemented.
+
+- Peel-off observers: peeling_dust_nostokes and peeling_resonance_nostokes
+  call the Cartesian raytrace_to_edge routines internally. They need to be
+  made aware of AMR mode (either by using the raytrace procedure pointer or
+  by dedicated AMR peel-off routines).
+
+- do_resonance4_amr: Currently a copy of do_resonance1_amr. Full multi-
+  branch sampling (selecting among multiple upper transitions weighted by
+  their absorption probabilities at the current frequency) remains to be
+  implemented.
+
+- Shared-memory MPI: Each rank currently holds a full copy of the AMR
+  tree. For large RAMSES simulations this may be prohibitive; MPI-3
+  shared-memory windows would reduce per-node memory to a single copy.
+
+================================================================================

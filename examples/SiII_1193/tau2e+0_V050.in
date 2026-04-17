@@ -1,0 +1,36 @@
+&parameters
+ par%line_id = 'SiII_1193'
+ par%num_send_at_once = 1000
+
+ par%no_photons   = 1.00000e+08
+ par%temperature  = 3.81929e+05
+ par%taumax       = 2.00000e+00
+ par%velocity_type = 'hubble'
+ par%Vexp         = 50.0
+ par%DGR             = 0.0000
+ par%use_stokes = .true.
+ par%save_direc0     = .true.
+ par%recoil          = .true.
+ par%geometry        = 'sphere'
+ par%source_geometry = 'point'
+ par%source_rmax     = 1.0000
+ par%spectral_type   = 'continuum'
+ par%nx               = 200
+ par%ny               = 200
+ par%nz               = 1
+ par%rmax             = 1.0000
+ par%xmax             = 1.0000
+ par%ymax             = 1.0000
+ par%zmax             = 1.0000
+ par%distance_unit    = ''
+ par%nwavelength    = 240
+ par%wavelength_min = 1188.0
+ par%wavelength_max = 1200.0
+
+ par%distance = 1.0e+03
+ par%nxim     = 100
+ par%nyim     = 100
+ par%dxim     = 1.14706226979472e-03
+ par%dyim     = 1.14706226979472e-03
+ par%nprint     = 1.0e+07
+/

@@ -1,0 +1,24 @@
+&parameters
+ par%no_photons  = 1e7
+ par%temperature = 1.0e4
+ par%taumax      = 1.0e6
+ par%scatt_mat_file = '../data/mueller_Lyalpha.dat'
+ par%DGR         = 0.0
+ par%Vexp        = 0.0
+ par%use_stokes   = .true.
+ par%save_Jin     = .true.
+ par%nx = 201
+ par%ny = 201
+ par%nz = 201
+ par%rmax   = 1.0
+ par%nxfreq = 201
+ par%nxim   = 129
+ par%nyim   = 129
+ par%distance  = 1e2
+
+ par%save_all_photons = .true.
+ par%save_sightline_tau = .true.
+
+ par%nprint = 1e5
+ par%out_merge = .true.
+/

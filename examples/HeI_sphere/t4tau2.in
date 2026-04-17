@@ -1,0 +1,27 @@
+&parameters
+ par%line_id = 'HeI_10833'
+ par%num_send_at_once = 100
+
+ par%no_photons   = 1.00000e+08
+ par%temperature  = 1.00000e+04
+ par%taumax       = 1.00000e+02
+ par%DGR             = 0.0000
+ par%comoving_source = .false.
+ par%save_all        = .false.
+ par%recoil          = .false.
+ par%geometry        = 'sphere'
+ par%source_geometry = 'uniform_sphere'
+ par%source_rmax     = 1.0000
+ par%spectral_type   = 'voigt'
+ par%nx               = 201
+ par%ny               = 201
+ par%nz               = 201
+ par%rmax             = 1.0000
+ par%xmax             = 1.0000
+ par%ymax             = 1.0000
+ par%zmax             = 1.0000
+ par%nvelocity    = 201
+ par%velocity_min =  -80.0
+ par%velocity_max =   40.0
+ par%nprint     = 1.0e+07
+/

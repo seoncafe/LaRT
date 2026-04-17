@@ -1,0 +1,480 @@
+
++++++ t1e5tau1e0.in +++++
+ >>> START @ 2023/07/25 16:41:20
+Use_Master_Slave          : T
+Line ID                   : SiII_1527
+Dust Parameters(a, g)     :  0.3253 0.6761
+Dust-to-Gas Ratio         :    0.000E+00
+Total number of photons   :    1.000E+07
+voigt_a          :        1.789E-03
+temperature (K)  :        1.000E+05
+N(Si II)_pole     :        2.536E+13
+N(Si II)_homo     :        2.536E+13
+tau_pole  (Si II) :        1.000E+00
+tau_homo  (Si II) :        1.000E+00
+tau_pole  (dust) :        0.000E+00
+tau_homo  (dust) :        0.000E+00
+---> Now starting simulation...  @    0.017 mins
+   1.00000E+06 photons calculated:    0.055 mins
+   2.00000E+06 photons calculated:    0.091 mins
+   3.00000E+06 photons calculated:    0.126 mins
+   4.00000E+06 photons calculated:    0.162 mins
+   5.00000E+06 photons calculated:    0.198 mins
+   6.00000E+06 photons calculated:    0.233 mins
+   7.00000E+06 photons calculated:    0.269 mins
+   8.00000E+06 photons calculated:    0.305 mins
+   9.00000E+06 photons calculated:    0.340 mins
+   1.00000E+07 photons calculated:    0.376 mins
+---> Now Gathering Results...
+Average Number of scattering :   1.0570E+00
+Nscatt_dust, Nscatt_gas      :   0.0000E+00  1.0570E+00
+Total Excution Time          :    0.378 mins
+ >>> STOP  @ 2023/07/25 16:41:43
+
++++++ t1e5tau1e0_V050.in +++++
+ >>> START @ 2023/07/25 16:41:44
+Use_Master_Slave          : T
+Line ID                   : SiII_1527
+Dust Parameters(a, g)     :  0.3253 0.6761
+Dust-to-Gas Ratio         :    0.000E+00
+Total number of photons   :    1.000E+07
+voigt_a          :        1.789E-03
+temperature (K)  :        1.000E+05
+N(Si II)_pole     :        2.536E+13
+N(Si II)_homo     :        2.536E+13
+tau_pole  (Si II) :        1.000E+00
+tau_homo  (Si II) :        1.000E+00
+tau_pole  (dust) :        0.000E+00
+tau_homo  (dust) :        0.000E+00
+---> Now starting simulation...  @    0.017 mins
+   1.00000E+06 photons calculated:    0.052 mins
+   2.00000E+06 photons calculated:    0.086 mins
+   3.00000E+06 photons calculated:    0.120 mins
+   4.00000E+06 photons calculated:    0.153 mins
+   5.00000E+06 photons calculated:    0.186 mins
+   6.00000E+06 photons calculated:    0.219 mins
+   7.00000E+06 photons calculated:    0.252 mins
+   8.00000E+06 photons calculated:    0.285 mins
+   9.00000E+06 photons calculated:    0.318 mins
+   1.00000E+07 photons calculated:    0.351 mins
+---> Now Gathering Results...
+Average Number of scattering :   1.0147E+00
+Nscatt_dust, Nscatt_gas      :   0.0000E+00  1.0147E+00
+Total Excution Time          :    0.353 mins
+ >>> STOP  @ 2023/07/25 16:42:06
+
++++++ t1e5tau1e0_V100.in +++++
+ >>> START @ 2023/07/25 16:42:07
+Use_Master_Slave          : T
+Line ID                   : SiII_1527
+Dust Parameters(a, g)     :  0.3253 0.6761
+Dust-to-Gas Ratio         :    0.000E+00
+Total number of photons   :    1.000E+07
+voigt_a          :        1.789E-03
+temperature (K)  :        1.000E+05
+N(Si II)_pole     :        2.536E+13
+N(Si II)_homo     :        2.536E+13
+tau_pole  (Si II) :        1.000E+00
+tau_homo  (Si II) :        1.000E+00
+tau_pole  (dust) :        0.000E+00
+tau_homo  (dust) :        0.000E+00
+---> Now starting simulation...  @    0.017 mins
+   1.00000E+06 photons calculated:    0.052 mins
+   2.00000E+06 photons calculated:    0.084 mins
+   3.00000E+06 photons calculated:    0.117 mins
+   4.00000E+06 photons calculated:    0.149 mins
+   5.00000E+06 photons calculated:    0.182 mins
+   6.00000E+06 photons calculated:    0.214 mins
+   7.00000E+06 photons calculated:    0.247 mins
+   8.00000E+06 photons calculated:    0.279 mins
+   9.00000E+06 photons calculated:    0.312 mins
+   1.00000E+07 photons calculated:    0.344 mins
+---> Now Gathering Results...
+Average Number of scattering :   1.0075E+00
+Nscatt_dust, Nscatt_gas      :   0.0000E+00  1.0075E+00
+Total Excution Time          :    0.347 mins
+ >>> STOP  @ 2023/07/25 16:42:29
+
++++++ t1e5tau2e0.in +++++
+ >>> START @ 2023/07/25 16:42:30
+Use_Master_Slave          : T
+Line ID                   : SiII_1527
+Dust Parameters(a, g)     :  0.3253 0.6761
+Dust-to-Gas Ratio         :    0.000E+00
+Total number of photons   :    1.000E+07
+voigt_a          :        1.789E-03
+temperature (K)  :        1.000E+05
+N(Si II)_pole     :        5.072E+13
+N(Si II)_homo     :        5.072E+13
+tau_pole  (Si II) :        2.000E+00
+tau_homo  (Si II) :        2.000E+00
+tau_pole  (dust) :        0.000E+00
+tau_homo  (dust) :        0.000E+00
+---> Now starting simulation...  @    0.016 mins
+   1.00000E+06 photons calculated:    0.054 mins
+   2.00000E+06 photons calculated:    0.091 mins
+   3.00000E+06 photons calculated:    0.126 mins
+   4.00000E+06 photons calculated:    0.162 mins
+   5.00000E+06 photons calculated:    0.198 mins
+   6.00000E+06 photons calculated:    0.234 mins
+   7.00000E+06 photons calculated:    0.270 mins
+   8.00000E+06 photons calculated:    0.305 mins
+   9.00000E+06 photons calculated:    0.341 mins
+   1.00000E+07 photons calculated:    0.377 mins
+---> Now Gathering Results...
+Average Number of scattering :   1.0943E+00
+Nscatt_dust, Nscatt_gas      :   0.0000E+00  1.0943E+00
+Total Excution Time          :    0.381 mins
+ >>> STOP  @ 2023/07/25 16:42:54
+
++++++ t1e5tau2e0_V050.in +++++
+ >>> START @ 2023/07/25 16:42:55
+Use_Master_Slave          : T
+Line ID                   : SiII_1527
+Dust Parameters(a, g)     :  0.3253 0.6761
+Dust-to-Gas Ratio         :    0.000E+00
+Total number of photons   :    1.000E+07
+voigt_a          :        1.789E-03
+temperature (K)  :        1.000E+05
+N(Si II)_pole     :        5.072E+13
+N(Si II)_homo     :        5.072E+13
+tau_pole  (Si II) :        2.000E+00
+tau_homo  (Si II) :        2.000E+00
+tau_pole  (dust) :        0.000E+00
+tau_homo  (dust) :        0.000E+00
+---> Now starting simulation...  @    0.017 mins
+   1.00000E+06 photons calculated:    0.052 mins
+   2.00000E+06 photons calculated:    0.085 mins
+   3.00000E+06 photons calculated:    0.118 mins
+   4.00000E+06 photons calculated:    0.151 mins
+   5.00000E+06 photons calculated:    0.185 mins
+   6.00000E+06 photons calculated:    0.218 mins
+   7.00000E+06 photons calculated:    0.251 mins
+   8.00000E+06 photons calculated:    0.284 mins
+   9.00000E+06 photons calculated:    0.317 mins
+   1.00000E+07 photons calculated:    0.349 mins
+---> Now Gathering Results...
+Average Number of scattering :   1.0279E+00
+Nscatt_dust, Nscatt_gas      :   0.0000E+00  1.0279E+00
+Total Excution Time          :    0.352 mins
+ >>> STOP  @ 2023/07/25 16:43:17
+
++++++ t1e5tau2e0_V100.in +++++
+ >>> START @ 2023/07/25 16:43:18
+Use_Master_Slave          : T
+Line ID                   : SiII_1527
+Dust Parameters(a, g)     :  0.3253 0.6761
+Dust-to-Gas Ratio         :    0.000E+00
+Total number of photons   :    1.000E+07
+voigt_a          :        1.789E-03
+temperature (K)  :        1.000E+05
+N(Si II)_pole     :        5.072E+13
+N(Si II)_homo     :        5.072E+13
+tau_pole  (Si II) :        2.000E+00
+tau_homo  (Si II) :        2.000E+00
+tau_pole  (dust) :        0.000E+00
+tau_homo  (dust) :        0.000E+00
+---> Now starting simulation...  @    0.017 mins
+   1.00000E+06 photons calculated:    0.051 mins
+   2.00000E+06 photons calculated:    0.084 mins
+   3.00000E+06 photons calculated:    0.117 mins
+   4.00000E+06 photons calculated:    0.149 mins
+   5.00000E+06 photons calculated:    0.182 mins
+   6.00000E+06 photons calculated:    0.214 mins
+   7.00000E+06 photons calculated:    0.247 mins
+   8.00000E+06 photons calculated:    0.279 mins
+   9.00000E+06 photons calculated:    0.311 mins
+   1.00000E+07 photons calculated:    0.344 mins
+---> Now Gathering Results...
+Average Number of scattering :   1.0147E+00
+Nscatt_dust, Nscatt_gas      :   0.0000E+00  1.0147E+00
+Total Excution Time          :    0.346 mins
+ >>> STOP  @ 2023/07/25 16:43:39
+
++++++ t1e5tau5e0.in +++++
+ >>> START @ 2023/07/25 16:43:40
+Use_Master_Slave          : T
+Line ID                   : SiII_1527
+Dust Parameters(a, g)     :  0.3253 0.6761
+Dust-to-Gas Ratio         :    0.000E+00
+Total number of photons   :    1.000E+07
+voigt_a          :        1.789E-03
+temperature (K)  :        1.000E+05
+N(Si II)_pole     :        1.268E+14
+N(Si II)_homo     :        1.268E+14
+tau_pole  (Si II) :        5.000E+00
+tau_homo  (Si II) :        5.000E+00
+tau_pole  (dust) :        0.000E+00
+tau_homo  (dust) :        0.000E+00
+---> Now starting simulation...  @    0.017 mins
+   1.00000E+06 photons calculated:    0.054 mins
+   2.00000E+06 photons calculated:    0.090 mins
+   3.00000E+06 photons calculated:    0.125 mins
+   4.00000E+06 photons calculated:    0.161 mins
+   5.00000E+06 photons calculated:    0.196 mins
+   6.00000E+06 photons calculated:    0.232 mins
+   7.00000E+06 photons calculated:    0.267 mins
+   8.00000E+06 photons calculated:    0.303 mins
+   9.00000E+06 photons calculated:    0.339 mins
+   1.00000E+07 photons calculated:    0.374 mins
+---> Now Gathering Results...
+Average Number of scattering :   1.1422E+00
+Nscatt_dust, Nscatt_gas      :   0.0000E+00  1.1422E+00
+Total Excution Time          :    0.377 mins
+ >>> STOP  @ 2023/07/25 16:44:04
+
++++++ t1e5tau5e0_V050.in +++++
+ >>> START @ 2023/07/25 16:44:05
+Use_Master_Slave          : T
+Line ID                   : SiII_1527
+Dust Parameters(a, g)     :  0.3253 0.6761
+Dust-to-Gas Ratio         :    0.000E+00
+Total number of photons   :    1.000E+07
+voigt_a          :        1.789E-03
+temperature (K)  :        1.000E+05
+N(Si II)_pole     :        1.268E+14
+N(Si II)_homo     :        1.268E+14
+tau_pole  (Si II) :        5.000E+00
+tau_homo  (Si II) :        5.000E+00
+tau_pole  (dust) :        0.000E+00
+tau_homo  (dust) :        0.000E+00
+---> Now starting simulation...  @    0.018 mins
+   1.00000E+06 photons calculated:    0.053 mins
+   2.00000E+06 photons calculated:    0.087 mins
+   3.00000E+06 photons calculated:    0.120 mins
+   4.00000E+06 photons calculated:    0.153 mins
+   5.00000E+06 photons calculated:    0.187 mins
+   6.00000E+06 photons calculated:    0.220 mins
+   7.00000E+06 photons calculated:    0.253 mins
+   8.00000E+06 photons calculated:    0.286 mins
+   9.00000E+06 photons calculated:    0.319 mins
+   1.00000E+07 photons calculated:    0.353 mins
+---> Now Gathering Results...
+Average Number of scattering :   1.0601E+00
+Nscatt_dust, Nscatt_gas      :   0.0000E+00  1.0601E+00
+Total Excution Time          :    0.355 mins
+ >>> STOP  @ 2023/07/25 16:44:27
+
++++++ t1e5tau5e0_V100.in +++++
+ >>> START @ 2023/07/25 16:44:29
+Use_Master_Slave          : T
+Line ID                   : SiII_1527
+Dust Parameters(a, g)     :  0.3253 0.6761
+Dust-to-Gas Ratio         :    0.000E+00
+Total number of photons   :    1.000E+07
+voigt_a          :        1.789E-03
+temperature (K)  :        1.000E+05
+N(Si II)_pole     :        1.268E+14
+N(Si II)_homo     :        1.268E+14
+tau_pole  (Si II) :        5.000E+00
+tau_homo  (Si II) :        5.000E+00
+tau_pole  (dust) :        0.000E+00
+tau_homo  (dust) :        0.000E+00
+---> Now starting simulation...  @    0.019 mins
+   1.00000E+06 photons calculated:    0.054 mins
+   2.00000E+06 photons calculated:    0.087 mins
+   3.00000E+06 photons calculated:    0.120 mins
+   4.00000E+06 photons calculated:    0.152 mins
+   5.00000E+06 photons calculated:    0.185 mins
+   6.00000E+06 photons calculated:    0.218 mins
+   7.00000E+06 photons calculated:    0.250 mins
+   8.00000E+06 photons calculated:    0.283 mins
+   9.00000E+06 photons calculated:    0.316 mins
+   1.00000E+07 photons calculated:    0.348 mins
+---> Now Gathering Results...
+Average Number of scattering :   1.0340E+00
+Nscatt_dust, Nscatt_gas      :   0.0000E+00  1.0340E+00
+Total Excution Time          :    0.351 mins
+ >>> STOP  @ 2023/07/25 16:44:51
+
++++++ t1e5tau1e1.in +++++
+ >>> START @ 2023/07/25 16:44:52
+Use_Master_Slave          : T
+Line ID                   : SiII_1527
+Dust Parameters(a, g)     :  0.3253 0.6761
+Dust-to-Gas Ratio         :    0.000E+00
+Total number of photons   :    1.000E+07
+voigt_a          :        1.789E-03
+temperature (K)  :        1.000E+05
+N(Si II)_pole     :        2.536E+14
+N(Si II)_homo     :        2.536E+14
+tau_pole  (Si II) :        1.000E+01
+tau_homo  (Si II) :        1.000E+01
+tau_pole  (dust) :        0.000E+00
+tau_homo  (dust) :        0.000E+00
+---> Now starting simulation...  @    0.020 mins
+   1.00000E+06 photons calculated:    0.057 mins
+   2.00000E+06 photons calculated:    0.092 mins
+   3.00000E+06 photons calculated:    0.126 mins
+   4.00000E+06 photons calculated:    0.161 mins
+   5.00000E+06 photons calculated:    0.195 mins
+   6.00000E+06 photons calculated:    0.230 mins
+   7.00000E+06 photons calculated:    0.264 mins
+   8.00000E+06 photons calculated:    0.299 mins
+   9.00000E+06 photons calculated:    0.333 mins
+   1.00000E+07 photons calculated:    0.368 mins
+---> Now Gathering Results...
+Average Number of scattering :   1.1597E+00
+Nscatt_dust, Nscatt_gas      :   0.0000E+00  1.1597E+00
+Total Excution Time          :    0.371 mins
+ >>> STOP  @ 2023/07/25 16:45:15
+
++++++ t1e5tau1e1_V050.in +++++
+ >>> START @ 2023/07/25 16:45:16
+Use_Master_Slave          : T
+Line ID                   : SiII_1527
+Dust Parameters(a, g)     :  0.3253 0.6761
+Dust-to-Gas Ratio         :    0.000E+00
+Total number of photons   :    1.000E+07
+voigt_a          :        1.789E-03
+temperature (K)  :        1.000E+05
+N(Si II)_pole     :        2.536E+14
+N(Si II)_homo     :        2.536E+14
+tau_pole  (Si II) :        1.000E+01
+tau_homo  (Si II) :        1.000E+01
+tau_pole  (dust) :        0.000E+00
+tau_homo  (dust) :        0.000E+00
+---> Now starting simulation...  @    0.019 mins
+   1.00000E+06 photons calculated:    0.054 mins
+   2.00000E+06 photons calculated:    0.088 mins
+   3.00000E+06 photons calculated:    0.121 mins
+   4.00000E+06 photons calculated:    0.154 mins
+   5.00000E+06 photons calculated:    0.188 mins
+   6.00000E+06 photons calculated:    0.221 mins
+   7.00000E+06 photons calculated:    0.254 mins
+   8.00000E+06 photons calculated:    0.287 mins
+   9.00000E+06 photons calculated:    0.320 mins
+   1.00000E+07 photons calculated:    0.354 mins
+---> Now Gathering Results...
+Average Number of scattering :   1.0945E+00
+Nscatt_dust, Nscatt_gas      :   0.0000E+00  1.0945E+00
+Total Excution Time          :    0.357 mins
+ >>> STOP  @ 2023/07/25 16:45:38
+
++++++ t1e5tau1e1_V100.in +++++
+ >>> START @ 2023/07/25 16:45:40
+Use_Master_Slave          : T
+Line ID                   : SiII_1527
+Dust Parameters(a, g)     :  0.3253 0.6761
+Dust-to-Gas Ratio         :    0.000E+00
+Total number of photons   :    1.000E+07
+voigt_a          :        1.789E-03
+temperature (K)  :        1.000E+05
+N(Si II)_pole     :        2.536E+14
+N(Si II)_homo     :        2.536E+14
+tau_pole  (Si II) :        1.000E+01
+tau_homo  (Si II) :        1.000E+01
+tau_pole  (dust) :        0.000E+00
+tau_homo  (dust) :        0.000E+00
+---> Now starting simulation...  @    0.017 mins
+   1.00000E+06 photons calculated:    0.052 mins
+   2.00000E+06 photons calculated:    0.085 mins
+   3.00000E+06 photons calculated:    0.118 mins
+   4.00000E+06 photons calculated:    0.151 mins
+   5.00000E+06 photons calculated:    0.183 mins
+   6.00000E+06 photons calculated:    0.216 mins
+   7.00000E+06 photons calculated:    0.249 mins
+   8.00000E+06 photons calculated:    0.281 mins
+   9.00000E+06 photons calculated:    0.314 mins
+   1.00000E+07 photons calculated:    0.346 mins
+---> Now Gathering Results...
+Average Number of scattering :   1.0601E+00
+Nscatt_dust, Nscatt_gas      :   0.0000E+00  1.0601E+00
+Total Excution Time          :    0.349 mins
+ >>> STOP  @ 2023/07/25 16:46:01
+
++++++ t1e5tau2e1.in +++++
+ >>> START @ 2023/07/25 16:46:03
+Use_Master_Slave          : T
+Line ID                   : SiII_1527
+Dust Parameters(a, g)     :  0.3253 0.6761
+Dust-to-Gas Ratio         :    0.000E+00
+Total number of photons   :    1.000E+07
+voigt_a          :        1.789E-03
+temperature (K)  :        1.000E+05
+N(Si II)_pole     :        5.072E+14
+N(Si II)_homo     :        5.072E+14
+tau_pole  (Si II) :        2.000E+01
+tau_homo  (Si II) :        2.000E+01
+tau_pole  (dust) :        0.000E+00
+tau_homo  (dust) :        0.000E+00
+---> Now starting simulation...  @    0.020 mins
+   1.00000E+06 photons calculated:    0.056 mins
+   2.00000E+06 photons calculated:    0.090 mins
+   3.00000E+06 photons calculated:    0.123 mins
+   4.00000E+06 photons calculated:    0.157 mins
+   5.00000E+06 photons calculated:    0.191 mins
+   6.00000E+06 photons calculated:    0.225 mins
+   7.00000E+06 photons calculated:    0.258 mins
+   8.00000E+06 photons calculated:    0.292 mins
+   9.00000E+06 photons calculated:    0.326 mins
+   1.00000E+07 photons calculated:    0.359 mins
+---> Now Gathering Results...
+Average Number of scattering :   1.1657E+00
+Nscatt_dust, Nscatt_gas      :   0.0000E+00  1.1657E+00
+Total Excution Time          :    0.362 mins
+ >>> STOP  @ 2023/07/25 16:46:25
+
++++++ t1e5tau2e1_V050.in +++++
+ >>> START @ 2023/07/25 16:46:26
+Use_Master_Slave          : T
+Line ID                   : SiII_1527
+Dust Parameters(a, g)     :  0.3253 0.6761
+Dust-to-Gas Ratio         :    0.000E+00
+Total number of photons   :    1.000E+07
+voigt_a          :        1.789E-03
+temperature (K)  :        1.000E+05
+N(Si II)_pole     :        5.072E+14
+N(Si II)_homo     :        5.072E+14
+tau_pole  (Si II) :        2.000E+01
+tau_homo  (Si II) :        2.000E+01
+tau_pole  (dust) :        0.000E+00
+tau_homo  (dust) :        0.000E+00
+---> Now starting simulation...  @    0.018 mins
+   1.00000E+06 photons calculated:    0.053 mins
+   2.00000E+06 photons calculated:    0.086 mins
+   3.00000E+06 photons calculated:    0.119 mins
+   4.00000E+06 photons calculated:    0.152 mins
+   5.00000E+06 photons calculated:    0.185 mins
+   6.00000E+06 photons calculated:    0.219 mins
+   7.00000E+06 photons calculated:    0.252 mins
+   8.00000E+06 photons calculated:    0.285 mins
+   9.00000E+06 photons calculated:    0.318 mins
+   1.00000E+07 photons calculated:    0.351 mins
+---> Now Gathering Results...
+Average Number of scattering :   1.1269E+00
+Nscatt_dust, Nscatt_gas      :   0.0000E+00  1.1269E+00
+Total Excution Time          :    0.354 mins
+ >>> STOP  @ 2023/07/25 16:46:49
+
++++++ t1e5tau2e1_V100.in +++++
+ >>> START @ 2023/07/25 16:46:50
+Use_Master_Slave          : T
+Line ID                   : SiII_1527
+Dust Parameters(a, g)     :  0.3253 0.6761
+Dust-to-Gas Ratio         :    0.000E+00
+Total number of photons   :    1.000E+07
+voigt_a          :        1.789E-03
+temperature (K)  :        1.000E+05
+N(Si II)_pole     :        5.072E+14
+N(Si II)_homo     :        5.072E+14
+tau_pole  (Si II) :        2.000E+01
+tau_homo  (Si II) :        2.000E+01
+tau_pole  (dust) :        0.000E+00
+tau_homo  (dust) :        0.000E+00
+---> Now starting simulation...  @    0.019 mins
+   1.00000E+06 photons calculated:    0.054 mins
+   2.00000E+06 photons calculated:    0.086 mins
+   3.00000E+06 photons calculated:    0.119 mins
+   4.00000E+06 photons calculated:    0.152 mins
+   5.00000E+06 photons calculated:    0.185 mins
+   6.00000E+06 photons calculated:    0.217 mins
+   7.00000E+06 photons calculated:    0.250 mins
+   8.00000E+06 photons calculated:    0.283 mins
+   9.00000E+06 photons calculated:    0.315 mins
+   1.00000E+07 photons calculated:    0.348 mins
+---> Now Gathering Results...
+Average Number of scattering :   1.0947E+00
+Nscatt_dust, Nscatt_gas      :   0.0000E+00  1.0947E+00
+Total Excution Time          :    0.351 mins
+ >>> STOP  @ 2023/07/25 16:47:12

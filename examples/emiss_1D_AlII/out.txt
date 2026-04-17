@@ -1,0 +1,36 @@
+
+Running ../../LaRT.x on mocafe with  threads.
+   with the machinefile /tmp/host_file_12808
+
++++++ AlII_ex.in +++++
+ >>> START @ 2023/03/23 17:01:37
+Use_Master_Slave          : T
+Line ID                   : AlII_1671
+Dust Parameters(a, g)     :  0.3253 0.6761
+Dust Extinction per H     :    1.606E-21
+Dust-to-Gas Ratio         :    0.000E+00
+Total number of photons   :    1.000E+07
+voigt_a          :        7.551E-03
+temperature (K)  :        1.000E+04
+N(Al II)_pole     :        1.116E+13
+N(Al II)_homo     :        1.243E+13
+tau_pole  (Al II) :        3.372E+01
+tau_homo  (Al II) :        4.011E+01
+tau_pole  (dust) :        0.000E+00
+tau_homo  (dust) :        0.000E+00
+---> Now starting simulation...  @    0.050 mins
+   1.00000E+06 photons calculated:    0.320 mins
+   2.00000E+06 photons calculated:    0.588 mins
+   3.00000E+06 photons calculated:    0.855 mins
+   4.00000E+06 photons calculated:    1.122 mins
+   5.00000E+06 photons calculated:    1.389 mins
+   6.00000E+06 photons calculated:    1.656 mins
+   7.00000E+06 photons calculated:    1.923 mins
+   8.00000E+06 photons calculated:    2.190 mins
+   9.00000E+06 photons calculated:    2.457 mins
+   1.00000E+07 photons calculated:    2.724 mins
+---> Now Gathering Results...
+Average Number of scattering :   5.5003E+01
+Nscatt_dust, Nscatt_gas      :   0.0000E+00  5.5003E+01
+Total Excution Time          :    2.727 mins
+ >>> STOP  @ 2023/03/23 17:04:22

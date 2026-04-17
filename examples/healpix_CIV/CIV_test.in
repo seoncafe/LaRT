@@ -1,0 +1,43 @@
+&parameters
+ par%line_id     = 'CIV_1548'
+! par%no_photons  = 1e10
+ par%no_photons  = 1e9
+! par%no_photons  = 1e6
+ par%num_send_at_once = 10000
+
+ par%temperature = 5.0e5
+ !par%taumax      = 1.0e1
+ par%N_gasmax      = 1.0e15
+ par%DGR         = 0.0
+
+ par%distance_unit = 'kpc'
+
+ par%geometry         = 'cylinder'
+ par%density_zscale   = 1.0
+ par%density_rscale   = 10.0
+ par%source_geometry  = 'exponential_cylinder'
+ par%source_zscale    = 0.5
+ par%source_rscale    = 5.0
+ par%nside            = 64
+ par%obsx             = -8.5
+ par%obsy             = 0.0
+ par%obsz             = 0.0
+
+ par%save_sightline_tau = .true.
+ par%save_direc0        = .true.
+
+ par%comoving_source  = .false.
+ par%recoil           = .false.
+ par%spectral_type    = 'voigt'
+ par%nx = 200
+ par%ny = 200
+ par%nz = 100
+ par%xmax = 10.0
+ par%ymax = 10.0
+ par%zmax = 5.0
+ par%rmax = 10.0
+ !par%nxfreq = 120
+ par%nwavelength = 120
+ par%no_print = 1e8
+ !par%out_bitpix = -64
+/

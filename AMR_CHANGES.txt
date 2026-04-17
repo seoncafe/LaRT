@@ -1,0 +1,285 @@
+================================================================================
+LaRT_v2.00 AMR (Adaptive Mesh Refinement) Extension
+================================================================================
+Date: 2026-04-17
+Author: Claude Code (Anthropic)
+
+--------------------------------------------------------------------------------
+개요 (Overview)
+--------------------------------------------------------------------------------
+LaRT_v2.00 에 octree 기반 AMR 그리드 지원을 추가하였습니다.
+RAMSES 시뮬레이션 데이터 읽기 및 임의 octree 구조 지원을 포함합니다.
+
+--------------------------------------------------------------------------------
+신규 파일 (New Files)
+--------------------------------------------------------------------------------
+
+1. octree_mod.f90
+   - 모듈명: octree_mod
+   - AMR 그리드 타입 정의 (amr_grid_type) 및 전역 변수 amr_grid
+   - amr_grid_type 필드:
+       * 트리 구조: ncell, nleaf, parent(:), children(:,8), level(:),
+                    cx(:), cy(:), cz(:), ch(:), ileaf(:), icell_of_leaf(:)
+       * 물리량:    rhokap(:), rhokapD(:), Dfreq(:), voigt_a(:),
+                    vfx(:), vfy(:), vfz(:)
+       * 주파수 그리드: xfreq_min, xfreq_max, dxfreq, nxfreq, Dfreq_ref,
+                        xfreq(:), velocity(:), wavelength(:)
+       * 출력 배열: Jout(:), Jin(:), Jabs(:)
+       * 코어 스킵: xcrit, xcrit2
+       * 박스 크기: box_xmin/xmax, box_ymin/ymax, box_zmin/zmax, boxlen
+   - 주요 서브루틴/함수:
+       * amr_find_leaf(x,y,z)          : 좌표 → leaf 인덱스
+       * amr_find_cell(x,y,z)          : 좌표 → 셀 인덱스 (내부용)
+       * amr_cell_exit(icell,x,y,z,kx,ky,kz,t_exit,iface)
+                                        : 현재 셀의 탈출 시간 및 면 계산
+       * amr_build_tree(xleaf,yleaf,zleaf,leaf_level,nleaf,box_*)
+                                        : leaf 목록으로 octree 구성
+       * amr_alloc_phys(use_dust)       : 물리량 배열 할당
+       * amr_alloc_output(save_jin,save_jabs,use_dust)
+                                        : 출력 배열 할당
+       * grow_tree_arrays(new_max)      : 트리 배열 동적 확장
+
+2. read_ramses_amr.f90
+   - 모듈명: read_ramses_amr_mod
+   - 주요 서브루틴:
+       * ramses_read_leaf_cells(repository, snapnum, ...)
+           RAMSES amr_*.out* / hydro_*.out* 이진 파일 읽기
+           두 번 읽기 방식: 1차 leaf 개수 카운트, 2차 데이터 채우기
+           출력: xleaf,yleaf,zleaf (코드 단위), leaf_level,
+                 nH_cgs, T_cgs, vx/vy/vz_cgs, nleaf, boxlen_cm
+       * ramses_read_info(repository, snapnum, ...)
+           info_{snapnum}.txt 파싱:
+           ncpu, unit_l, unit_d, unit_t, unit_v, boxlen, gamma
+       * ramses_count_leaves(repository, snapnum, ncpu, ...)
+           1차 패스: son==0 인 leaf 셀 개수 계산
+       * ramses_read_all_cpus(repository, snapnum, ncpu, ...)
+           2차 패스: 위치(xg), son 배열, hydro 변수 읽기
+           온도 계산: T = (gamma-1)*eint * unit_v^2 * mu*mH/kB
+       * generic_amr_read(filename, ...)
+           텍스트 형식 범용 읽기 (헤더: nleaf boxlen_kpc,
+           이후 x y z level nH T vx vy vz 형식)
+       * skip_records(unit, n)
+           Fortran unformatted 레코드 건너뛰기 헬퍼
+
+3. raytrace_amr.f90
+   - 모듈명: raytrace_amr_mod
+   - Cartesian raytrace 프로시저 포인터와 동일한 시그니처로 구현:
+       * raytrace_to_tau_amr(photon, grid, tau_in)
+           광학 깊이까지 이동, photon 위치/주파수/icell_amr 갱신,
+           탈출 광자 amr_grid%Jout 기록
+       * raytrace_to_edge_amr(photon0, grid, tau)
+           박스 경계까지 총 tau 계산
+       * raytrace_to_edge_tau_gas_amr
+           가스 전용 tau → 경계
+       * raytrace_to_edge_column_amr
+           N_gas + tau_dust → 경계
+       * raytrace_to_dist_amr
+           주어진 거리까지 총 tau 계산
+       * raytrace_to_dist_tau_gas_amr
+           가스 tau → 거리
+       * raytrace_to_dist_column_amr
+           N_gas + tau_dust → 거리
+   - 핵심 traversal 루프:
+       amr_cell_exit → tau 누적 → 면 통과 (tiny*1e6 오프셋) →
+       amr_find_leaf → 주파수 시프트 (Dfreq 변환)
+   - tau_huge = 745.2 조기 탈출
+
+4. scattering_amr.f90
+   - 모듈명: scattering_amr_mod
+   - amr_grid 배열을 참조하는 산란 루틴 (Stokes 없음):
+       * scattering_amr_dispatch(photon, grid)
+           AMR 모드 최상위 산란 디스패처
+       * scatter_dust_nostokes_amr(photon, grid)
+           먼지 산란: Henyey-Greenstein 위상함수,
+           amr_grid%vfx/vfy/vfz(il), Jabs 기록
+       * scatter_resonance_nostokes_amr(photon, grid)
+           공명 산란: amr_grid%xcrit/xcrit2, 되튐(recoil) 보정
+       * do_resonance1_amr(photon, grid, uz, xfreq_atom, cost, sint, ...)
+           단일 선 공명 (Ly-alpha H I 등),
+           amr_grid%voigt_a(il) 사용
+       * do_resonance2_amr
+           두 선 공명 (CII, Ca II H&K 등)
+       * do_resonance4_amr
+           다중 분기 선 (FeII 2374 등)
+
+5. grid_mod_amr.f90
+   - 모듈명: grid_mod_amr
+   - 주요 서브루틴:
+       * grid_create_amr(grid)
+           (1) rank 0 에서 데이터 읽기 (RAMSES 또는 generic)
+           (2) MPI_BCAST 로 전체 rank 에 배포
+           (3) amr_build_tree 로 octree 구성
+           (4) Dfreq_ref, voigt_amean, Dfreq_mean 설정
+           (5) amr_alloc_phys 로 물리량 배열 할당
+           (6) leaf별 Dfreq, voigt_a, CIE 중성 분율, rhokap, rhokapD,
+               열속도 단위 속도 계산
+           (7) taumax 또는 N_HImax 로 불투명도 정규화
+           (8) 코어 스킵 파라미터 (xcrit, xcrit2) 설정
+           (9) amr_setup_freq_grid 로 주파수 그리드 설정
+           (10) amr_alloc_output 으로 출력 배열 할당
+       * grid_destroy_amr()
+           모든 AMR 배열 해제
+       * amr_setup_freq_grid(atau0, boxlen_cm)
+           xfreq_min/max/dxfreq 계산, xfreq/velocity/wavelength 배열 할당
+
+--------------------------------------------------------------------------------
+수정된 기존 파일 (Modified Existing Files)
+--------------------------------------------------------------------------------
+
+1. define_v2.f90
+   - photon_type 에 추가:
+       integer :: icell_amr = 0       ! 현재 AMR leaf 인덱스
+   - params_type 에 추가:
+       logical            :: use_amr_grid = .false.
+       character(len=128) :: amr_type     = 'ramses'
+       character(len=256) :: amr_file     = ''
+       integer            :: amr_snapnum  = 0
+
+2. scattering_car_v2a.f90
+   - scattering() 서브루틴에 추가:
+       use octree_mod, only: amr_grid
+   - scattering() 서브루틴 앞부분에 AMR 분기 추가:
+       if (par%use_amr_grid) then
+          ! amr_grid 배열을 참조하여 먼지/공명 산란 디스패치
+          ...
+          return
+       end if
+
+3. setup_v2c.f90
+   - setup_procedure 에 추가:
+       use raytrace_amr_mod
+       use scattering_amr_mod
+   - setup_procedure 앞부분에 AMR 프로시저 포인터 할당 블록 추가:
+       if (par%use_amr_grid) then
+          raytrace_to_tau          => raytrace_to_tau_amr
+          raytrace_to_edge         => raytrace_to_edge_amr
+          raytrace_to_edge_tau_gas => raytrace_to_edge_tau_gas_amr
+          raytrace_to_edge_column  => raytrace_to_edge_column_amr
+          raytrace_to_dist         => raytrace_to_dist_amr
+          raytrace_to_dist_tau_gas => raytrace_to_dist_tau_gas_amr
+          raytrace_to_dist_column  => raytrace_to_dist_column_amr
+          scatter_dust             => scatter_dust_nostokes_amr
+          scatter_resonance        => scatter_resonance_nostokes_amr
+          select case(line%line_type)
+          case (1);   do_resonance => do_resonance1_amr
+          case (2);   do_resonance => do_resonance2_amr
+          case (4);   do_resonance => do_resonance4_amr
+          case default; do_resonance => do_resonance1_amr
+          end select
+          return
+       end if
+
+4. Makefile
+   - OBJSB 목록에 추가 (의존성 순서 준수):
+       octree_mod.o         : gen_photon_car_v2b.o 다음
+                              (scattering_car_v2a.o 가 octree_mod 를 USE 하므로
+                               반드시 앞에 위치해야 함)
+       read_ramses_amr.o    : sightline_tau_heal.o 다음
+       raytrace_amr.o       : read_ramses_amr.o 다음
+       scattering_amr.o     : raytrace_amr.o 다음
+       grid_mod_amr.o       : scattering_amr.o 다음
+   - 최종 순서:
+       ... gen_photon_car_v2b.o \
+           octree_mod.o \
+           scattering_car_v2a.o \
+           run_simulation_mod_v2a.o \
+           sightline_tau_rect.o \
+           sightline_tau_heal.o \
+           read_ramses_amr.o \
+           raytrace_amr.o \
+           scattering_amr.o \
+           grid_mod_amr.o \
+           setup_v2c.o \
+
+5. main.f90
+   - use grid_mod_amr 추가
+   - grid_create 호출을 조건부로 변경:
+       if (par%use_amr_grid) then
+          call grid_create_amr(grid)
+       else
+          call grid_create(grid)
+       end if
+   - grid_destroy 호출도 조건부로 변경:
+       if (par%use_amr_grid) then
+          call grid_destroy_amr()
+       else
+          call grid_destroy(grid)
+       end if
+
+--------------------------------------------------------------------------------
+컴파일 중 수정한 버그 (Bugs Fixed During Compilation)
+--------------------------------------------------------------------------------
+
+1. read_ramses_amr.f90 (line 282):
+   문제: 선언부에서 = 1.6726e-24d0 초기화 (e 와 d 지수 표기 혼용)
+   수정: 선언부에서 초기화 제거, 실행부에서 massH_cgs = 1.6726e-24_8 할당
+
+2. scattering_amr.f90 (do_resonance2_amr):
+   문제: one_over_three, two_over_three 가 mathlib 모듈의 이름과 충돌
+   수정: 지역 parameter 제거, 인라인 리터럴 (1.0_wp/3.0_wp) 로 대체
+         미사용 변수 qH, qK 도 제거
+
+3. grid_mod_amr.f90:
+   문제: is_finite() 함수를 사용하나 utility 모듈을 USE 하지 않음
+   수정: 모듈 선두에 use utility 추가
+
+--------------------------------------------------------------------------------
+입력 파일 사용 방법 (Input File Usage)
+--------------------------------------------------------------------------------
+
+AMR 모드를 활성화하려면 입력 파일 (.in) 에 다음을 추가하세요:
+
+  &parameters
+   par%use_amr_grid = .true.
+   par%amr_type     = 'ramses'        ! 'ramses' 또는 'generic'
+   par%amr_file     = '/path/to/output_00001'   ! RAMSES output 디렉토리
+   par%amr_snapnum  = 1               ! 스냅샷 번호
+   par%taumax       = 1.0e6           ! 정규화 기준 광학 깊이 (또는 N_HImax)
+   par%nxfreq       = 201             ! 주파수 채널 수
+   ...
+  /
+
+generic 형식 사용 시:
+  par%amr_type = 'generic'
+  par%amr_file = '/path/to/amr_data.txt'
+
+  텍스트 파일 형식:
+    첫째 줄: nleaf  boxlen_kpc
+    이후 각 줄: x(kpc) y(kpc) z(kpc) level nH(cm^-3) T(K) vx(km/s) vy(km/s) vz(km/s)
+
+--------------------------------------------------------------------------------
+설계 원칙 (Design Principles)
+--------------------------------------------------------------------------------
+
+1. 프로시저 포인터 활용:
+   기존 Cartesian 루틴과 동일한 인터페이스를 유지하면서,
+   par%use_amr_grid = .true. 일 때 AMR 루틴으로 교체됩니다.
+   run_simulation_mod_v2a.f90 이나 gen_photon_car_v2b.f90 은
+   수정 없이 그대로 사용됩니다.
+
+2. MPI 배포:
+   rank 0 에서 데이터를 읽고 MPI_BCAST 로 전 rank 에 배포합니다.
+   (공유 메모리 방식은 향후 구현 예정)
+
+3. 확장성:
+   새로운 AMR 데이터 형식을 추가하려면 read_ramses_amr.f90 에
+   새 서브루틴을 작성하고, grid_mod_amr.f90 의 grid_create_amr 내
+   select case(par%amr_type) 분기에 추가하면 됩니다.
+
+4. 스레드 안전:
+   amr_grid 물리량 배열은 시뮬레이션 중 읽기 전용입니다.
+   Jout/Jabs 누적에만 !$OMP ATOMIC UPDATE 가 사용됩니다.
+
+--------------------------------------------------------------------------------
+미구현 / 향후 작업 (Not Yet Implemented / Future Work)
+--------------------------------------------------------------------------------
+
+- 출력 루틴 (write_output_rect/heal) 이 amr_grid%Jout 을 직접 쓰도록 연동
+  현재는 Cartesian grid%Jout 과 별도로 존재함
+- 광자 생성 (gen_photon_car_v2b): AMR 박스 내 emissivity 가중 샘플링
+  현재는 균일 샘플링 또는 point source 로 작동
+- peel-off (peeling_dust_nostokes, peeling_resonance_nostokes): AMR 불투명도 참조
+- do_resonance4_amr: 다중 상위 전이 샘플링 완전 구현 필요
+- 공유 메모리 MPI 방식 지원 (현재는 각 rank 가 전체 복사본 보유)
+
+================================================================================
