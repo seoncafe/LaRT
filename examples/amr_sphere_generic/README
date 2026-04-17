@@ -1,0 +1,50 @@
+AMR sphere example (generic text format)
+========================================
+
+Files
+-----
+  sphere_amr.dat          Sample AMR leaf-cell data (112 cells, 100 kpc box)
+  sphere_amr_tau4.in      Point source, tau=1e4, no peel-off
+  sphere_amr_tau4_peel.in Point source, tau=1e4, with peel-off + Jin output
+  run.sh                  Convenience run script
+
+Data file format (sphere_amr.dat)
+----------------------------------
+Header (1 line):
+  nleaf  boxlen_kpc
+
+One line per leaf cell:
+  x[kpc]  y[kpc]  z[kpc]  level  nH[cm^-3]  T[K]  vx[km/s]  vy[km/s]  vz[km/s]
+
+  x, y, z   : leaf-cell centre in kpc (origin at box corner, i.e., 0 .. boxlen_kpc)
+  level      : AMR refinement level (1 = root)
+  nH         : total hydrogen number density [cm^-3]
+  T          : gas temperature [K]
+  vx/vy/vz   : bulk velocity [km/s]
+
+Neutral fraction:
+  By default (par%use_cie_condition = .false.) all hydrogen is assumed neutral.
+  Set par%use_cie_condition = .true. to estimate nHI/nH from CIE.
+
+Key AMR parameters
+------------------
+  par%use_amr_grid = .true.
+  par%amr_type     = 'generic'       ! or 'ramses'
+  par%amr_file     = 'sphere_amr.dat'
+
+Grid structure in this example
+------------------------------
+  Level 2 cells (25 kpc) fill the outer volume (r > 30 kpc from box centre).
+  Level 3 cells (12.5 kpc) fill the inner sphere (r < 30 kpc).
+  Density profile: nH(r) = nH0 * exp(-r^2 / 2*(30 kpc)^2)
+  Temperature: uniform 10^4 K, static gas (v=0).
+
+Running
+-------
+  cd examples/amr_sphere_generic
+  mpirun -np 4 ../../LaRT.x sphere_amr_tau4.in
+
+Output files
+------------
+  sphere_amr_tau4.fits.gz        Emergent spectrum / surface brightness map
+  sphere_amr_tau4_peel.fits.gz   Peel-off observer image (if save_peeloff=.true.)

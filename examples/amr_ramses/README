@@ -1,0 +1,48 @@
+AMR RAMSES example
+==================
+
+Files
+-----
+  ramses_snap10.in    Template input file for a RAMSES snapshot
+
+Usage
+-----
+1. Edit ramses_snap10.in:
+   - Set par%amr_file    = '/path/to/ramses_run'
+   - Set par%amr_snapnum = <output number>
+
+2. Run:
+   mpirun -np 8 ../../LaRT.x ramses_snap10.in
+
+RAMSES directory structure expected
+-------------------------------------
+  <amr_file>/output_<NNNNN>/
+      info_<NNNNN>.txt
+      amr_<NNNNN>.out00001  ...  amr_<NNNNN>.out<NCPU>
+      hydro_<NNNNN>.out00001 ... hydro_<NNNNN>.out<NCPU>
+
+  where NNNNN = par%amr_snapnum zero-padded to 5 digits.
+
+Hydro variable layout assumed
+-------------------------------
+  Variable 1: density (code units)
+  Variables 2-4: momentum (rho*vx, rho*vy, rho*vz)
+  Variable 5: total energy (or pressure)
+  Variable 6: metallicity (optional, not used by LaRT)
+
+  Unit scales (unit_l, unit_d, unit_t) are read from info_NNNNN.txt.
+
+Neutral fraction
+----------------
+  par%use_cie_condition = .true.   (recommended for cosmological runs)
+      nHI/nH estimated from nH and T using collisional-ionisation equilibrium.
+
+  par%use_cie_condition = .false.  (default)
+      All hydrogen assumed neutral.  Only appropriate for cold ISM runs.
+
+Opacity normalisation
+---------------------
+  par%taumax  > 0   : rescale so that tau_pole = par%taumax
+  par%N_HImax > 0   : rescale to target column density [cm^-2]
+  Both <= 0         : use raw physical densities from RAMSES (recommended
+                      for real simulations where nHI is already physical)

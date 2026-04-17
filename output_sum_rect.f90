@@ -583,8 +583,10 @@ contains
      intensity_bin_unit = grid%dxfreq
   end if
 
-  ! Surface area of the cubic AMR box (positions in cm, distance2cm = 1)
-  area = 6.0_wp * amr_grid%L_box**2
+  ! Surface area of the cubic AMR box in cm^2.
+  ! amr_grid%L_box is in cm (= boxlen_code * distance2cm), so L_box^2 already
+  ! includes distance2cm^2, consistent with the Cartesian: xrange^2 * distance2cm^2.
+  area = 6.0_wp * amr_grid%L_box**2  ! L_box in cm
 
   grid%Jout(:) = grid%Jout(:) / (par%nphotons * intensity_bin_unit * twopi * area)
   if (associated(grid%Jin)) &

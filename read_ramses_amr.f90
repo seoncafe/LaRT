@@ -494,21 +494,30 @@ contains
     integer,               intent(out) :: nleaf
     real(wp),              intent(out) :: boxlen_phys
 
-    ! This stub reads a simple text/binary format.
+    ! Reads a simple text format.
     ! Format (one leaf per line):
-    !   x [kpc], y [kpc], z [kpc], level, nH [cm^-3], T [K], vx [km/s], vy [km/s], vz [km/s]
-    ! Header line: nleaf  boxlen_kpc
+    !   x, y, z, level, nH [cm^-3], T [K], vx [km/s], vy [km/s], vz [km/s]
+    ! Header line: nleaf  boxlen
+    !
+    ! Position unit is set by par%distance_unit / par%distance2cm (same as
+    ! Cartesian mode):
+    !   distance_unit = 'kpc'  : x,y,z and boxlen are in kpc  -> distance2cm = kpc2cm
+    !   distance_unit = 'pc'   : in pc                        -> distance2cm = pc2cm
+    !   distance_unit = 'au'   : in au                        -> distance2cm = au2cm
+    !   distance_unit = ''     : already in cm                -> distance2cm = 1
+    !   distance2cm = <value>  : 1 data unit = value cm  (overrides distance_unit)
+    ! par%distance2cm is always set by setup_v2c before this routine is called.
     real(wp) :: x, y, z, nH, T, vx, vy, vz
     integer  :: lv, n, unit, ios
-    real(wp) :: bl_kpc
+    real(wp) :: bl
 
     unit = 51
     open(unit, file=trim(filename), status='old', action='read', iostat=ios)
     if (ios /= 0) stop 'generic_amr_read: cannot open file'
 
-    read(unit, *) n, bl_kpc
-    nleaf      = n
-    boxlen_phys = bl_kpc * kpc2cm  ! convert to cm
+    read(unit, *) n, bl
+    nleaf       = n
+    boxlen_phys = bl          ! in code units (kpc, pc, au, or cm) as written in the file
 
     allocate(xleaf(n), yleaf(n), zleaf(n), leaf_level(n))
     allocate(nH_cgs(n), T_cgs(n), vx_cgs(n), vy_cgs(n), vz_cgs(n))
@@ -516,9 +525,9 @@ contains
     do n = 1, nleaf
       read(unit, *, iostat=ios) x, y, z, lv, nH, T, vx, vy, vz
       if (ios /= 0) exit
-      xleaf(n)      = x * kpc2cm
-      yleaf(n)      = y * kpc2cm
-      zleaf(n)      = z * kpc2cm
+      xleaf(n)      = x   ! code units; caller converts to cm via distance2cm
+      yleaf(n)      = y
+      zleaf(n)      = z
       leaf_level(n) = lv
       nH_cgs(n)     = nH
       T_cgs(n)      = T

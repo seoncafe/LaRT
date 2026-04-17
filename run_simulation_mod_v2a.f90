@@ -192,21 +192,32 @@ contains
   !--- add escaped photon fraction to Jout.
   !--- This is done when the forced first scattering technique is used (2021.08.10).
   subroutine add_escaped_fraction_to_Jout(photon,grid,tau0)
+  use octree_mod, only: amr_grid
   implicit none
   type(grid_type),   intent(inout) :: grid
   type(photon_type), intent(in)    :: photon
   real(wp),          intent(in)    :: tau0
   real(wp) :: u1, xfreq_ref
-  integer  :: icell, jcell, kcell, ix
-  icell     = photon%icell
-  jcell     = photon%jcell
-  kcell     = photon%kcell
-  u1        = grid%vfx(icell,jcell,kcell)*photon%kx + grid%vfy(icell,jcell,kcell)*photon%ky + grid%vfz(icell,jcell,kcell)*photon%kz
-  xfreq_ref = (photon%xfreq + u1) * (grid%Dfreq(icell,jcell,kcell) / grid%Dfreq_ref)
-  ix        = floor((xfreq_ref - grid%xfreq_min)/grid%dxfreq)+1
-  if (ix >= 1 .and. ix <= grid%nxfreq) then
-     grid%Jout(ix) = grid%Jout(ix) + photon%wgt * exp(-tau0)
-  endif
+  integer  :: icell, jcell, kcell, il, ix
+  if (par%use_amr_grid) then
+     il = photon%icell_amr
+     u1 = amr_grid%vfx(il)*photon%kx + amr_grid%vfy(il)*photon%ky + amr_grid%vfz(il)*photon%kz
+     xfreq_ref = (photon%xfreq + u1) * (amr_grid%Dfreq(il) / amr_grid%Dfreq_ref)
+     ix = floor((xfreq_ref - grid%xfreq_min)/grid%dxfreq)+1
+     if (ix >= 1 .and. ix <= grid%nxfreq) then
+        amr_grid%Jout(ix) = amr_grid%Jout(ix) + photon%wgt * exp(-tau0)
+     end if
+  else
+     icell     = photon%icell
+     jcell     = photon%jcell
+     kcell     = photon%kcell
+     u1        = grid%vfx(icell,jcell,kcell)*photon%kx + grid%vfy(icell,jcell,kcell)*photon%ky + grid%vfz(icell,jcell,kcell)*photon%kz
+     xfreq_ref = (photon%xfreq + u1) * (grid%Dfreq(icell,jcell,kcell) / grid%Dfreq_ref)
+     ix        = floor((xfreq_ref - grid%xfreq_min)/grid%dxfreq)+1
+     if (ix >= 1 .and. ix <= grid%nxfreq) then
+        grid%Jout(ix) = grid%Jout(ix) + photon%wgt * exp(-tau0)
+     endif
+  end if
   end subroutine add_escaped_fraction_to_Jout
   !--------------------------------------------------
   subroutine make_all_initial_photons(photon)

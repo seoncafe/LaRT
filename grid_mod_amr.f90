@@ -32,13 +32,13 @@ contains
     implicit none
     type(grid_type), intent(inout) :: grid   ! Cartesian grid (kept for observer/output compat.)
 
-    ! leaf-cell arrays (physical units)
+    ! leaf-cell arrays
     real(wp), allocatable :: xleaf(:), yleaf(:), zleaf(:)
     real(wp), allocatable :: nH_cgs(:), T_cgs(:)
     real(wp), allocatable :: vx_kms(:), vy_kms(:), vz_kms(:)
     integer,  allocatable :: leaf_level(:)
     integer  :: nleaf
-    real(wp) :: boxlen_cm
+    real(wp) :: boxlen_code   ! box length in code units (kpc, pc, cm, etc.)
 
     ! Working arrays
     real(wp), allocatable :: nHI_frac(:)   ! nHI/nH neutral fraction
@@ -53,24 +53,29 @@ contains
     !--- Step 1: Read leaf-cell data ----------------------------------
     if (mpar%p_rank == 0) then
       if (trim(par%amr_type) == 'ramses') then
+        ! RAMSES reader returns positions in cm (unit_l from info.txt).
+        ! For RAMSES, par%distance2cm is not meaningful; set it = 1 if unset.
         call ramses_read_leaf_cells(trim(par%amr_file), par%amr_snapnum, &
             xleaf, yleaf, zleaf, leaf_level, &
             nH_cgs, T_cgs, vx_kms, vy_kms, vz_kms, &
-            nleaf, boxlen_cm)
+            nleaf, boxlen_code)
+        if (par%distance2cm <= 0.0_wp) par%distance2cm = 1.0_wp
       else
-        ! Generic text / binary format
+        ! Generic reader returns code units (e.g., kpc).
+        ! par%distance2cm (set by distance_unit in setup_v2c) converts to cm.
         call generic_amr_read(trim(par%amr_file), &
             xleaf, yleaf, zleaf, leaf_level, &
             nH_cgs, T_cgs, vx_kms, vy_kms, vz_kms, &
-            nleaf, boxlen_cm)
+            nleaf, boxlen_code)
       end if
       write(6,'(a,i0)')    'AMR nleaf    : ', nleaf
-      write(6,'(a,es12.4)') 'AMR boxlen   : ', boxlen_cm
+      write(6,'(a,es12.4,a)') 'AMR boxlen   : ', boxlen_code, ' (code units)'
+      write(6,'(a,es12.4,a)') 'AMR boxlen   : ', boxlen_code*par%distance2cm, ' cm'
     end if
 
-    ! Broadcast nleaf and boxlen_cm to all ranks
-    call MPI_BCAST(nleaf,     1, MPI_INTEGER,          0, MPI_COMM_WORLD, ierr)
-    call MPI_BCAST(boxlen_cm, 1, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, ierr)
+    ! Broadcast nleaf and boxlen_code to all ranks
+    call MPI_BCAST(nleaf,       1, MPI_INTEGER,          0, MPI_COMM_WORLD, ierr)
+    call MPI_BCAST(boxlen_code, 1, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, ierr)
 
     if (mpar%p_rank /= 0) then
       allocate(xleaf(nleaf), yleaf(nleaf), zleaf(nleaf))
@@ -88,14 +93,18 @@ contains
     call MPI_BCAST(vy_kms(1),     nleaf, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, ierr)
     call MPI_BCAST(vz_kms(1),     nleaf, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, ierr)
 
-    !--- Step 2: Build octree -----------------------------------------
+    !--- Step 2: Build octree in cm -----------------------------------
+    ! Convert code-unit positions to cm, then build the tree.
+    ! Raytrace uses cm path lengths; rhokap will be scaled to cm^-1.
+    ! (RAMSES: positions already in cm, distance2cm = 1; generic: positions in
+    !  code units, distance2cm = kpc2cm etc.)
+    xleaf(:) = xleaf(:) * par%distance2cm
+    yleaf(:) = yleaf(:) * par%distance2cm
+    zleaf(:) = zleaf(:) * par%distance2cm
     call amr_build_tree(xleaf, yleaf, zleaf, leaf_level, nleaf, &
-        0.0_wp, boxlen_cm, 0.0_wp, boxlen_cm, 0.0_wp, boxlen_cm)
-
-    ! Override box geometry if par%distance2cm is set (rescaling)
-    if (par%distance2cm > 0.0_wp) then
-      ! positions were already converted to cm; no further scaling needed
-    end if
+        0.0_wp, boxlen_code*par%distance2cm, &
+        0.0_wp, boxlen_code*par%distance2cm, &
+        0.0_wp, boxlen_code*par%distance2cm)
 
     !--- Step 3: Set reference Doppler frequency ----------------------
     amr_grid%Dfreq_ref  = line%vtherm1 * sqrt(par%temperature) / (line%wavelength0 * um2km)
@@ -122,11 +131,12 @@ contains
         nHI_frac(il) = 1.0_wp  ! assume fully neutral; user can modify
       end if
 
-      ! rhokap = nHI * cross0 / Dfreq  (opacity per unit length at line centre)
+      ! rhokap = nHI * cross0 / Dfreq  [cm^-1]
+      ! *= distance2cm converts to per-code-unit (same as Cartesian mode).
       nH = nH_cgs(il) * nHI_frac(il)
-      amr_grid%rhokap(il) = nH * line%cross0 / amr_grid%Dfreq(il)
+      amr_grid%rhokap(il) = nH * line%cross0 / amr_grid%Dfreq(il) * par%distance2cm
 
-      ! Dust opacity
+      ! Dust opacity (also per code unit)
       if (par%DGR > 0.0_wp) then
         amr_grid%rhokapD(il) = amr_grid%rhokap(il) * amr_grid%Dfreq(il) / line%cross0 &
                                 * par%cext_dust * par%DGR
@@ -141,20 +151,23 @@ contains
     deallocate(nHI_frac)
 
     !--- Step 5: Normalise to input optical depth / column density -----
-    ! Compute "pole" tau (through box centre, along z)
-    ! For AMR, we use a representative mean value
+    ! Approximate tau_pole: mean(rhokap_percode * voigt) * boxlen_code.
+    ! rhokap is per-code-unit (= rhokap_cm * distance2cm), opac_length is
+    ! boxlen in code units — same convention as Cartesian mode.
     opacity_sum = sum(amr_grid%rhokap * voigt_array(amr_grid%voigt_a, 0.0_wp))
     nopac       = real(count(amr_grid%rhokap > 0.0_wp), wp)
     if (nopac > 0.0_wp) then
-      opac_length = boxlen_cm
-      tauhomo     = (opacity_sum / nopac) * opac_length / amr_grid%nleaf
+      opac_length = boxlen_code    ! box length in code units
+      tauhomo     = (opacity_sum / nopac) * opac_length
     else
       tauhomo = 0.0_wp
     end if
     taupole  = tauhomo  ! approximation for AMR
 
+    ! N_HIpole [cm^-2]: rhokap_percode / distance2cm × Dfreq / cross0 × boxlen_code × distance2cm
+    !                 = rhokap_percode × Dfreq / cross0 × boxlen_code
     N_HIpole = sum(amr_grid%rhokap * amr_grid%Dfreq / line%cross0) &
-               / amr_grid%nleaf * boxlen_cm
+               / amr_grid%nleaf * boxlen_code
     N_HIhomo = N_HIpole
 
     if (par%taumax > 0.0_wp) then
@@ -173,15 +186,30 @@ contains
       end if
     end if
 
-    ! Update reported values
+    ! Recompute taupole and tauhomo from normalized rhokap (same as Cartesian).
+    opacity_sum = sum(amr_grid%rhokap * voigt_array(amr_grid%voigt_a, 0.0_wp))
+    if (nopac > 0.0_wp) then
+      tauhomo = (opacity_sum / nopac) * opac_length
+    end if
+    taupole  = tauhomo
+
+    N_HIpole = sum(amr_grid%rhokap * amr_grid%Dfreq / line%cross0) &
+               / amr_grid%nleaf * boxlen_code
+    N_HIhomo = N_HIpole
+
+    ! Update par values (used by xcrit and frequency grid)
     if (par%taumax  <= 0.0_wp) par%taumax  = taupole
     if (par%tauhomo <= 0.0_wp) par%tauhomo = tauhomo
     if (par%N_HImax  <= 0.0_wp) par%N_HImax  = N_HIpole
     if (par%N_HIhomo <= 0.0_wp) par%N_HIhomo = N_HIhomo
+    par%tauhomo = tauhomo
+    par%taumax  = taupole
 
     !--- Step 6: Core-skip parameters ---------------------------------
     atau0      = amr_grid%voigt_amean * par%tauhomo
-    atau0_cell = atau0 / (boxlen_cm / (2.0_wp * amr_grid%ch(1)))
+    ! amr_grid%ch(1) is the root cell half-width (= boxlen_cm/2 = boxlen_code*distance2cm/2).
+    ! boxlen_code / (2*ch(1)/distance2cm) = number of root cells along one axis = 1 for cubic.
+    atau0_cell = atau0 / (boxlen_code / (2.0_wp * amr_grid%ch(1) / par%distance2cm))
     if (atau0_cell <= 1.0_wp) then
       amr_grid%xcrit  = 0.0_wp
       amr_grid%xcrit2 = 0.0_wp
@@ -194,7 +222,7 @@ contains
     end if
 
     !--- Step 7: Set up frequency grid --------------------------------
-    call amr_setup_freq_grid(atau0, boxlen_cm)
+    call amr_setup_freq_grid(atau0, boxlen_code * par%distance2cm)
 
     !--- Step 8: Allocate output arrays -------------------------------
     call amr_alloc_output(par%save_Jin, par%save_Jabs, par%DGR > 0.0_wp)

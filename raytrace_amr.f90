@@ -3,8 +3,14 @@ module raytrace_amr_mod
   ! AMR raytrace routines: octree-traversal equivalents of the Cartesian
   ! raytrace_car_v2h_refactored.f90 routines.
   !
-  ! Convention: photon%icell_amr = current leaf index in amr_grid.
-  !             photon%inside    = .false. when photon has left the box.
+  ! Convention (throughout this module):
+  !   x, y, z  = running absolute position of the photon (updated at every
+  !               cell-face crossing).
+  !   d        = cumulative distance from the ORIGINAL photon position
+  !               (photon%x/y/z at entry).  Used only for the final
+  !               photon%x = photon%x + d*kx update.
+  !   t_exit   = distance from the CURRENT (x,y,z) to the next face, as
+  !               returned by amr_cell_exit(icell, x, y, z, ...).
   !
   ! Frequency-shift convention (same as Cartesian code):
   !   xfreq in the comoving frame of the current cell.
@@ -27,6 +33,11 @@ module raytrace_amr_mod
 
   real(wp), parameter :: tau_huge = 745.2_wp  ! exp(-tau_huge) = 0 in double
 
+  ! Fractional push past a face (relative to box size).
+  ! tiny() is ~1e-308 and has no effect at scales of 1e23 cm;
+  ! use a fraction of L_box instead to reliably cross a face.
+  real(wp), parameter :: eps_frac = 1.0e-8_wp
+
 contains
 
   !=========================================================================
@@ -42,7 +53,7 @@ contains
 
     integer  :: il, il_new, icell, ix
     real(wp) :: x, y, z, kx, ky, kz
-    real(wp) :: tau, d, t_exit, t_step
+    real(wp) :: tau, d, t_exit
     real(wp) :: rhokap, rhokapH, d_overshoot
     real(wp) :: u1, u2, Df_old, Df_new, xfreq_ref
     integer  :: iface
@@ -59,15 +70,14 @@ contains
       end if
     end if
 
-    tau  = 0.0_wp
-    d    = 0.0_wp
-    icell = amr_grid%icell_of_leaf(il)
-    u1    = amr_grid%vfx(il)*kx + amr_grid%vfy(il)*ky + amr_grid%vfz(il)*kz
+    tau = 0.0_wp
+    d   = 0.0_wp
+    u1  = amr_grid%vfx(il)*kx + amr_grid%vfy(il)*ky + amr_grid%vfz(il)*kz
 
     do while (photon%inside)
       icell = amr_grid%icell_of_leaf(il)
-      call amr_cell_exit(icell, x+d*kx, y+d*ky, z+d*kz, kx, ky, kz, t_exit, iface)
-      t_step  = t_exit - d
+      call amr_cell_exit(icell, x, y, z, kx, ky, kz, t_exit, iface)
+
       rhokapH = amr_grid%rhokap(il) * voigt(photon%xfreq, amr_grid%voigt_a(il))
       if (par%DGR > 0.0_wp .and. allocated(amr_grid%rhokapD)) then
         rhokap = rhokapH + amr_grid%rhokapD(il)
@@ -75,31 +85,29 @@ contains
         rhokap = rhokapH
       end if
 
-      tau = tau + t_step * rhokap
+      tau = tau + t_exit * rhokap
 
       if (tau >= tau_in) then
         ! Overshoot: backtrack to exact tau_in
         if (rhokap > 0.0_wp) then
           d_overshoot = (tau - tau_in) / rhokap
-          d           = t_exit - d_overshoot
+          d           = d + t_exit - d_overshoot
         else
-          d = t_exit
+          d = d + t_exit
         end if
         exit
       end if
 
-      ! Advance position to cell boundary
-      d = t_exit
+      ! Advance position to cell face
+      d = d + t_exit
+      x = x + t_exit * kx
+      y = y + t_exit * ky
+      z = z + t_exit * kz
 
-      ! Compute new position (at face)
-      x = photon%x + d * kx
-      y = photon%y + d * ky
-      z = photon%z + d * kz
-
-      ! Find next leaf: push slightly past the face to avoid landing exactly on it
-      il_new = amr_find_leaf(x + kx*tiny(1.0_wp)*1.0e6_wp, &
-                              y + ky*tiny(1.0_wp)*1.0e6_wp, &
-                              z + kz*tiny(1.0_wp)*1.0e6_wp)
+      ! Find next leaf: push slightly past the face
+      il_new = amr_find_leaf(x + kx*eps_push, &
+                              y + ky*eps_push, &
+                              z + kz*eps_push)
 
       if (il_new <= 0) then
         photon%inside = .false.
@@ -149,7 +157,7 @@ contains
 
     integer  :: il, il_new, icell
     real(wp) :: x, y, z, kx, ky, kz
-    real(wp) :: d, t_exit, t_step
+    real(wp) :: t_exit
     real(wp) :: rhokap, u1, u2, Df_old, Df_new, xfreq_loc
     integer  :: iface
 
@@ -163,24 +171,24 @@ contains
       if (il <= 0) return
     end if
 
-    d        = 0.0_wp
-    u1       = amr_grid%vfx(il)*kx + amr_grid%vfy(il)*ky + amr_grid%vfz(il)*kz
+    u1        = amr_grid%vfx(il)*kx + amr_grid%vfy(il)*ky + amr_grid%vfz(il)*kz
     xfreq_loc = photon0%xfreq
 
     do
       icell  = amr_grid%icell_of_leaf(il)
-      call amr_cell_exit(icell, x+d*kx, y+d*ky, z+d*kz, kx, ky, kz, t_exit, iface)
-      t_step = t_exit - d
+      call amr_cell_exit(icell, x, y, z, kx, ky, kz, t_exit, iface)
       rhokap = amr_grid%rhokap(il) * voigt(xfreq_loc, amr_grid%voigt_a(il))
       if (par%DGR > 0.0_wp .and. allocated(amr_grid%rhokapD)) &
           rhokap = rhokap + amr_grid%rhokapD(il)
-      tau = tau + t_step * rhokap
+      tau = tau + t_exit * rhokap
       if (tau >= tau_huge) return
 
-      d = t_exit
-      il_new = amr_find_leaf(x+d*kx + kx*tiny(1.0_wp)*1.0e6_wp, &
-                              y+d*ky + ky*tiny(1.0_wp)*1.0e6_wp, &
-                              z+d*kz + kz*tiny(1.0_wp)*1.0e6_wp)
+      x = x + t_exit * kx
+      y = y + t_exit * ky
+      z = z + t_exit * kz
+      il_new = amr_find_leaf(x + kx*eps_push, &
+                              y + ky*eps_push, &
+                              z + kz*eps_push)
       if (il_new <= 0) return
 
       Df_old    = amr_grid%Dfreq(il)
@@ -204,7 +212,7 @@ contains
 
     integer  :: il, il_new, icell
     real(wp) :: x, y, z, kx, ky, kz
-    real(wp) :: d, t_exit, t_step
+    real(wp) :: t_exit
     real(wp) :: rhokap, u1, u2, Df_old, Df_new, xfreq_loc
     integer  :: iface
 
@@ -218,22 +226,22 @@ contains
       if (il <= 0) return
     end if
 
-    d         = 0.0_wp
     u1        = amr_grid%vfx(il)*kx + amr_grid%vfy(il)*ky + amr_grid%vfz(il)*kz
     xfreq_loc = photon0%xfreq
 
     do
       icell  = amr_grid%icell_of_leaf(il)
-      call amr_cell_exit(icell, x+d*kx, y+d*ky, z+d*kz, kx, ky, kz, t_exit, iface)
-      t_step  = t_exit - d
+      call amr_cell_exit(icell, x, y, z, kx, ky, kz, t_exit, iface)
       rhokap  = amr_grid%rhokap(il) * voigt(xfreq_loc, amr_grid%voigt_a(il))
-      tau_gas = tau_gas + t_step * rhokap
+      tau_gas = tau_gas + t_exit * rhokap
       if (tau_gas >= tau_huge) return
 
-      d = t_exit
-      il_new = amr_find_leaf(x+d*kx + kx*tiny(1.0_wp)*1.0e6_wp, &
-                              y+d*ky + ky*tiny(1.0_wp)*1.0e6_wp, &
-                              z+d*kz + kz*tiny(1.0_wp)*1.0e6_wp)
+      x = x + t_exit * kx
+      y = y + t_exit * ky
+      z = z + t_exit * kz
+      il_new = amr_find_leaf(x + kx*eps_push, &
+                              y + ky*eps_push, &
+                              z + kz*eps_push)
       if (il_new <= 0) return
 
       Df_old    = amr_grid%Dfreq(il)
@@ -257,7 +265,7 @@ contains
 
     integer  :: il, il_new, icell
     real(wp) :: x, y, z, kx, ky, kz
-    real(wp) :: d, t_exit, t_step
+    real(wp) :: t_exit
     real(wp) :: u1, u2, Df_old, Df_new, xfreq_loc
     integer  :: iface
 
@@ -272,23 +280,22 @@ contains
       if (il <= 0) return
     end if
 
-    d         = 0.0_wp
     u1        = amr_grid%vfx(il)*kx + amr_grid%vfy(il)*ky + amr_grid%vfz(il)*kz
     xfreq_loc = photon0%xfreq
 
     do
       icell  = amr_grid%icell_of_leaf(il)
-      call amr_cell_exit(icell, x+d*kx, y+d*ky, z+d*kz, kx, ky, kz, t_exit, iface)
-      t_step = t_exit - d
-      ! Column density: integrate number density * ds  = rhokap * Dfreq / cross0 * ds
-      N_gas  = N_gas  + t_step * amr_grid%rhokap(il) * amr_grid%Dfreq(il) / line%cross0
+      call amr_cell_exit(icell, x, y, z, kx, ky, kz, t_exit, iface)
+      N_gas  = N_gas + t_exit * amr_grid%rhokap(il) * amr_grid%Dfreq(il) / line%cross0
       if (par%DGR > 0.0_wp .and. allocated(amr_grid%rhokapD)) &
-          tau_dust = tau_dust + t_step * amr_grid%rhokapD(il)
+          tau_dust = tau_dust + t_exit * amr_grid%rhokapD(il)
 
-      d = t_exit
-      il_new = amr_find_leaf(x+d*kx + kx*tiny(1.0_wp)*1.0e6_wp, &
-                              y+d*ky + ky*tiny(1.0_wp)*1.0e6_wp, &
-                              z+d*kz + kz*tiny(1.0_wp)*1.0e6_wp)
+      x = x + t_exit * kx
+      y = y + t_exit * ky
+      z = z + t_exit * kz
+      il_new = amr_find_leaf(x + kx*eps_push, &
+                              y + ky*eps_push, &
+                              z + kz*eps_push)
       if (il_new <= 0) return
 
       Df_old    = amr_grid%Dfreq(il)
@@ -333,22 +340,25 @@ contains
 
     do
       icell  = amr_grid%icell_of_leaf(il)
-      call amr_cell_exit(icell, x+d*kx, y+d*ky, z+d*kz, kx, ky, kz, t_exit, iface)
+      call amr_cell_exit(icell, x, y, z, kx, ky, kz, t_exit, iface)
       rhokap = amr_grid%rhokap(il) * voigt(xfreq_loc, amr_grid%voigt_a(il))
       if (par%DGR > 0.0_wp .and. allocated(amr_grid%rhokapD)) &
           rhokap = rhokap + amr_grid%rhokapD(il)
 
-      if (t_exit >= dist_in) then
+      if (d + t_exit >= dist_in) then
         tau = tau + (dist_in - d) * rhokap
         return
       end if
-      tau = tau + (t_exit - d) * rhokap
+      tau = tau + t_exit * rhokap
       if (tau >= tau_huge) return
 
-      d = t_exit
-      il_new = amr_find_leaf(x+d*kx + kx*tiny(1.0_wp)*1.0e6_wp, &
-                              y+d*ky + ky*tiny(1.0_wp)*1.0e6_wp, &
-                              z+d*kz + kz*tiny(1.0_wp)*1.0e6_wp)
+      d = d + t_exit
+      x = x + t_exit * kx
+      y = y + t_exit * ky
+      z = z + t_exit * kz
+      il_new = amr_find_leaf(x + kx*eps_push, &
+                              y + ky*eps_push, &
+                              z + kz*eps_push)
       if (il_new <= 0) return
 
       Df_old    = amr_grid%Dfreq(il)
@@ -393,18 +403,21 @@ contains
 
     do
       icell  = amr_grid%icell_of_leaf(il)
-      call amr_cell_exit(icell, x+d*kx, y+d*ky, z+d*kz, kx, ky, kz, t_exit, iface)
+      call amr_cell_exit(icell, x, y, z, kx, ky, kz, t_exit, iface)
       rhokap = amr_grid%rhokap(il) * voigt(xfreq_loc, amr_grid%voigt_a(il))
-      if (t_exit >= dist_in) then
+      if (d + t_exit >= dist_in) then
         tau_gas = tau_gas + (dist_in - d) * rhokap
         return
       end if
-      tau_gas = tau_gas + (t_exit - d) * rhokap
+      tau_gas = tau_gas + t_exit * rhokap
 
-      d = t_exit
-      il_new = amr_find_leaf(x+d*kx + kx*tiny(1.0_wp)*1.0e6_wp, &
-                              y+d*ky + ky*tiny(1.0_wp)*1.0e6_wp, &
-                              z+d*kz + kz*tiny(1.0_wp)*1.0e6_wp)
+      d = d + t_exit
+      x = x + t_exit * kx
+      y = y + t_exit * ky
+      z = z + t_exit * kz
+      il_new = amr_find_leaf(x + kx*eps_push, &
+                              y + ky*eps_push, &
+                              z + kz*eps_push)
       if (il_new <= 0) return
 
       Df_old    = amr_grid%Dfreq(il)
@@ -450,21 +463,24 @@ contains
 
     do
       icell  = amr_grid%icell_of_leaf(il)
-      call amr_cell_exit(icell, x+d*kx, y+d*ky, z+d*kz, kx, ky, kz, t_exit, iface)
-      if (t_exit >= dist_in) then
+      call amr_cell_exit(icell, x, y, z, kx, ky, kz, t_exit, iface)
+      if (d + t_exit >= dist_in) then
         t_step = dist_in - d
       else
-        t_step = t_exit - d
+        t_step = t_exit
       end if
       N_gas    = N_gas + t_step * amr_grid%rhokap(il) * amr_grid%Dfreq(il) / line%cross0
       if (par%DGR > 0.0_wp .and. allocated(amr_grid%rhokapD)) &
           tau_dust = tau_dust + t_step * amr_grid%rhokapD(il)
-      if (t_exit >= dist_in) return
+      if (d + t_exit >= dist_in) return
 
-      d = t_exit
-      il_new = amr_find_leaf(x+d*kx + kx*tiny(1.0_wp)*1.0e6_wp, &
-                              y+d*ky + ky*tiny(1.0_wp)*1.0e6_wp, &
-                              z+d*kz + kz*tiny(1.0_wp)*1.0e6_wp)
+      d = d + t_exit
+      x = x + t_exit * kx
+      y = y + t_exit * ky
+      z = z + t_exit * kz
+      il_new = amr_find_leaf(x + kx*eps_push, &
+                              y + ky*eps_push, &
+                              z + kz*eps_push)
       if (il_new <= 0) return
 
       Df_old    = amr_grid%Dfreq(il)

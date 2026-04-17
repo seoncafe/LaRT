@@ -1,0 +1,52 @@
+&parameters
+!----------------------------------------------------------------------
+! AMR example: Lya RT on a RAMSES cosmological simulation snapshot
+!
+! Directory layout expected:
+!   /path/to/ramses_run/output_00010/
+!       info_00010.txt          (RAMSES info file with unit scales)
+!       amr_00010.out00001 ...  (AMR structure files)
+!       hydro_00010.out00001 .. (Hydro files: rho, momentum, energy, ...)
+!
+! Set par%amr_file to the repository root (the directory that contains
+! the output_NNNNN/ subdirectory).  Set par%amr_snapnum to the output
+! number (here 10 → output_00010/).
+!
+! Typical RAMSES units are read from info_NNNNN.txt.
+! nHI is estimated from total nH + T using CIE (par%use_cie_condition).
+!----------------------------------------------------------------------
+
+ par%use_amr_grid   = .true.
+ par%amr_type       = 'ramses'
+ par%amr_file       = '/path/to/ramses_run'   ! <-- change this
+ par%amr_snapnum    = 10                       ! <-- change this
+
+ ! Opacity normalisation:
+ !   set par%taumax > 0  to rescale opacity so tau_pole = par%taumax, OR
+ !   set par%N_HImax > 0 to target a column density [cm^-2], OR
+ !   leave both <= 0 to use the raw physical densities from the RAMSES output.
+ par%taumax  = -1.0   ! use raw densities (no rescaling)
+ par%N_HImax = -1.0
+
+ ! Use collisional-ionisation equilibrium (CIE) to estimate neutral fraction
+ par%use_cie_condition = .true.
+
+ par%DGR  = 0.0         ! dust-to-gas ratio (0 = no dust)
+
+ par%no_photons    = 1e6
+ par%spectral_type = 'voigt'
+
+ ! Source: uniform emission throughout the box
+ par%source_geometry = 'uniform'
+
+ par%nxfreq = 121
+ par%nxim   = 64
+ par%nyim   = 64
+
+ par%save_peeloff    = .true.
+ par%save_peeloff_2D = .true.
+ par%save_Jin        = .true.
+
+ par%nprint    = 100000
+ par%out_merge = .false.
+/
