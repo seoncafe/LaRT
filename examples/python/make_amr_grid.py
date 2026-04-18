@@ -228,6 +228,194 @@ class AMRGrid:
             level_max
         )
 
+    def refine_by_density(self, nH_fn, threshold=0.1, level_max=6,
+                          nprobe=2, floor=1e-30):
+        """
+        Refine cells where the density gradient exceeds ``threshold``.
+
+        Follows the RASCAS (module_mesh.f90) criterion:
+
+            delta = (nH_max - nH_min) / (nH_max + nH_min + floor)
+
+        The density is sampled at a uniform ``nprobe × nprobe × nprobe``
+        sub-grid inside the cell plus the cell centre.  ``nprobe=2``
+        samples the 8 cell corners (fast); ``nprobe=4`` (64 points) gives
+        a more thorough probe.  With ``nprobe > 2`` the function also tries
+        ``nprobe=2`` first and returns early if the gradient already exceeds
+        the threshold (same early-exit logic as the Fortran reference).
+
+        Parameters
+        ----------
+        nH_fn : callable
+            ``nH_fn(x, y, z) -> nH [cm^-3]`` in the same coordinate units
+            as the grid (e.g. kpc).
+        threshold : float
+            Gradient threshold ∈ [0, 1).  0.1 means 10 % relative variation.
+        level_max : int
+            Maximum refinement level.
+        nprobe : int
+            Sub-grid sampling density per axis (≥ 2).  Default 2 (corners).
+        floor : float
+            Density floor to avoid division by zero.
+        """
+        self.refine(
+            self._make_dens_criterion(nH_fn, threshold, floor, nprobe),
+            level_max
+        )
+
+    def refine_by_velocity(self, vel_fn, nH_fn=None, threshold=0.1,
+                           level_max=6, nprobe=2, floor=1e-30):
+        """
+        Refine cells where the velocity magnitude gradient exceeds ``threshold``.
+
+        Follows the RASCAS criterion applied to |v|:
+
+            delta = (|v|_max - |v|_min) / (|v|_max + |v|_min + floor)
+
+        Sampling is done at the same sub-grid as :meth:`refine_by_density`.
+        If ``nH_fn`` is supplied, sub-cells with ``nH == 0`` are skipped
+        (avoids refining voids where the velocity field is undefined).
+
+        Parameters
+        ----------
+        vel_fn : callable
+            ``vel_fn(x, y, z) -> (vx, vy, vz) [km/s]``.
+        nH_fn : callable or None
+            Optional density function.  Sub-cells with ``nH_fn(x,y,z) <= 0``
+            do not contribute to the velocity gradient.
+        threshold : float
+            Gradient threshold ∈ [0, 1).  Default 0.1.
+        level_max : int
+            Maximum refinement level.
+        nprobe : int
+            Sub-grid sampling density per axis.  Default 2 (corners).
+        floor : float
+            Velocity floor to avoid division by zero.
+        """
+        self.refine(
+            self._make_vel_criterion(vel_fn, nH_fn, threshold, floor, nprobe),
+            level_max
+        )
+
+    def refine_by_physics(self, nH_fn, vel_fn=None,
+                          dens_threshold=0.1, vel_threshold=0.1,
+                          level_max=6, nprobe=2, floor=1e-30):
+        """
+        Refine cells satisfying either the density or velocity gradient criterion.
+
+        This is a convenience wrapper that calls both
+        :meth:`refine_by_density` and :meth:`refine_by_velocity` with a
+        single pass over the leaf set (cells that satisfy *either* criterion
+        are refined).
+
+        Parameters
+        ----------
+        nH_fn : callable
+            ``nH_fn(x, y, z) -> nH [cm^-3]``.
+        vel_fn : callable or None
+            ``vel_fn(x, y, z) -> (vx, vy, vz) [km/s]``.  If None, only the
+            density criterion is applied.
+        dens_threshold : float or None
+            Density gradient threshold.  Pass ``None`` to skip.
+        vel_threshold : float or None
+            Velocity gradient threshold.  Pass ``None`` to skip (or if
+            ``vel_fn`` is None).
+        level_max : int
+            Maximum refinement level.
+        nprobe : int
+            Sub-grid sampling density per axis.  Default 2.
+        floor : float
+            Floor for division.
+        """
+        criteria = []
+        if dens_threshold is not None:
+            criteria.append(self._make_dens_criterion(nH_fn, dens_threshold, floor, nprobe))
+        if vel_fn is not None and vel_threshold is not None:
+            criteria.append(self._make_vel_criterion(vel_fn, nH_fn, vel_threshold, floor, nprobe))
+        if not criteria:
+            return
+
+        def combined(c):
+            return any(crit(c) for crit in criteria)
+
+        self.refine(combined, level_max)
+
+    # ------------------------------------------------------------------ #
+    # Private gradient criterion builders
+    # ------------------------------------------------------------------ #
+
+    @staticmethod
+    def _subcell_centers(c, np_):
+        """
+        Return arrays (xx, yy, zz) of ``np_^3`` sub-cell centres inside
+        cell ``c`` at sub-grid density ``np_`` per axis.
+        """
+        dh = 2.0 * c.h / np_
+        ox = c.cx - c.h + (np.arange(np_) + 0.5) * dh
+        oy = c.cy - c.h + (np.arange(np_) + 0.5) * dh
+        oz = c.cz - c.h + (np.arange(np_) + 0.5) * dh
+        gx, gy, gz = np.meshgrid(ox, oy, oz, indexing='ij')
+        return gx.ravel(), gy.ravel(), gz.ravel()
+
+    @staticmethod
+    def _make_dens_criterion(nH_fn, threshold, floor, nprobe):
+        """
+        Return a cell criterion function for density gradient refinement.
+
+        Probes at np=2 first (8 corners); if no refinement found and
+        nprobe > 2, also probes at np=nprobe (nprobe^3 sub-cells).
+        Accumulates running (rhomin, rhomax) across all probe levels,
+        matching the RASCAS multi-scale approach.
+        """
+        def criterion(c):
+            rhomin = rhomax = max(nH_fn(c.cx, c.cy, c.cz), 0.0)
+
+            for np_ in ([2] if nprobe <= 2 else [2, nprobe]):
+                xx, yy, zz = AMRGrid._subcell_centers(c, np_)
+                for x, y, z in zip(xx, yy, zz):
+                    rho2 = max(nH_fn(x, y, z), 0.0)
+                    if rho2 > rhomax: rhomax = rho2
+                    if rho2 < rhomin: rhomin = rho2
+                delta = (rhomax - rhomin) / (rhomax + rhomin + floor)
+                if delta >= threshold:
+                    return True
+            return False
+        return criterion
+
+    @staticmethod
+    def _make_vel_criterion(vel_fn, nH_fn, threshold, floor, nprobe):
+        """
+        Return a cell criterion function for velocity gradient refinement.
+
+        Same multi-scale probing as ``_make_dens_criterion``, but applied
+        to |v|.  Sub-cells with nH == 0 are skipped when nH_fn is given.
+        """
+        def speed(x, y, z):
+            vx, vy, vz = vel_fn(x, y, z)
+            return np.sqrt(vx**2 + vy**2 + vz**2)
+
+        def has_gas(x, y, z):
+            return (nH_fn is None) or (nH_fn(x, y, z) > 0.0)
+
+        def criterion(c):
+            if not has_gas(c.cx, c.cy, c.cz):
+                return False
+            vmin = vmax = speed(c.cx, c.cy, c.cz)
+
+            for np_ in ([2] if nprobe <= 2 else [2, nprobe]):
+                xx, yy, zz = AMRGrid._subcell_centers(c, np_)
+                for x, y, z in zip(xx, yy, zz):
+                    if not has_gas(x, y, z):
+                        continue
+                    v2 = speed(x, y, z)
+                    if v2 > vmax: vmax = v2
+                    if v2 < vmin: vmin = v2
+                delta = (vmax - vmin) / (vmax + vmin + floor)
+                if delta >= threshold:
+                    return True
+            return False
+        return criterion
+
     # ------------------------------------------------------------------ #
     # Physical property assignment
     # ------------------------------------------------------------------ #
