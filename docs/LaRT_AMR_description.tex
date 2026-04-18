@@ -506,21 +506,56 @@ by the leaf index \texttt{photon\%icell\_amr}.
 
 \subsection{Resonance Scattering}
 
-\texttt{scatter\_resonance\_nostokes\_amr} implements the standard
-Lyman-$\alpha$ resonance scattering algorithm (no Stokes polarisation):
+\texttt{scatter\_resonance\_nostokes\_amr} implements the resonance scattering
+algorithm (no Stokes polarisation).  The scattering is handled by the procedure
+pointer \texttt{do\_resonance}, which is set at initialisation to one of
+\texttt{do\_resonance1\_amr}, \texttt{do\_resonance2\_amr}, etc., depending on
+the line type.
 
 \begin{enumerate}
-  \item Sample the thermal velocity component of the scattering atom along the
-        photon direction:
+  \item \textbf{Sample the scattering atom velocity.}
+        The thermal velocity component of the atom along the photon direction
+        (in the cell comoving frame) is sampled from the redistribution
+        function via \texttt{rand\_resonance\_vz}:
         \begin{equation}
-          u_z = x_\nu + u_\ell \quad \text{(in the cell frame)}.
+          u_z = x_\nu + u_\ell.
         \end{equation}
-        The atom thermal velocity perpendicular to the photon direction is
-        sampled from a Gaussian.
-  \item Draw a new photon direction isotropically in the atom frame.
-  \item Compute the new photon frequency in the atom frame, then transform back
-        to the cell comoving frame.
-  \item Apply the core-skip acceleration if $|x_\nu| < x_\mathrm{crit}$.
+        The two perpendicular thermal velocity components $(u_x, u_y)$ are
+        drawn independently from a Gaussian with unit variance.
+
+  \item \textbf{Sample the scattering angle.}
+        The polar scattering angle $\theta$ (between the incoming and outgoing
+        photon directions) is drawn from the phase function
+        \begin{equation}
+          P(\cos\theta) = \frac{3}{8}E_1\cos^2\theta + \frac{4 - E_1}{8},
+        \end{equation}
+        via the function \texttt{rand\_resonance}$(E_1)$.  The parameter $E_1$
+        is a property of the atomic transition:
+        \begin{itemize}
+          \item $E_1 = 1$: pure Rayleigh scattering ($J=0 \to J=1 \to J=0$, e.g.\ He~\textsc{i}).
+          \item $0 < E_1 < 1$: mixed Rayleigh + isotropic
+                (e.g.\ Ly$\alpha$: $E_1 \approx 0$ for the $J=1/2$ branch,
+                $E_1 = 1$ for the $J=3/2$ branch, giving an effective
+                $E_1$ that depends on the occupation of upper sub-levels).
+          \item $E_1 = 0$: isotropic scattering.
+          \item $-1/2 \le E_1 < 0$: oblate phase function (forward and backward
+                directions suppressed).
+        \end{itemize}
+        The azimuthal angle $\phi$ is drawn uniformly from $[0, 2\pi)$.
+
+  \item \textbf{Compute the new photon frequency.}
+        In the atom frame the frequency after scattering is
+        \begin{equation}
+          x'_\nu = x_\nu^\mathrm{atom}
+                  + u_z \cos\theta
+                  + (u_x\cos\phi + u_y\sin\phi)\sin\theta,
+        \end{equation}
+        where $x_\nu^\mathrm{atom} = x_\nu - u_z$ is the frequency in the
+        atom rest frame.  An optional recoil correction
+        $\Delta x = -g_\mathrm{recoil}(1-\cos\theta)$ is applied if
+        \texttt{par\%recoil = .true.}
+
+  \item \textbf{Apply core-skip acceleration} if $|x_\nu| < x_\mathrm{crit}$.
 \end{enumerate}
 
 The core-skip threshold $x_\mathrm{crit}$ is computed in

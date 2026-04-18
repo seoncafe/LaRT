@@ -17,3 +17,16 @@
 
 # macOS
 .DS_Store
+
+# LaTeX build artifacts
+*.aux
+*.log
+*.toc
+*.out
+*.synctex.gz
+*.fls
+*.fdb_latexmk
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
