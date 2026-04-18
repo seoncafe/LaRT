@@ -116,23 +116,23 @@ LDFLAGS = $(extra) $(FFLAGS) -lcfitsio -L/usr/local/lib
 	$(FC) $(FFLAGS) -c -o $@ $<
 
 OBJSB	= \
-	define_v2.o \
+	define.o \
 	utility_c.o \
 	utility.o \
 	mathlib.o \
 	healpix.o \
-	random_mt_v2.54.o \
+	random_mt.o \
 	random_sersic.o \
-	memory_mod_mpi_v2.2.o \
+	memory_mod_mpi.o \
 	fitsio_mod.o \
 	read_fits_data.o \
 	read_text_data.o \
-	voigt_mod_v2b.o \
+	voigt_mod.o \
 	observer_rect.o \
 	observer_heal.o \
-	grid_mod_car_v2g.o \
-	line_mod_v1.o \
-	raytrace_car_v2h_refactored.o \
+	grid_mod_car.o \
+	line_mod.o \
+	raytrace_car.o \
 	octree_mod.o \
 	output_sum_rect.o \
 	output_sum_heal.o \
@@ -141,10 +141,10 @@ OBJSB	= \
 	peelingoff_rect.o \
 	peelingoff_heal.o \
 	point_illumination.o \
-	stellar_illumination_v2d.o \
-	gen_photon_car_v2b.o \
-	scattering_car_v2a.o \
-	run_simulation_mod_v2a.o \
+	stellar_illumination.o \
+	gen_photon_car.o \
+	scattering_car.o \
+	run_simulation_mod.o \
 	sightline_tau_rect.o \
 	sightline_tau_heal.o \
 	read_ramses_amr.o \
@@ -152,9 +152,7 @@ OBJSB	= \
 	scattering_amr.o \
 	grid_mod_amr.o \
 	peelingoff_amr.o \
-	setup_v2c.o \
-
-#	raytrace_car_v2h.o \
+	setup.o \
 
 default: clean main
 	/bin/rm -rf *.o *.mod

@@ -1,3 +1,6 @@
+# Old/backup source files
+backup_f90/
+
 # Compiled objects and modules
 *.o
 *.mod
