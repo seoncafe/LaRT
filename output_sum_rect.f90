@@ -583,10 +583,11 @@ contains
      intensity_bin_unit = grid%dxfreq
   end if
 
-  ! Surface area of the cubic AMR box in cm^2.
-  ! amr_grid%L_box is in cm (= boxlen_code * distance2cm), so L_box^2 already
-  ! includes distance2cm^2, consistent with the Cartesian: xrange^2 * distance2cm^2.
-  area = 6.0_wp * amr_grid%L_box**2  ! L_box in cm
+  ! Normalize by the unit-sphere surface area times distance2cm^2.
+  ! For dimensionless runs (distance2cm=1, taumax-only), this equals 4*pi
+  ! regardless of L_box — making Jout independent of the arbitrary box size,
+  ! matching the Cartesian convention with rmax=1 and distance2cm=1.
+  area = fourpi * par%distance2cm**2
 
   grid%Jout(:) = grid%Jout(:) / (par%nphotons * intensity_bin_unit * twopi * area)
   if (associated(grid%Jin)) &

@@ -34,6 +34,15 @@ module octree_mod
     integer,  allocatable :: ileaf(:)           ! ncells: >0 is leaf index; 0 = internal
     integer,  allocatable :: icell_of_leaf(:)   ! nleaf → cell index
 
+    ! ------ face-neighbor lookup table (size 6 × ncells) ------
+    ! neighbor(iface, icell) = cell index of the face neighbor in direction iface:
+    !   iface 1=+x  2=-x  3=+y  4=-y  5=+z  6=-z
+    ! 0  → outside the box.
+    ! Leaf cell  (ileaf > 0) → direct O(1) result.
+    ! Internal cell (ileaf = 0, neighbor is at finer level) → descent at runtime
+    !   using the actual photon position; see amr_next_leaf.
+    integer, allocatable :: neighbor(:,:)  ! (6, ncells)
+
     ! ------ physical data at leaf cells (size nleaf) ------
     real(wp), allocatable :: rhokap(:)   ! HI opacity per unit length at line centre
     real(wp), allocatable :: rhokapD(:)  ! dust opacity per unit length
@@ -284,7 +293,108 @@ contains
     if (save_jabs .and. use_dust)  allocate(amr_grid%Jabs(n), source=0.0_wp)
   end subroutine amr_alloc_output
 
+  !=========================================================================
+  ! Precompute the face-neighbor table neighbor(6, ncells).
+  ! Must be called after amr_build_tree (so cx,cy,cz,ch,level,ileaf are set).
+  ! Stored neighbors are at the SAME level or coarser. If the neighbor is
+  ! an internal cell (ileaf==0) the photon crossed into a finer region;
+  ! amr_next_leaf descends to the correct leaf using the crossing position.
+  !=========================================================================
+  subroutine amr_build_neighbors
+    integer  :: icell, lev
+    real(wp) :: cx, cy, cz, h, hp
+
+    if (allocated(amr_grid%neighbor)) deallocate(amr_grid%neighbor)
+    allocate(amr_grid%neighbor(6, amr_grid%ncells), source=0)
+
+    do icell = 1, amr_grid%ncells
+      cx  = amr_grid%cx(icell)
+      cy  = amr_grid%cy(icell)
+      cz  = amr_grid%cz(icell)
+      h   = amr_grid%ch(icell)
+      lev = amr_grid%level(icell)
+      ! Probe just past each face: 1e-8 * h is > fp-epsilon at scale h
+      ! yet << h, so it reliably lands inside the neighboring cell.
+      hp  = h * (1.0_wp + 1.0e-8_wp)
+
+      if (cx + hp <= amr_grid%xmax) &
+        amr_grid%neighbor(1, icell) = amr_find_cell_at_level(cx+hp, cy,   cz,   lev)
+      if (cx - hp >= amr_grid%xmin) &
+        amr_grid%neighbor(2, icell) = amr_find_cell_at_level(cx-hp, cy,   cz,   lev)
+      if (cy + hp <= amr_grid%ymax) &
+        amr_grid%neighbor(3, icell) = amr_find_cell_at_level(cx,    cy+hp, cz,  lev)
+      if (cy - hp >= amr_grid%ymin) &
+        amr_grid%neighbor(4, icell) = amr_find_cell_at_level(cx,    cy-hp, cz,  lev)
+      if (cz + hp <= amr_grid%zmax) &
+        amr_grid%neighbor(5, icell) = amr_find_cell_at_level(cx,    cy,   cz+hp, lev)
+      if (cz - hp >= amr_grid%zmin) &
+        amr_grid%neighbor(6, icell) = amr_find_cell_at_level(cx,    cy,   cz-hp, lev)
+    end do
+  end subroutine amr_build_neighbors
+
+  !=========================================================================
+  ! Return the leaf index a photon enters after crossing face iface of
+  ! cell icell.  (x, y, z) is the photon position AT the face (code units).
+  ! Returns 0 if the photon has left the box.
+  !
+  ! Algorithm:
+  !   1. Look up neighbor(iface, icell) from the precomputed table (O(1)).
+  !   2. If the result is an internal cell (finer refinement), descend using
+  !      the actual crossing position until a leaf is found (O(Δlevel)).
+  !=========================================================================
+  integer function amr_next_leaf(icell, iface, x, y, z) result(il_new)
+    integer,  intent(in) :: icell, iface
+    real(wp), intent(in) :: x, y, z
+    integer :: ineigh, child, ioct
+
+    il_new = 0
+    ineigh = amr_grid%neighbor(iface, icell)
+    if (ineigh == 0) return   ! outside box
+
+    ! Descend into finer cells if the neighbor is an internal cell.
+    do while (amr_grid%ileaf(ineigh) == 0)
+      ioct  = 1
+      if (x >= amr_grid%cx(ineigh)) ioct = ioct + 1
+      if (y >= amr_grid%cy(ineigh)) ioct = ioct + 2
+      if (z >= amr_grid%cz(ineigh)) ioct = ioct + 4
+      child = amr_grid%children(ioct, ineigh)
+      if (child == 0) exit   ! grid gap (should not happen in a valid grid)
+      ineigh = child
+    end do
+
+    il_new = amr_grid%ileaf(ineigh)
+  end function amr_next_leaf
+
   ! ---- private helpers ----
+
+  !=========================================================================
+  ! Descend the octree to find the cell at exactly `target_level` that
+  ! contains (x, y, z).  Returns the coarsest leaf if the grid is not
+  ! refined to target_level at that position.  Returns 0 if outside box.
+  !=========================================================================
+  integer function amr_find_cell_at_level(x, y, z, target_level) result(icell)
+    real(wp), intent(in) :: x, y, z
+    integer,  intent(in) :: target_level
+    integer :: ioct, child
+
+    icell = 0
+    if (x < amr_grid%xmin .or. x > amr_grid%xmax .or. &
+        y < amr_grid%ymin .or. y > amr_grid%ymax .or. &
+        z < amr_grid%zmin .or. z > amr_grid%zmax) return
+
+    icell = 1
+    do
+      if (amr_grid%level(icell) >= target_level) return  ! reached target level
+      if (amr_grid%ileaf(icell) > 0)             return  ! leaf at coarser level
+      ioct  = 1
+      if (x >= amr_grid%cx(icell)) ioct = ioct + 1
+      if (y >= amr_grid%cy(icell)) ioct = ioct + 2
+      if (z >= amr_grid%cz(icell)) ioct = ioct + 4
+      child = amr_grid%children(ioct, icell)
+      if (child == 0) return   ! grid gap
+      icell = child
+    end do
+  end function amr_find_cell_at_level
 
   subroutine alloc_tree_arrays(ncells_max, nleaf)
     integer, intent(in) :: ncells_max, nleaf

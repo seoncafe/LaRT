@@ -46,10 +46,11 @@ contains
     real(wp) :: vtherm, T4, k_ionize, k_recomb
     real(wp) :: nH, opacity_sum, nopac, opac_norm, opac_length
     real(wp) :: xscale, atau0, atau0_cell, xi, chi
-    real(wp) :: taupole, N_HIpole, tauhomo, N_HIhomo
+    real(wp) :: taupole, N_HIpole, tauhomo, N_HIhomo, NHI_pole_raw
     real(wp) :: atau1
     integer  :: ix, ierr
 
+    opac_norm = 1.0_wp
     !--- Step 1: Read leaf-cell data ----------------------------------
     if (mpar%p_rank == 0) then
       if (trim(par%amr_type) == 'ramses') then
@@ -93,18 +94,18 @@ contains
     call MPI_BCAST(vy_kms(1),     nleaf, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, ierr)
     call MPI_BCAST(vz_kms(1),     nleaf, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, ierr)
 
-    !--- Step 2: Build octree in cm -----------------------------------
-    ! Convert code-unit positions to cm, then build the tree.
-    ! Raytrace uses cm path lengths; rhokap will be scaled to cm^-1.
-    ! (RAMSES: positions already in cm, distance2cm = 1; generic: positions in
-    !  code units, distance2cm = kpc2cm etc.)
-    xleaf(:) = xleaf(:) * par%distance2cm
-    yleaf(:) = yleaf(:) * par%distance2cm
-    zleaf(:) = zleaf(:) * par%distance2cm
+    !--- Step 2: Build octree in code units ---------------------------
+    ! Tree positions stay in code units (kpc, pc, etc.), exactly like the
+    ! Cartesian grid.  Raytrace path lengths are in code units; rhokap is
+    ! scaled to per-code-unit via *= distance2cm (same as Cartesian).
+    ! (RAMSES reader returns cm, so for RAMSES distance2cm = 1 → no change.)
     call amr_build_tree(xleaf, yleaf, zleaf, leaf_level, nleaf, &
-        0.0_wp, boxlen_code*par%distance2cm, &
-        0.0_wp, boxlen_code*par%distance2cm, &
-        0.0_wp, boxlen_code*par%distance2cm)
+        0.0_wp, boxlen_code, &
+        0.0_wp, boxlen_code, &
+        0.0_wp, boxlen_code)
+
+    ! Precompute face-neighbor table for O(1) cell-boundary crossings.
+    call amr_build_neighbors
 
     !--- Step 3: Set reference Doppler frequency ----------------------
     amr_grid%Dfreq_ref  = line%vtherm1 * sqrt(par%temperature) / (line%wavelength0 * um2km)
@@ -151,23 +152,50 @@ contains
     deallocate(nHI_frac)
 
     !--- Step 5: Normalise to input optical depth / column density -----
-    ! Approximate tau_pole: mean(rhokap_percode * voigt) * boxlen_code.
-    ! rhokap is per-code-unit (= rhokap_cm * distance2cm), opac_length is
-    ! boxlen in code units — same convention as Cartesian mode.
+    ! tau_pole: traverse from box center in +z direction to compute actual
+    ! optical depth from center to z+ boundary (matches Cartesian taumax convention).
     opacity_sum = sum(amr_grid%rhokap * voigt_array(amr_grid%voigt_a, 0.0_wp))
     nopac       = real(count(amr_grid%rhokap > 0.0_wp), wp)
+    opac_length = boxlen_code
     if (nopac > 0.0_wp) then
-      opac_length = boxlen_code    ! box length in code units
-      tauhomo     = (opacity_sum / nopac) * opac_length
+      tauhomo = (opacity_sum / nopac) * opac_length
     else
       tauhomo = 0.0_wp
     end if
-    taupole  = tauhomo  ! approximation for AMR
 
-    ! N_HIpole [cm^-2]: rhokap_percode / distance2cm × Dfreq / cross0 × boxlen_code × distance2cm
-    !                 = rhokap_percode × Dfreq / cross0 × boxlen_code
-    N_HIpole = sum(amr_grid%rhokap * amr_grid%Dfreq / line%cross0) &
-               / amr_grid%nleaf * boxlen_code
+    ! Pole traversal from box center (+z direction): compute tau and N(HI) simultaneously.
+    ! This matches the Cartesian convention (tau from center to sphere surface).
+    NHI_pole_raw = 0.0_wp
+    block
+      integer  :: il_cur, icell_cur, il_next, iface_cur
+      real(wp) :: xc, yc, zc, t_exit_cur, tau_raw_half
+      xc = amr_grid%cx(1)
+      yc = amr_grid%cy(1)
+      zc = amr_grid%cz(1)
+      il_cur = amr_find_leaf(xc, yc, zc)
+      tau_raw_half = 0.0_wp
+      if (il_cur > 0) then
+        do
+          icell_cur = amr_grid%icell_of_leaf(il_cur)
+          call amr_cell_exit(icell_cur, xc, yc, zc, 0.0_wp, 0.0_wp, 1.0_wp, t_exit_cur, iface_cur)
+          tau_raw_half  = tau_raw_half + amr_grid%rhokap(il_cur) &
+                          * voigt(0.0_wp, amr_grid%voigt_a(il_cur)) * t_exit_cur
+          NHI_pole_raw  = NHI_pole_raw + amr_grid%rhokap(il_cur) &
+                          * amr_grid%Dfreq(il_cur) / line%cross0 * t_exit_cur
+          zc = zc + t_exit_cur
+          il_next = amr_next_leaf(icell_cur, iface_cur, xc, yc, zc)
+          if (il_next <= 0) exit
+          il_cur = il_next
+        end do
+      end if
+      if (tau_raw_half > 0.0_wp) then
+        taupole = tau_raw_half
+      else
+        taupole = tauhomo
+      end if
+    end block
+
+    N_HIpole = NHI_pole_raw
     N_HIhomo = N_HIpole
 
     if (par%taumax > 0.0_wp) then
@@ -186,15 +214,19 @@ contains
       end if
     end if
 
-    ! Recompute taupole and tauhomo from normalized rhokap (same as Cartesian).
+    ! Recompute tauhomo and taupole from normalized rhokap.
     opacity_sum = sum(amr_grid%rhokap * voigt_array(amr_grid%voigt_a, 0.0_wp))
     if (nopac > 0.0_wp) then
       tauhomo = (opacity_sum / nopac) * opac_length
     end if
-    taupole  = tauhomo
+    ! taupole = taumax after normalization (pole traversal gave exact normalization)
+    if (par%taumax > 0.0_wp) then
+      taupole = par%taumax
+    else
+      taupole = tauhomo
+    end if
 
-    N_HIpole = sum(amr_grid%rhokap * amr_grid%Dfreq / line%cross0) &
-               / amr_grid%nleaf * boxlen_code
+    N_HIpole = NHI_pole_raw * opac_norm
     N_HIhomo = N_HIpole
 
     ! Update par values (used by xcrit and frequency grid)
@@ -207,9 +239,8 @@ contains
 
     !--- Step 6: Core-skip parameters ---------------------------------
     atau0      = amr_grid%voigt_amean * par%tauhomo
-    ! amr_grid%ch(1) is the root cell half-width (= boxlen_cm/2 = boxlen_code*distance2cm/2).
-    ! boxlen_code / (2*ch(1)/distance2cm) = number of root cells along one axis = 1 for cubic.
-    atau0_cell = atau0 / (boxlen_code / (2.0_wp * amr_grid%ch(1) / par%distance2cm))
+    ! ch(1) = boxlen_code/2 in code units; number of root cells along one axis = 1.
+    atau0_cell = atau0 / (boxlen_code / (2.0_wp * amr_grid%ch(1)))
     if (atau0_cell <= 1.0_wp) then
       amr_grid%xcrit  = 0.0_wp
       amr_grid%xcrit2 = 0.0_wp
@@ -347,6 +378,7 @@ contains
   subroutine grid_destroy_amr()
     use define
     implicit none
+    if (allocated(amr_grid%neighbor))     deallocate(amr_grid%neighbor)
     if (allocated(amr_grid%parent))       deallocate(amr_grid%parent)
     if (allocated(amr_grid%children))     deallocate(amr_grid%children)
     if (allocated(amr_grid%level))        deallocate(amr_grid%level)

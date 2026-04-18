@@ -1,0 +1,17 @@
+&parameters
+ par%no_photons  = 1e6
+ par%temperature = 1.0e4
+ par%taumax      = 1.0e4
+ par%DGR         = 0.0
+ par%spectral_type   = 'voigt'
+ par%source_geometry = 'point'
+ par%rmax   = 1.0
+ par%nx = 101
+ par%ny = 101
+ par%nz = 101
+ par%nxfreq = 121
+ par%nxim   = 64
+ par%nyim   = 64
+ par%nprint = 100000
+ par%out_merge = .false.
+/

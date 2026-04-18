@@ -1,0 +1,18 @@
+&parameters
+ par%use_amr_grid  = .true.
+ par%amr_type      = 'generic'
+ par%amr_file      = 'sphere_amr.dat'
+ par%no_photons   = 1e6
+ par%taumax       = 1.0e4
+ par%DGR          = 0.0
+ par%source_geometry = 'point'
+ par%xs_point     = 50.0
+ par%ys_point     = 50.0
+ par%zs_point     = 50.0
+ par%spectral_type = 'voigt'
+ par%nxfreq  = 121
+ par%nxim    = 64
+ par%nyim    = 64
+ par%nprint  = 100000
+ par%out_merge = .false.
+/

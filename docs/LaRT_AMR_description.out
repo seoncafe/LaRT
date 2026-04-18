@@ -1,0 +1,29 @@
+\BOOKMARK [1][-]{section.1}{Overview}{}% 1
+\BOOKMARK [1][-]{section.2}{AMR Grid Data Structure}{}% 2
+\BOOKMARK [2][-]{subsection.2.1}{Octree Topology}{section.2}% 3
+\BOOKMARK [2][-]{subsection.2.2}{Arrays Stored per Cell}{section.2}% 4
+\BOOKMARK [2][-]{subsection.2.3}{Coordinate Convention}{section.2}% 5
+\BOOKMARK [1][-]{section.3}{Building the Octree}{}% 6
+\BOOKMARK [2][-]{subsection.3.1}{Tree Construction: amr\137build\137tree}{section.3}% 7
+\BOOKMARK [2][-]{subsection.3.2}{Face-Neighbour Precomputation: amr\137build\137neighbors}{section.3}% 8
+\BOOKMARK [1][-]{section.4}{Cell-Crossing Algorithms}{}% 9
+\BOOKMARK [2][-]{subsection.4.1}{Finding a Leaf: amr\137find\137leaf}{section.4}% 10
+\BOOKMARK [2][-]{subsection.4.2}{Cell-Exit Distance: amr\137cell\137exit}{section.4}% 11
+\BOOKMARK [2][-]{subsection.4.3}{Next Leaf After a Face Crossing: amr\137next\137leaf}{section.4}% 12
+\BOOKMARK [1][-]{section.5}{Grid Initialisation}{}% 13
+\BOOKMARK [2][-]{subsection.5.1}{Input Data Formats}{section.5}% 14
+\BOOKMARK [2][-]{subsection.5.2}{Tau Normalisation by Pole Traversal}{section.5}% 15
+\BOOKMARK [1][-]{section.6}{Photon Propagation}{}% 16
+\BOOKMARK [2][-]{subsection.6.1}{Main Raytrace Routine: raytrace\137to\137tau\137amr}{section.6}% 17
+\BOOKMARK [2][-]{subsection.6.2}{Frequency Shift at Cell Boundaries}{section.6}% 18
+\BOOKMARK [2][-]{subsection.6.3}{Overshoot Correction}{section.6}% 19
+\BOOKMARK [2][-]{subsection.6.4}{Photon Escape and Spectrum Accumulation}{section.6}% 20
+\BOOKMARK [2][-]{subsection.6.5}{Other Raytrace Routines}{section.6}% 21
+\BOOKMARK [1][-]{section.7}{Scattering}{}% 22
+\BOOKMARK [2][-]{subsection.7.1}{Resonance Scattering}{section.7}% 23
+\BOOKMARK [2][-]{subsection.7.2}{Dust Scattering}{section.7}% 24
+\BOOKMARK [2][-]{subsection.7.3}{Multi-Level Resonance Transitions}{section.7}% 25
+\BOOKMARK [1][-]{section.8}{Output Normalisation}{}% 26
+\BOOKMARK [1][-]{section.9}{Core-Skip Acceleration}{}% 27
+\BOOKMARK [1][-]{section.10}{Validation}{}% 28
+\BOOKMARK [1][-]{section.11}{Summary of Key Design Choices}{}% 29

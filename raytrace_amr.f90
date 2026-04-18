@@ -3,20 +3,27 @@ module raytrace_amr_mod
   ! AMR raytrace routines: octree-traversal equivalents of the Cartesian
   ! raytrace_car_v2h_refactored.f90 routines.
   !
-  ! Convention (throughout this module):
-  !   x, y, z  = running absolute position of the photon (updated at every
-  !               cell-face crossing).
-  !   d        = cumulative distance from the ORIGINAL photon position
-  !               (photon%x/y/z at entry).  Used only for the final
-  !               photon%x = photon%x + d*kx update.
-  !   t_exit   = distance from the CURRENT (x,y,z) to the next face, as
-  !               returned by amr_cell_exit(icell, x, y, z, ...).
+  ! Coordinate convention (same as Cartesian):
+  !   All positions and path lengths are in CODE UNITS (kpc, pc, etc.).
+  !   rhokap is per code unit  →  tau = rhokap * ds   is dimensionless.
   !
-  ! Frequency-shift convention (same as Cartesian code):
+  ! Cell-traversal convention:
+  !   x, y, z  = running absolute position (updated at every face crossing).
+  !   d        = cumulative distance from the ORIGINAL photon position
+  !               (photon%x/y/z at entry); used only for the final
+  !               photon%x = photon%x + d*kx  update.
+  !   iface    = face index returned by amr_cell_exit:
+  !               1=+x  2=-x  3=+y  4=-y  5=+z  6=-z
+  !
+  ! Cell lookup:
+  !   amr_next_leaf(icell, iface, x, y, z) — O(1) via precomputed neighbor
+  !   table; no position-based tree traversal from root at every step.
+  !
+  ! Frequency-shift convention (same as Cartesian):
   !   xfreq in the comoving frame of the current cell.
   !   At each cell crossing:
   !     xfreq_new = (xfreq_old + u_old) * Dfreq_old / Dfreq_new - u_new
-  !   where u = dot(v_cell, k_hat) (velocity in units of v_thermal).
+  !   where u = dot(v_cell, k_hat)  [velocity in units of v_thermal].
   !-----------------------------------------------------------------------
   use octree_mod
   use voigt_mod
@@ -31,12 +38,7 @@ module raytrace_amr_mod
   public :: raytrace_to_dist_tau_gas_amr
   public :: raytrace_to_dist_column_amr
 
-  real(wp), parameter :: tau_huge = 745.2_wp  ! exp(-tau_huge) = 0 in double
-
-  ! Fractional push past a face (relative to box size).
-  ! tiny() is ~1e-308 and has no effect at scales of 1e23 cm;
-  ! use a fraction of L_box instead to reliably cross a face.
-  real(wp), parameter :: eps_frac = 1.0e-8_wp
+  real(wp), parameter :: tau_huge = 745.2_wp  ! exp(-tau_huge) ≈ 0 in double
 
 contains
 
@@ -98,16 +100,14 @@ contains
         exit
       end if
 
-      ! Advance position to cell face
+      ! Advance to face
       d = d + t_exit
       x = x + t_exit * kx
       y = y + t_exit * ky
       z = z + t_exit * kz
 
-      ! Find next leaf: push slightly past the face
-      il_new = amr_find_leaf(x + kx*eps_push, &
-                              y + ky*eps_push, &
-                              z + kz*eps_push)
+      ! Next leaf via precomputed neighbor table (O(1) + optional descent)
+      il_new = amr_next_leaf(icell, iface, x, y, z)
 
       if (il_new <= 0) then
         photon%inside = .false.
@@ -186,9 +186,7 @@ contains
       x = x + t_exit * kx
       y = y + t_exit * ky
       z = z + t_exit * kz
-      il_new = amr_find_leaf(x + kx*eps_push, &
-                              y + ky*eps_push, &
-                              z + kz*eps_push)
+      il_new = amr_next_leaf(icell, iface, x, y, z)
       if (il_new <= 0) return
 
       Df_old    = amr_grid%Dfreq(il)
@@ -239,9 +237,7 @@ contains
       x = x + t_exit * kx
       y = y + t_exit * ky
       z = z + t_exit * kz
-      il_new = amr_find_leaf(x + kx*eps_push, &
-                              y + ky*eps_push, &
-                              z + kz*eps_push)
+      il_new = amr_next_leaf(icell, iface, x, y, z)
       if (il_new <= 0) return
 
       Df_old    = amr_grid%Dfreq(il)
@@ -293,9 +289,7 @@ contains
       x = x + t_exit * kx
       y = y + t_exit * ky
       z = z + t_exit * kz
-      il_new = amr_find_leaf(x + kx*eps_push, &
-                              y + ky*eps_push, &
-                              z + kz*eps_push)
+      il_new = amr_next_leaf(icell, iface, x, y, z)
       if (il_new <= 0) return
 
       Df_old    = amr_grid%Dfreq(il)
@@ -320,7 +314,7 @@ contains
 
     integer  :: il, il_new, icell
     real(wp) :: x, y, z, kx, ky, kz
-    real(wp) :: d, t_exit, t_step
+    real(wp) :: d, t_exit
     real(wp) :: rhokap, u1, u2, Df_old, Df_new, xfreq_loc
     integer  :: iface
 
@@ -356,9 +350,7 @@ contains
       x = x + t_exit * kx
       y = y + t_exit * ky
       z = z + t_exit * kz
-      il_new = amr_find_leaf(x + kx*eps_push, &
-                              y + ky*eps_push, &
-                              z + kz*eps_push)
+      il_new = amr_next_leaf(icell, iface, x, y, z)
       if (il_new <= 0) return
 
       Df_old    = amr_grid%Dfreq(il)
@@ -415,9 +407,7 @@ contains
       x = x + t_exit * kx
       y = y + t_exit * ky
       z = z + t_exit * kz
-      il_new = amr_find_leaf(x + kx*eps_push, &
-                              y + ky*eps_push, &
-                              z + kz*eps_push)
+      il_new = amr_next_leaf(icell, iface, x, y, z)
       if (il_new <= 0) return
 
       Df_old    = amr_grid%Dfreq(il)
@@ -478,9 +468,7 @@ contains
       x = x + t_exit * kx
       y = y + t_exit * ky
       z = z + t_exit * kz
-      il_new = amr_find_leaf(x + kx*eps_push, &
-                              y + ky*eps_push, &
-                              z + kz*eps_push)
+      il_new = amr_next_leaf(icell, iface, x, y, z)
       if (il_new <= 0) return
 
       Df_old    = amr_grid%Dfreq(il)
