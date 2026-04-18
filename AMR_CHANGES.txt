@@ -261,9 +261,24 @@ New Files
        Uses amr_grid%Dfreq(il) to convert DnuHK_Hz to Doppler units.
 
    do_resonance4_amr
-       Multi-branch resonance (Fe II 2374, etc.).
-       Currently implemented as a single-line approximation; full multi-
-       transition sampling is deferred to future work.
+       One upward transition, multiple downward transitions (e.g. Fe II 2374).
+       Samples uz from rand_resonance_vz, then selects the downward transition
+       branch via rand_alias_choise(line%b(1)%P_down, line%b(1)%A_down).
+       Applies the frequency offset (Elow_Hz / Dfreq) for non-primary branches
+       and sets E1/E2/E3 polarisation factors for the chosen branch.
+
+   do_resonance5_amr
+       Two upward transitions, multiple downward transitions (e.g. Fe II multi-level).
+       Selects the upward branch (iup=1 or 2) by comparing Voigt-weighted oscillator
+       strengths at the current frequency and at the second line offset (delE_Hz(2)).
+       Then selects the downward branch via rand_alias_choise if ndown > 1.
+       Applies Elow_Hz frequency offset and sets E1/E2/E3 for the chosen (iup,idown).
+
+   do_resonance6_amr
+       Three upward transitions, one downward each (e.g. three-level system).
+       Selects the upward branch (iup=1,2,3) by cumulative Voigt-weighted
+       oscillator strengths at offsets delE_Hz(2) and delE_Hz(3).
+       Sets E1/E2/E3 from line%b(iup)%E1/E2/E3(1) for the chosen branch.
 
 
 5. grid_mod_amr.f90
@@ -579,11 +594,6 @@ Not Yet Implemented / Future Work
   Cartesian grid cells. In AMR mode it currently falls back to uniform
   sampling within the bounding box. Emissivity-weighted sampling from the
   AMR leaf cells is not yet implemented.
-
-- do_resonance4_amr: Currently a copy of do_resonance1_amr. Full multi-
-  branch sampling (selecting among multiple upper transitions weighted by
-  their absorption probabilities at the current frequency) remains to be
-  implemented.
 
 - Shared-memory MPI: Each rank currently holds a full copy of the AMR
   tree. For large RAMSES simulations this may be prohibitive; MPI-3
