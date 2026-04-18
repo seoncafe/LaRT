@@ -440,7 +440,38 @@ Modified Existing Files
          peelingoff_amr.o \
          setup.o \
 
-5. main.f90
+5. gen_photon_car.f90
+   Added AMR photon injection block at the top of gen_photon(), executed
+   when par%use_amr_grid = .true.:
+
+     Source geometry:
+       'point' (default) : position set to (xs_point, ys_point, zs_point)
+       'uniform'         : uniform random sampling within the AMR box
+       'uniform_sphere'  : uniform random sampling within a sphere of
+                           radius par%source_rmax centred on the box centre
+
+     After setting position, calls setup_isotropic_injection_amr(), which
+     draws an isotropic direction (kx,ky,kz) and sets photon%icell_amr via
+     amr_find_leaf(x,y,z).
+
+     Spectral injection per line_type (using per-cell Dfreq(il)):
+       line_type 2 : two-line — randomly selects H or K component
+       line_type 3 : two upward transitions — selects by oscillator strength
+       line_type 4 : one upward, multiple downward — selects downward branch
+                     via rand_alias_choise, applies Elow_Hz frequency offset
+       line_type 5 : two upward, multiple downward — selects iup then idown
+       line_type 6 : three upward, one downward each — selects iup by
+                     cumulative oscillator strength, applies delE_Hz offset
+
+     Spectral type:
+       'continuum' : uniform random in [xfreq_min, xfreq_max], scaled by
+                     Dfreq(il)/Dfreq_ref
+       'voigt'     : inject at line centre plus rand_voigt(voigt_a(il))
+       'voigt0'    : inject at line centre plus rand_voigt(voigt_a0) scaled
+                     by Dfreq0/Dfreq(il)
+       'gaussian'  : inject at line centre plus Gaussian width
+
+6. main.f90
    Added:
      use grid_mod_amr
 
@@ -589,11 +620,6 @@ sphere boundary (voxelization artifact), not a normalization error.
 --------------------------------------------------------------------------------
 Not Yet Implemented / Future Work
 --------------------------------------------------------------------------------
-
-- Photon injection: gen_photon_car.f90 generates photon positions within
-  Cartesian grid cells. In AMR mode it currently falls back to uniform
-  sampling within the bounding box. Emissivity-weighted sampling from the
-  AMR leaf cells is not yet implemented.
 
 - Shared-memory MPI: Each rank currently holds a full copy of the AMR
   tree. For large RAMSES simulations this may be prohibitive; MPI-3
