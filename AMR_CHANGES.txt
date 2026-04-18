@@ -621,6 +621,16 @@ sphere boundary (voxelization artifact), not a normalization error.
 Not Yet Implemented / Future Work
 --------------------------------------------------------------------------------
 
+- Source geometries (gen_photon_car.f90): AMR mode handles only 'point'
+  (default), 'uniform', and 'uniform_sphere'/'sphere'. All other geometries
+  silently fall back to a point source at (xs_point, ys_point, zs_point):
+    - 'diffuse_emissivity'       (requires AMR leaf emissivity weights)
+    - 'gaussian', 'exponential', 'exponential_sphere', 'exponential_cylinder'
+    - 'sersic' / 'ssh'
+    - 'star_file'
+    - 'uniform_cylinder' / 'cylinder', 'uniform_xy'
+    - 'plane_illumination', 'stellar_illumination', 'point_illumination'
+
 - Shared-memory MPI: Each rank currently holds a full copy of the AMR
   tree. For large RAMSES simulations this may be prohibitive; MPI-3
   shared-memory windows would reduce per-node memory to a single copy.
