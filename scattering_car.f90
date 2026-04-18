@@ -26,7 +26,7 @@ contains
   !--- AMR mode: use amr_grid arrays indexed by leaf index
   if (par%use_amr_grid) then
      i1 = photon%icell_amr
-     if (par%DGR > 0.0_wp .and. allocated(amr_grid%rhokapD)) then
+     if (par%DGR > 0.0_wp .and. associated(amr_grid%rhokapD)) then
         p_dust = amr_grid%rhokapD(i1) / &
             (amr_grid%rhokap(i1)*voigt(photon%xfreq, amr_grid%voigt_a(i1)) + amr_grid%rhokapD(i1))
         if (rand_number() <= p_dust) then

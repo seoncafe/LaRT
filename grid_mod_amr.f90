@@ -116,6 +116,8 @@ contains
     allocate(nHI_frac(nleaf))
     call amr_alloc_phys(par%DGR > 0.0_wp)
 
+    ! Shared arrays: only rank 0 on each node fills; others wait at barrier.
+    if (mpar%h_rank == 0) then
     do il = 1, nleaf
       T_cgs(il) = max(T_cgs(il), 10.0_wp)
       vtherm    = line%vtherm1 * sqrt(T_cgs(il))
@@ -148,6 +150,8 @@ contains
       amr_grid%vfy(il) = vy_kms(il) / vtherm
       amr_grid%vfz(il) = vz_kms(il) / vtherm
     end do
+    end if
+    call MPI_BARRIER(mpar%hostcomm, ierr)
 
     deallocate(nHI_frac)
 
@@ -198,21 +202,25 @@ contains
     N_HIpole = NHI_pole_raw
     N_HIhomo = N_HIpole
 
+    ! Shared arrays: only rank 0 on each node normalises; others wait at barrier.
+    if (mpar%h_rank == 0) then
     if (par%taumax > 0.0_wp) then
       if (taupole > 0.0_wp) then
         opac_norm           = par%taumax / taupole
         amr_grid%rhokap(:) = amr_grid%rhokap(:) * opac_norm
-        if (par%DGR > 0.0_wp .and. allocated(amr_grid%rhokapD)) &
+        if (par%DGR > 0.0_wp .and. associated(amr_grid%rhokapD)) &
             amr_grid%rhokapD(:) = amr_grid%rhokapD(:) * opac_norm
       end if
     else if (par%N_HImax > 0.0_wp) then
       if (N_HIpole > 0.0_wp) then
         opac_norm           = par%N_HImax / N_HIpole
         amr_grid%rhokap(:) = amr_grid%rhokap(:) * opac_norm
-        if (par%DGR > 0.0_wp .and. allocated(amr_grid%rhokapD)) &
+        if (par%DGR > 0.0_wp .and. associated(amr_grid%rhokapD)) &
             amr_grid%rhokapD(:) = amr_grid%rhokapD(:) * opac_norm
       end if
     end if
+    end if
+    call MPI_BARRIER(mpar%hostcomm, ierr)
 
     ! Recompute tauhomo and taupole from normalized rhokap.
     opacity_sum = sum(amr_grid%rhokap * voigt_array(amr_grid%voigt_a, 0.0_wp))
@@ -274,12 +282,14 @@ contains
   !=========================================================================
   subroutine amr_setup_freq_grid(atau0, boxlen_cm)
     use define
+    use mpi
+    use memory_mod
     use line_mod
     implicit none
     real(wp), intent(in) :: atau0, boxlen_cm
 
     real(wp) :: vtherm, xscale, atau1, atau0_arg
-    integer  :: i
+    integer  :: i, ierr
 
     atau1 = (amr_grid%voigt_amean * par%tauhomo)**(1.0_wp/3.0_wp)
 
@@ -308,17 +318,21 @@ contains
     amr_grid%xfreq_max = par%xfreq_max
     amr_grid%dxfreq    = (par%xfreq_max - par%xfreq_min) / par%nxfreq
 
-    allocate(amr_grid%xfreq(par%nxfreq))
-    allocate(amr_grid%velocity(par%nxfreq))
-    allocate(amr_grid%wavelength(par%nxfreq))
+    call create_shared_mem(amr_grid%xfreq,     [par%nxfreq])
+    call create_shared_mem(amr_grid%velocity,  [par%nxfreq])
+    call create_shared_mem(amr_grid%wavelength,[par%nxfreq])
 
     vtherm = line%vtherm1 * sqrt(par%temperature)
-    do i = 1, par%nxfreq
-      amr_grid%xfreq(i)     = (i - 0.5_wp) * amr_grid%dxfreq + amr_grid%xfreq_min
-      amr_grid%velocity(i)  = -vtherm * amr_grid%xfreq(i)
-      amr_grid%wavelength(i) = (amr_grid%velocity(i)/speedc + 1.0_wp) * (line%wavelength0 * 1.0e4_wp)
-    end do
+    ! Only h_rank==0 writes to shared arrays; all ranks compute the scalar dwave.
+    if (mpar%h_rank == 0) then
+      do i = 1, par%nxfreq
+        amr_grid%xfreq(i)      = (i - 0.5_wp) * amr_grid%dxfreq + amr_grid%xfreq_min
+        amr_grid%velocity(i)   = -vtherm * amr_grid%xfreq(i)
+        amr_grid%wavelength(i) = (amr_grid%velocity(i)/speedc + 1.0_wp) * (line%wavelength0 * 1.0e4_wp)
+      end do
+    end if
     amr_grid%dwave = vtherm / speedc * (line%wavelength0 * 1.0e4_wp) * amr_grid%dxfreq
+    call MPI_BARRIER(mpar%hostcomm, ierr)
   end subroutine amr_setup_freq_grid
 
   !=========================================================================
@@ -377,30 +391,33 @@ contains
   !=========================================================================
   subroutine grid_destroy_amr()
     use define
+    use memory_mod
     implicit none
-    if (allocated(amr_grid%neighbor))     deallocate(amr_grid%neighbor)
-    if (allocated(amr_grid%parent))       deallocate(amr_grid%parent)
-    if (allocated(amr_grid%children))     deallocate(amr_grid%children)
-    if (allocated(amr_grid%level))        deallocate(amr_grid%level)
-    if (allocated(amr_grid%cx))           deallocate(amr_grid%cx)
-    if (allocated(amr_grid%cy))           deallocate(amr_grid%cy)
-    if (allocated(amr_grid%cz))           deallocate(amr_grid%cz)
-    if (allocated(amr_grid%ch))           deallocate(amr_grid%ch)
-    if (allocated(amr_grid%ileaf))        deallocate(amr_grid%ileaf)
-    if (allocated(amr_grid%icell_of_leaf)) deallocate(amr_grid%icell_of_leaf)
-    if (allocated(amr_grid%rhokap))       deallocate(amr_grid%rhokap)
-    if (allocated(amr_grid%rhokapD))      deallocate(amr_grid%rhokapD)
-    if (allocated(amr_grid%Dfreq))        deallocate(amr_grid%Dfreq)
-    if (allocated(amr_grid%voigt_a))      deallocate(amr_grid%voigt_a)
-    if (allocated(amr_grid%vfx))          deallocate(amr_grid%vfx)
-    if (allocated(amr_grid%vfy))          deallocate(amr_grid%vfy)
-    if (allocated(amr_grid%vfz))          deallocate(amr_grid%vfz)
-    if (allocated(amr_grid%xfreq))        deallocate(amr_grid%xfreq)
-    if (allocated(amr_grid%velocity))     deallocate(amr_grid%velocity)
-    if (allocated(amr_grid%wavelength))   deallocate(amr_grid%wavelength)
-    if (allocated(amr_grid%Jout))         deallocate(amr_grid%Jout)
-    if (allocated(amr_grid%Jin))          deallocate(amr_grid%Jin)
-    if (allocated(amr_grid%Jabs))         deallocate(amr_grid%Jabs)
+    ! Shared-memory (pointer) arrays: freed via destroy_mem (MPI window release)
+    if (associated(amr_grid%neighbor))      call destroy_mem(amr_grid%neighbor)
+    if (associated(amr_grid%parent))        call destroy_mem(amr_grid%parent)
+    if (associated(amr_grid%children))      call destroy_mem(amr_grid%children)
+    if (associated(amr_grid%level))         call destroy_mem(amr_grid%level)
+    if (associated(amr_grid%cx))            call destroy_mem(amr_grid%cx)
+    if (associated(amr_grid%cy))            call destroy_mem(amr_grid%cy)
+    if (associated(amr_grid%cz))            call destroy_mem(amr_grid%cz)
+    if (associated(amr_grid%ch))            call destroy_mem(amr_grid%ch)
+    if (associated(amr_grid%ileaf))         call destroy_mem(amr_grid%ileaf)
+    if (associated(amr_grid%icell_of_leaf)) call destroy_mem(amr_grid%icell_of_leaf)
+    if (associated(amr_grid%rhokap))        call destroy_mem(amr_grid%rhokap)
+    if (associated(amr_grid%rhokapD))       call destroy_mem(amr_grid%rhokapD)
+    if (associated(amr_grid%Dfreq))         call destroy_mem(amr_grid%Dfreq)
+    if (associated(amr_grid%voigt_a))       call destroy_mem(amr_grid%voigt_a)
+    if (associated(amr_grid%vfx))           call destroy_mem(amr_grid%vfx)
+    if (associated(amr_grid%vfy))           call destroy_mem(amr_grid%vfy)
+    if (associated(amr_grid%vfz))           call destroy_mem(amr_grid%vfz)
+    if (associated(amr_grid%xfreq))         call destroy_mem(amr_grid%xfreq)
+    if (associated(amr_grid%velocity))      call destroy_mem(amr_grid%velocity)
+    if (associated(amr_grid%wavelength))    call destroy_mem(amr_grid%wavelength)
+    ! Per-rank output arrays (allocatable): freed normally
+    if (allocated(amr_grid%Jout))  deallocate(amr_grid%Jout)
+    if (allocated(amr_grid%Jin))   deallocate(amr_grid%Jin)
+    if (allocated(amr_grid%Jabs))  deallocate(amr_grid%Jabs)
   end subroutine grid_destroy_amr
 
 end module grid_mod_amr

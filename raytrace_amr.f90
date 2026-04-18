@@ -81,7 +81,7 @@ contains
       call amr_cell_exit(icell, x, y, z, kx, ky, kz, t_exit, iface)
 
       rhokapH = amr_grid%rhokap(il) * voigt(photon%xfreq, amr_grid%voigt_a(il))
-      if (par%DGR > 0.0_wp .and. allocated(amr_grid%rhokapD)) then
+      if (par%DGR > 0.0_wp .and. associated(amr_grid%rhokapD)) then
         rhokap = rhokapH + amr_grid%rhokapD(il)
       else
         rhokap = rhokapH
@@ -178,7 +178,7 @@ contains
       icell  = amr_grid%icell_of_leaf(il)
       call amr_cell_exit(icell, x, y, z, kx, ky, kz, t_exit, iface)
       rhokap = amr_grid%rhokap(il) * voigt(xfreq_loc, amr_grid%voigt_a(il))
-      if (par%DGR > 0.0_wp .and. allocated(amr_grid%rhokapD)) &
+      if (par%DGR > 0.0_wp .and. associated(amr_grid%rhokapD)) &
           rhokap = rhokap + amr_grid%rhokapD(il)
       tau = tau + t_exit * rhokap
       if (tau >= tau_huge) return
@@ -283,7 +283,7 @@ contains
       icell  = amr_grid%icell_of_leaf(il)
       call amr_cell_exit(icell, x, y, z, kx, ky, kz, t_exit, iface)
       N_gas  = N_gas + t_exit * amr_grid%rhokap(il) * amr_grid%Dfreq(il) / line%cross0
-      if (par%DGR > 0.0_wp .and. allocated(amr_grid%rhokapD)) &
+      if (par%DGR > 0.0_wp .and. associated(amr_grid%rhokapD)) &
           tau_dust = tau_dust + t_exit * amr_grid%rhokapD(il)
 
       x = x + t_exit * kx
@@ -336,7 +336,7 @@ contains
       icell  = amr_grid%icell_of_leaf(il)
       call amr_cell_exit(icell, x, y, z, kx, ky, kz, t_exit, iface)
       rhokap = amr_grid%rhokap(il) * voigt(xfreq_loc, amr_grid%voigt_a(il))
-      if (par%DGR > 0.0_wp .and. allocated(amr_grid%rhokapD)) &
+      if (par%DGR > 0.0_wp .and. associated(amr_grid%rhokapD)) &
           rhokap = rhokap + amr_grid%rhokapD(il)
 
       if (d + t_exit >= dist_in) then
@@ -460,7 +460,7 @@ contains
         t_step = t_exit
       end if
       N_gas    = N_gas + t_step * amr_grid%rhokap(il) * amr_grid%Dfreq(il) / line%cross0
-      if (par%DGR > 0.0_wp .and. allocated(amr_grid%rhokapD)) &
+      if (par%DGR > 0.0_wp .and. associated(amr_grid%rhokapD)) &
           tau_dust = tau_dust + t_step * amr_grid%rhokapD(il)
       if (d + t_exit >= dist_in) return
 
