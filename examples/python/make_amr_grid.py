@@ -6,13 +6,13 @@ Library for building generic-format AMR data files for LaRT v2.00.
 Output file format (amr_type = 'generic')
 ------------------------------------------
     nleaf  boxlen
-    x  y  z  level  nH[cm^-3]  T[K]  vx[km/s]  vy[km/s]  vz[km/s]
+    x  y  z  level  gasDen[cm^-3]  T[K]  vx[km/s]  vy[km/s]  vz[km/s]
     ...
 
   - x, y, z   : leaf-cell centre coordinates in the same unit as boxlen
                  (origin at box corner, range [0, boxlen])
   - level      : AMR refinement level (root = 0; minimum leaf level = 1)
-  - nH         : total hydrogen number density [cm^-3]
+  - gasDen     : total hydrogen number density [cm^-3]
                  (neutral fraction applied in LaRT via par%use_cie_condition)
   - T          : gas temperature [K]
   - vx/vy/vz   : bulk gas velocity [km/s]
@@ -36,11 +36,11 @@ Quick start
     grid.refine(lambda c: c.dist(50, 50, 50) < 40, level_max=3)
 
     # Assign physical properties
-    def nH_fn(x, y, z):
+    def gasDen_fn(x, y, z):
         r = np.sqrt((x-50)**2 + (y-50)**2 + (z-50)**2)
         return 1e-3 * np.exp(-r**2 / (2*20.0**2))
 
-    grid.set_density(nH_fn)
+    grid.set_density(gasDen_fn)
     grid.set_temperature(lambda x, y, z: 1e4)
     # velocity defaults to zero
 
@@ -49,6 +49,11 @@ Quick start
 """
 
 import numpy as np
+
+try:
+    from astropy.io import fits
+except ImportError:
+    fits = None
 
 
 # ---------------------------------------------------------------------------
@@ -72,12 +77,12 @@ class Cell:
     ----------
     children : list of Cell or None
         Eight children if refined; None if this is a leaf.
-    nH, T, vx, vy, vz : float
+    gasDen, T, vx, vy, vz : float
         Physical data (only meaningful for leaves).
     """
 
     __slots__ = ('cx', 'cy', 'cz', 'h', 'level', 'children',
-                 'nH', 'T', 'vx', 'vy', 'vz')
+                 'gasDen', 'T', 'vx', 'vy', 'vz')
 
     def __init__(self, cx, cy, cz, h, level):
         self.cx    = cx
@@ -87,7 +92,7 @@ class Cell:
         self.level = level
         self.children = None
         # Physical defaults
-        self.nH = 0.0
+        self.gasDen = 0.0
         self.T  = 1e4
         self.vx = 0.0
         self.vy = 0.0
@@ -357,14 +362,14 @@ class AMRGrid:
 
         self.refine_geometry(inside, intersects, level_max, criterion_inside)
 
-    def refine_by_density(self, nH_fn, threshold=0.1, level_max=6,
+    def refine_by_density(self, gasDen_fn, threshold=0.1, level_max=6,
                           nprobe=2, floor=1e-30):
         """
         Refine cells where the density gradient exceeds ``threshold``.
 
         Follows the RASCAS (module_mesh.f90) criterion:
 
-            delta = (nH_max - nH_min) / (nH_max + nH_min + floor)
+            delta = (gasDen_max - gasDen_min) / (gasDen_max + gasDen_min + floor)
 
         The density is sampled at a uniform ``nprobe × nprobe × nprobe``
         sub-grid inside the cell plus the cell centre.  ``nprobe=2``
@@ -375,8 +380,8 @@ class AMRGrid:
 
         Parameters
         ----------
-        nH_fn : callable
-            ``nH_fn(x, y, z) -> nH [cm^-3]`` in the same coordinate units
+        gasDen_fn : callable
+            ``gasDen_fn(x, y, z) -> gasDen [cm^-3]`` in the same coordinate units
             as the grid (e.g. kpc).
         threshold : float
             Gradient threshold ∈ [0, 1).  0.1 means 10 % relative variation.
@@ -388,11 +393,11 @@ class AMRGrid:
             Density floor to avoid division by zero.
         """
         self.refine(
-            self._make_dens_criterion(nH_fn, threshold, floor, nprobe),
+            self._make_dens_criterion(gasDen_fn, threshold, floor, nprobe),
             level_max
         )
 
-    def refine_by_velocity(self, vel_fn, nH_fn=None, threshold=0.1,
+    def refine_by_velocity(self, vel_fn, gasDen_fn=None, threshold=0.1,
                            level_max=6, nprobe=2, floor=1e-30):
         """
         Refine cells where the velocity magnitude gradient exceeds ``threshold``.
@@ -402,15 +407,15 @@ class AMRGrid:
             delta = (|v|_max - |v|_min) / (|v|_max + |v|_min + floor)
 
         Sampling is done at the same sub-grid as :meth:`refine_by_density`.
-        If ``nH_fn`` is supplied, sub-cells with ``nH == 0`` are skipped
+        If ``gasDen_fn`` is supplied, sub-cells with ``gasDen == 0`` are skipped
         (avoids refining voids where the velocity field is undefined).
 
         Parameters
         ----------
         vel_fn : callable
             ``vel_fn(x, y, z) -> (vx, vy, vz) [km/s]``.
-        nH_fn : callable or None
-            Optional density function.  Sub-cells with ``nH_fn(x,y,z) <= 0``
+        gasDen_fn : callable or None
+            Optional density function.  Sub-cells with ``gasDen_fn(x,y,z) <= 0``
             do not contribute to the velocity gradient.
         threshold : float
             Gradient threshold ∈ [0, 1).  Default 0.1.
@@ -422,11 +427,11 @@ class AMRGrid:
             Velocity floor to avoid division by zero.
         """
         self.refine(
-            self._make_vel_criterion(vel_fn, nH_fn, threshold, floor, nprobe),
+            self._make_vel_criterion(vel_fn, gasDen_fn, threshold, floor, nprobe),
             level_max
         )
 
-    def refine_by_physics(self, nH_fn, vel_fn=None,
+    def refine_by_physics(self, gasDen_fn, vel_fn=None,
                           dens_threshold=0.1, vel_threshold=0.1,
                           level_max=6, nprobe=2, floor=1e-30):
         """
@@ -439,8 +444,8 @@ class AMRGrid:
 
         Parameters
         ----------
-        nH_fn : callable
-            ``nH_fn(x, y, z) -> nH [cm^-3]``.
+        gasDen_fn : callable
+            ``gasDen_fn(x, y, z) -> gasDen [cm^-3]``.
         vel_fn : callable or None
             ``vel_fn(x, y, z) -> (vx, vy, vz) [km/s]``.  If None, only the
             density criterion is applied.
@@ -458,9 +463,9 @@ class AMRGrid:
         """
         criteria = []
         if dens_threshold is not None:
-            criteria.append(self._make_dens_criterion(nH_fn, dens_threshold, floor, nprobe))
+            criteria.append(self._make_dens_criterion(gasDen_fn, dens_threshold, floor, nprobe))
         if vel_fn is not None and vel_threshold is not None:
-            criteria.append(self._make_vel_criterion(vel_fn, nH_fn, vel_threshold, floor, nprobe))
+            criteria.append(self._make_vel_criterion(vel_fn, gasDen_fn, vel_threshold, floor, nprobe))
         if not criteria:
             return
 
@@ -469,20 +474,20 @@ class AMRGrid:
 
         self.refine(combined, level_max)
 
-    def _make_physics_criterion(self, nH_fn, vel_fn=None,
+    def _make_physics_criterion(self, gasDen_fn, vel_fn=None,
                                 dens_threshold=0.1, vel_threshold=0.1,
                                 nprobe=2, floor=1e-30):
         """Return the combined density/velocity refinement criterion."""
         criteria = []
         if dens_threshold is not None:
-            criteria.append(self._make_dens_criterion(nH_fn, dens_threshold, floor, nprobe))
+            criteria.append(self._make_dens_criterion(gasDen_fn, dens_threshold, floor, nprobe))
         if vel_fn is not None and vel_threshold is not None:
-            criteria.append(self._make_vel_criterion(vel_fn, nH_fn, vel_threshold, floor, nprobe))
+            criteria.append(self._make_vel_criterion(vel_fn, gasDen_fn, vel_threshold, floor, nprobe))
         if not criteria:
             return None
         return (lambda c: any(crit(c) for crit in criteria))
 
-    def refine_sphere_by_physics(self, cx, cy, cz, radius, nH_fn, vel_fn=None,
+    def refine_sphere_by_physics(self, cx, cy, cz, radius, gasDen_fn, vel_fn=None,
                                  dens_threshold=0.1, vel_threshold=0.1,
                                  level_max=6, nprobe=2, floor=1e-30):
         """
@@ -494,11 +499,11 @@ class AMRGrid:
         the way to ``level_max`` so that the geometric boundary is resolved.
         """
         criterion = self._make_physics_criterion(
-            nH_fn, vel_fn, dens_threshold, vel_threshold, nprobe, floor
+            gasDen_fn, vel_fn, dens_threshold, vel_threshold, nprobe, floor
         )
         self.refine_sphere_adaptive(cx, cy, cz, radius, level_max, criterion)
 
-    def refine_slab_by_physics(self, axis, lo, hi, nH_fn, vel_fn=None,
+    def refine_slab_by_physics(self, axis, lo, hi, gasDen_fn, vel_fn=None,
                                dens_threshold=0.1, vel_threshold=0.1,
                                level_max=6, nprobe=2, floor=1e-30):
         """
@@ -509,11 +514,11 @@ class AMRGrid:
         overlaps the slab boundary is refined all the way to ``level_max``.
         """
         criterion = self._make_physics_criterion(
-            nH_fn, vel_fn, dens_threshold, vel_threshold, nprobe, floor
+            gasDen_fn, vel_fn, dens_threshold, vel_threshold, nprobe, floor
         )
         self.refine_slab_adaptive(axis, lo, hi, level_max, criterion)
 
-    def refine_box_by_physics(self, xlo, xhi, ylo, yhi, zlo, zhi, nH_fn,
+    def refine_box_by_physics(self, xlo, xhi, ylo, yhi, zlo, zhi, gasDen_fn,
                               vel_fn=None, dens_threshold=0.1,
                               vel_threshold=0.1, level_max=6, nprobe=2,
                               floor=1e-30):
@@ -525,7 +530,7 @@ class AMRGrid:
         overlaps the box boundary is refined all the way to ``level_max``.
         """
         criterion = self._make_physics_criterion(
-            nH_fn, vel_fn, dens_threshold, vel_threshold, nprobe, floor
+            gasDen_fn, vel_fn, dens_threshold, vel_threshold, nprobe, floor
         )
         self.refine_box_adaptive(xlo, xhi, ylo, yhi, zlo, zhi, level_max, criterion)
 
@@ -547,7 +552,7 @@ class AMRGrid:
         return gx.ravel(), gy.ravel(), gz.ravel()
 
     @staticmethod
-    def _make_dens_criterion(nH_fn, threshold, floor, nprobe):
+    def _make_dens_criterion(gasDen_fn, threshold, floor, nprobe):
         """
         Return a cell criterion function for density gradient refinement.
 
@@ -557,12 +562,12 @@ class AMRGrid:
         matching the RASCAS multi-scale approach.
         """
         def criterion(c):
-            rhomin = rhomax = max(nH_fn(c.cx, c.cy, c.cz), 0.0)
+            rhomin = rhomax = max(gasDen_fn(c.cx, c.cy, c.cz), 0.0)
 
             for np_ in ([2] if nprobe <= 2 else [2, nprobe]):
                 xx, yy, zz = AMRGrid._subcell_centers(c, np_)
                 for x, y, z in zip(xx, yy, zz):
-                    rho2 = max(nH_fn(x, y, z), 0.0)
+                    rho2 = max(gasDen_fn(x, y, z), 0.0)
                     if rho2 > rhomax: rhomax = rho2
                     if rho2 < rhomin: rhomin = rho2
                 delta = (rhomax - rhomin) / (rhomax + rhomin + floor)
@@ -572,19 +577,19 @@ class AMRGrid:
         return criterion
 
     @staticmethod
-    def _make_vel_criterion(vel_fn, nH_fn, threshold, floor, nprobe):
+    def _make_vel_criterion(vel_fn, gasDen_fn, threshold, floor, nprobe):
         """
         Return a cell criterion function for velocity gradient refinement.
 
         Same multi-scale probing as ``_make_dens_criterion``, but applied
-        to |v|.  Sub-cells with nH == 0 are skipped when nH_fn is given.
+        to |v|.  Sub-cells with gasDen == 0 are skipped when gasDen_fn is given.
         """
         def speed(x, y, z):
             vx, vy, vz = vel_fn(x, y, z)
             return np.sqrt(vx**2 + vy**2 + vz**2)
 
         def has_gas(x, y, z):
-            return (nH_fn is None) or (nH_fn(x, y, z) > 0.0)
+            return (gasDen_fn is None) or (gasDen_fn(x, y, z) > 0.0)
 
         def criterion(c):
             if not has_gas(c.cx, c.cy, c.cz):
@@ -616,16 +621,16 @@ class AMRGrid:
         Parameters
         ----------
         fn : callable or float
-            ``fn(cx, cy, cz) -> nH [cm^-3]``.
+            ``fn(cx, cy, cz) -> gasDen [cm^-3]``.
             If a scalar is given, all leaves get that value.
         """
         if callable(fn):
             for lf in self.leaves():
-                lf.nH = float(fn(lf.cx, lf.cy, lf.cz))
+                lf.gasDen = float(fn(lf.cx, lf.cy, lf.cz))
         else:
             val = float(fn)
             for lf in self.leaves():
-                lf.nH = val
+                lf.gasDen = val
 
     def set_temperature(self, fn):
         """
@@ -669,10 +674,10 @@ class AMRGrid:
         Parameters
         ----------
         fn : callable
-            ``fn(cx, cy, cz) -> (nH, T, vx, vy, vz)``.
+            ``fn(cx, cy, cz) -> (gasDen, T, vx, vy, vz)``.
         """
         for lf in self.leaves():
-            lf.nH, lf.T, lf.vx, lf.vy, lf.vz = fn(lf.cx, lf.cy, lf.cz)
+            lf.gasDen, lf.T, lf.vx, lf.vy, lf.vz = fn(lf.cx, lf.cy, lf.cz)
 
     # ------------------------------------------------------------------ #
     # Tree traversal
@@ -705,12 +710,12 @@ class AMRGrid:
             f'AMRGrid  boxlen={self.boxlen}  nleaf={sum(lv.values())}',
             f'  Level distribution: {lv}',
         ]
-        nH_vals = np.array([lf.nH for lf in self.leaves()])
+        gasDen_vals = np.array([lf.gasDen for lf in self.leaves()])
         T_vals  = np.array([lf.T  for lf in self.leaves()])
-        if nH_vals.max() > 0:
+        if gasDen_vals.max() > 0:
             lines.append(
-                f'  nH [cm^-3]: min={nH_vals.min():.3e}  '
-                f'max={nH_vals.max():.3e}  mean={nH_vals.mean():.3e}'
+                f'  gasDen [cm^-3]: min={gasDen_vals.min():.3e}  '
+                f'max={gasDen_vals.max():.3e}  mean={gasDen_vals.mean():.3e}'
             )
         lines.append(
             f'  T  [K]:     min={T_vals.min():.3e}  '
@@ -722,15 +727,137 @@ class AMRGrid:
     # I/O
     # ------------------------------------------------------------------ #
 
+    @staticmethod
+    def _is_fits_filename(filename):
+        name = str(filename).lower()
+        return name.endswith('.fits') or name.endswith('.fits.gz')
+
+    @staticmethod
+    def _require_fits():
+        if fits is None:
+            raise ImportError(
+                "FITS I/O requires astropy. Install astropy to read/write "
+                ".fits or .fits.gz AMR files."
+            )
+
+    def _leaf_table_array(self):
+        leaflist = self.leaves()
+        data = np.empty(
+            len(leaflist),
+            dtype=[
+                ('x', 'f8'),
+                ('y', 'f8'),
+                ('z', 'f8'),
+                ('level', 'i4'),
+                ('gasDen', 'f8'),
+                ('T', 'f8'),
+                ('vx', 'f8'),
+                ('vy', 'f8'),
+                ('vz', 'f8'),
+            ]
+        )
+        for i, lf in enumerate(leaflist):
+            data[i] = (
+                lf.cx, lf.cy, lf.cz, lf.level,
+                lf.gasDen, lf.T, lf.vx, lf.vy, lf.vz
+            )
+        return data
+
+    def _write_fits(self, filename):
+        self._require_fits()
+        data = self._leaf_table_array()
+        primary = fits.PrimaryHDU()
+        table = fits.BinTableHDU(data=data, name='AMRGRID')
+        table.header['BOXLEN'] = (self.boxlen, 'Simulation box length')
+        table.header['ORIGINX'] = (self.origin[0], 'Box origin x')
+        table.header['ORIGINY'] = (self.origin[1], 'Box origin y')
+        table.header['ORIGINZ'] = (self.origin[2], 'Box origin z')
+        table.header['NLEAF'] = (len(data), 'Number of AMR leaf cells')
+        fits.HDUList([primary, table]).writeto(filename, overwrite=True)
+        print(f'Written {len(data)} leaf cells to {filename}')
+
+    @classmethod
+    def _read_fits(cls, filename):
+        cls._require_fits()
+        with fits.open(filename) as hdul:
+            table_hdu = None
+            for hdu in hdul:
+                if isinstance(hdu, fits.BinTableHDU):
+                    table_hdu = hdu
+                    break
+            if table_hdu is None:
+                raise ValueError(f'No FITS binary table found in {filename}')
+
+            header = table_hdu.header
+            boxlen = float(header['BOXLEN'])
+            origin = (
+                float(header.get('ORIGINX', 0.0)),
+                float(header.get('ORIGINY', 0.0)),
+                float(header.get('ORIGINZ', 0.0)),
+            )
+            table = table_hdu.data
+            gasDen_key = 'gasDen' if 'gasDen' in table.names else 'nH'
+            data = np.column_stack([
+                np.asarray(table['x'], dtype=float),
+                np.asarray(table['y'], dtype=float),
+                np.asarray(table['z'], dtype=float),
+                np.asarray(table['level'], dtype=int),
+                np.asarray(table[gasDen_key], dtype=float),
+                np.asarray(table['T'], dtype=float),
+                np.asarray(table['vx'], dtype=float),
+                np.asarray(table['vy'], dtype=float),
+                np.asarray(table['vz'], dtype=float),
+            ])
+
+        return cls._build_from_rows(boxlen, data, origin=origin)
+
+    @classmethod
+    def _build_from_rows(cls, boxlen, data, origin=(0.0, 0.0, 0.0)):
+        grid = cls(boxlen, origin=origin)
+
+        # Insert leaves by descending the tree to the correct level
+        for row in data:
+            cx, cy, cz = row[0], row[1], row[2]
+            level = int(row[3])
+            # Refine until the cell at (cx,cy,cz) exists at `level`
+            grid.refine(
+                lambda c, _cx=cx, _cy=cy, _cz=cz, _lv=level:
+                    c.level < _lv and
+                    c.xmin <= _cx <= c.xmax and
+                    c.ymin <= _cy <= c.ymax and
+                    c.zmin <= _cz <= c.zmax,
+                level_max=level
+            )
+
+        # Now assign physical data
+        leaflist = grid.leaves()
+        for lf, row in zip(
+            sorted(leaflist, key=lambda c: (round(c.cx, 6), round(c.cy, 6), round(c.cz, 6))),
+            sorted(data, key=lambda r: (round(r[0], 6), round(r[1], 6), round(r[2], 6)))
+        ):
+            lf.gasDen = row[4]
+            lf.T = row[5]
+            lf.vx = row[6]
+            lf.vy = row[7]
+            lf.vz = row[8]
+        return grid
+
     def write(self, filename):
         """
-        Write the AMR grid to a LaRT generic text file.
+        Write the AMR grid to a LaRT generic file.
+
+        Text output is used by default. If ``filename`` ends with ``.fits``
+        or ``.fits.gz``, the grid is written as a FITS binary table.
 
         Parameters
         ----------
         filename : str
             Output file path.
         """
+        if self._is_fits_filename(filename):
+            self._write_fits(filename)
+            return
+
         leaflist = self.leaves()
         nleaf    = len(leaflist)
         with open(filename, 'w') as f:
@@ -739,7 +866,7 @@ class AMRGrid:
                 f.write(
                     f'{lf.cx:.6f}  {lf.cy:.6f}  {lf.cz:.6f}  '
                     f'{lf.level}  '
-                    f'{lf.nH:.6e}  {lf.T:.4e}  '
+                    f'{lf.gasDen:.6e}  {lf.T:.4e}  '
                     f'{lf.vx:.4f}  {lf.vy:.4f}  {lf.vz:.4f}\n'
                 )
         print(f'Written {nleaf} leaf cells to {filename}')
@@ -750,51 +877,36 @@ class AMRGrid:
         Read a LaRT generic AMR file back into an :class:`AMRGrid`.
 
         Returns a grid whose octree is rebuilt by inserting each leaf cell.
-        Physical data (nH, T, velocity) is stored on the leaf cells.
+        Physical data (gasDen, T, velocity) is stored on the leaf cells.
 
         Parameters
         ----------
         filename : str
             Path to the AMR data file.
         """
+        if cls._is_fits_filename(filename):
+            return cls._read_fits(filename)
+
         data = np.loadtxt(filename, skiprows=1)
         with open(filename) as f:
             first = f.readline().split()
         nleaf, boxlen = int(first[0]), float(first[1])
+        if data.ndim == 1:
+            data = data[np.newaxis, :]
 
-        grid = cls(boxlen)
-
-        # Insert leaves by descending the tree to the correct level
-        for row in data:
-            cx, cy, cz = row[0], row[1], row[2]
-            level       = int(row[3])
-            nH, T       = row[4], row[5]
-            vx, vy, vz  = row[6], row[7], row[8]
-            # Refine until the cell at (cx,cy,cz) exists at `level`
-            grid.refine(
-                lambda c, _cx=cx, _cy=cy, _cz=cz, _lv=level:
-                    c.level < _lv and
-                    c.xmin <= _cx <= c.xmax and
-                    c.ymin <= _cy <= c.ymax and
-                    c.zmin <= _cz <= c.zmax,
-                level_max=level
+        if len(data) != nleaf:
+            raise ValueError(
+                f'Header nleaf={nleaf} does not match row count {len(data)} in {filename}'
             )
-        # Now assign physical data
-        leaflist = grid.leaves()
-        for lf, row in zip(
-            sorted(leaflist, key=lambda c: (round(c.cx,6), round(c.cy,6), round(c.cz,6))),
-            sorted(data,     key=lambda r: (round(r[0],6), round(r[1],6), round(r[2],6)))
-        ):
-            lf.nH = row[4]; lf.T = row[5]
-            lf.vx = row[6]; lf.vy = row[7]; lf.vz = row[8]
-        return grid
+
+        return cls._build_from_rows(boxlen, data)
 
     # ------------------------------------------------------------------ #
     # Visualisation helpers
     # ------------------------------------------------------------------ #
 
-    def slice_plot(self, axis='z', value=None, quantity='nH',
-                   ax=None, log=True, cmap='viridis',
+    def slice_plot(self, axis='z', value=None, quantity='gasDen',
+                   ax=None, log=False, cmap='viridis',
                    show_leaf_boundaries=False,
                    boundary_color='k', boundary_lw=0.3,
                    boundary_alpha=0.7,
@@ -804,13 +916,18 @@ class AMRGrid:
         """
         Quick 2-D slice plot of a physical quantity through the grid.
 
+        This implementation is optimized for large AMR grids.  Instead of
+        creating one ``Rectangle`` object per intersected leaf cell, it builds
+        a single ``PolyCollection`` from polygon vertices, which is much
+        faster when the slice contains many cells (e.g. ``level_max >= 6``).
+
         Parameters
         ----------
         axis : {'x', 'y', 'z'}
             Normal axis of the slice plane.
         value : float, optional
             Position of the slice along ``axis``.  Defaults to box centre.
-        quantity : {'nH', 'T', 'vx', 'vy', 'vz'}
+        quantity : {'gasDen', 'T', 'vx', 'vy', 'vz'}
             Quantity to plot.
         ax : matplotlib.axes.Axes, optional
         log : bool
@@ -837,62 +954,76 @@ class AMRGrid:
         center_alpha : float
             Transparency for the leaf-cell centre overlay.
         **kwargs
-            Passed to ``matplotlib.patches.Rectangle`` for the filled cells.
+            Passed to ``matplotlib.collections.PolyCollection`` for the filled
+            cells.
 
         Returns
         -------
-        im : matplotlib.collections.PatchCollection
+        im : matplotlib.collections.PolyCollection
         """
         import matplotlib.pyplot as plt
-        import matplotlib.patches as mpatches
-        from matplotlib.collections import PatchCollection
+        from matplotlib.collections import PolyCollection
         from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 
         if ax is None:
             _, ax = plt.subplots()
 
+        axis = axis.lower()
         if value is None:
             value = self.origin[{'x': 0, 'y': 1, 'z': 2}[axis]] + self.boxlen * 0.5
 
         ax_map = {'x': ('y', 'z', 'cy', 'cz', 'cx'),
                   'y': ('x', 'z', 'cx', 'cz', 'cy'),
                   'z': ('x', 'y', 'cx', 'cy', 'cz')}
-        ha, va, ca, da, na = ax_map[axis.lower()]
+        ha, va, ca, da, na = ax_map[axis]
+        quantity_key = 'gasDen' if quantity == 'nH' else quantity
 
-        patches, values = [], []
-        boundary_patches = []
+        polys = []
+        values = []
         center_x, center_y = [], []
-        for lf in self.leaves():
-            c_normal = getattr(lf, na)
-            if abs(c_normal - value) <= lf.h:
-                cx_ = getattr(lf, ca)
-                cy_ = getattr(lf, da)
-                rect = mpatches.Rectangle(
-                    (cx_ - lf.h, cy_ - lf.h), 2*lf.h, 2*lf.h, **kwargs)
-                patches.append(rect)
-                if show_leaf_boundaries:
-                    boundary_patches.append(
-                        mpatches.Rectangle(
-                            (cx_ - lf.h, cy_ - lf.h), 2*lf.h, 2*lf.h
-                        )
-                    )
-                if show_leaf_centers:
-                    center_x.append(cx_)
-                    center_y.append(cy_)
-                v = getattr(lf, quantity)
-                values.append(np.log10(max(v, 1e-100)) if log else v)
 
-        pc = PatchCollection(patches, cmap=cmap, linewidths=0)
-        pc.set_array(np.array(values))
+        for lf in self.leaves():
+            h = lf.h
+            c_normal = getattr(lf, na)
+            if abs(c_normal - value) > h:
+                continue
+
+            cx_ = getattr(lf, ca)
+            cy_ = getattr(lf, da)
+            xmin, xmax = cx_ - h, cx_ + h
+            ymin, ymax = cy_ - h, cy_ + h
+            polys.append([
+                (xmin, ymin),
+                (xmax, ymin),
+                (xmax, ymax),
+                (xmin, ymax),
+            ])
+
+            if show_leaf_centers:
+                center_x.append(cx_)
+                center_y.append(cy_)
+
+            v = getattr(lf, quantity_key)
+            values.append(np.log10(max(v, 1e-100)) if log else v)
+
+        pc = PolyCollection(
+            polys,
+            cmap=cmap,
+            edgecolors='none',
+            closed=True,
+            **kwargs,
+        )
+        pc.set_array(np.asarray(values, dtype=float))
         ax.add_collection(pc)
 
-        if show_leaf_boundaries and boundary_patches:
-            pc_boundary = PatchCollection(
-                boundary_patches,
-                facecolor='none',
-                edgecolor=boundary_color,
+        if show_leaf_boundaries and polys:
+            pc_boundary = PolyCollection(
+                polys,
+                facecolors='none',
+                edgecolors=boundary_color,
                 linewidths=boundary_lw,
                 alpha=boundary_alpha,
+                closed=True,
             )
             ax.add_collection(pc_boundary)
 
@@ -908,7 +1039,7 @@ class AMRGrid:
         ax.set_aspect('equal')
         ax.set_xlabel(ha)
         ax.set_ylabel(va)
-        label = f'log10({quantity})' if log else quantity
+        label = f'log10({quantity_key})' if log else quantity_key
 
         cax = inset_axes(
             ax,

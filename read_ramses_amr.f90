@@ -13,6 +13,8 @@ module read_ramses_amr_mod
   !   - nHI computed from nH + T using either CIE or supplied neutral fraction
   !-----------------------------------------------------------------------
   use define
+  use fitsio_mod
+  use, intrinsic :: iso_fortran_env, only: int32
   implicit none
   private
 
@@ -494,10 +496,15 @@ contains
     integer,               intent(out) :: nleaf
     real(wp),              intent(out) :: boxlen_phys
 
-    ! Reads a simple text format.
-    ! Format (one leaf per line):
-    !   x, y, z, level, nH [cm^-3], T [K], vx [km/s], vy [km/s], vz [km/s]
-    ! Header line: nleaf  boxlen
+    ! Reads either:
+    !   1) a simple text format
+    !        header: nleaf  boxlen
+    !        rows  : x, y, z, level, nH [cm^-3], T [K], vx [km/s], vy [km/s], vz [km/s]
+    !   2) an AMRGrid FITS binary table when filename ends with .fits or .fits.gz
+    !
+    ! For FITS input, this routine reads the AMRGrid binary table by column index
+    ! (1:x, 2:y, 3:z, 4:level, 5:gas density, 6:T, 7:vx, 8:vy, 9:vz), rather
+    ! than depending on column names.
     !
     ! Position unit is set by par%distance_unit / par%distance2cm (same as
     ! Cartesian mode):
@@ -510,6 +517,14 @@ contains
     real(wp) :: x, y, z, nH, T, vx, vy, vz
     integer  :: lv, n, unit, ios
     real(wp) :: bl
+
+    if (filename_is_fits(filename)) then
+      call generic_amr_read_fits(filename, &
+          xleaf, yleaf, zleaf, leaf_level, &
+          nH_cgs, T_cgs, vx_cgs, vy_cgs, vz_cgs, &
+          nleaf, boxlen_phys)
+      return
+    end if
 
     unit = 51
     open(unit, file=trim(filename), status='old', action='read', iostat=ios)
@@ -537,6 +552,96 @@ contains
     end do
     close(unit)
   end subroutine generic_amr_read
+
+  subroutine generic_amr_read_fits(filename, &
+      xleaf, yleaf, zleaf, leaf_level, &
+      nH_cgs, T_cgs, vx_cgs, vy_cgs, vz_cgs, &
+      nleaf, boxlen_phys)
+    character(len=*), intent(in)       :: filename
+    real(wp), allocatable, intent(out) :: xleaf(:), yleaf(:), zleaf(:)
+    integer,  allocatable, intent(out) :: leaf_level(:)
+    real(wp), allocatable, intent(out) :: nH_cgs(:), T_cgs(:)
+    real(wp), allocatable, intent(out) :: vx_cgs(:), vy_cgs(:), vz_cgs(:)
+    integer,               intent(out) :: nleaf
+    real(wp),              intent(out) :: boxlen_phys
+
+    integer :: unit, status
+    integer(int32) :: nleaf_i4
+    integer(int32), allocatable :: leaf_level_i4(:)
+    real(wp) :: origin_x, origin_y, origin_z
+
+    status = 0
+    call fits_open_old(unit, trim(filename), status)
+    if (status /= 0) stop 'generic_amr_read_fits: cannot open FITS file'
+
+    call fits_move_to_next_hdu(unit, status)
+    if (status /= 0) stop 'generic_amr_read_fits: cannot move to binary table HDU'
+
+    call fits_get_keyword(unit, 'NAXIS2', nleaf_i4, status)
+    if (status /= 0) stop 'generic_amr_read_fits: cannot read NAXIS2'
+
+    boxlen_phys = 0.0_wp
+    origin_x    = 0.0_wp
+    origin_y    = 0.0_wp
+    origin_z    = 0.0_wp
+    call fits_get_keyword(unit, 'BOXLEN',  boxlen_phys, status)
+    if (status /= 0) stop 'generic_amr_read_fits: cannot read BOXLEN'
+
+    status = 0
+    call fits_get_keyword(unit, 'ORIGINX', origin_x, status)
+    if (status /= 0) status = 0
+    call fits_get_keyword(unit, 'ORIGINY', origin_y, status)
+    if (status /= 0) status = 0
+    call fits_get_keyword(unit, 'ORIGINZ', origin_z, status)
+    if (status /= 0) status = 0
+
+    nleaf = int(nleaf_i4)
+    allocate(xleaf(nleaf), yleaf(nleaf), zleaf(nleaf), leaf_level(nleaf))
+    allocate(nH_cgs(nleaf), T_cgs(nleaf), vx_cgs(nleaf), vy_cgs(nleaf), vz_cgs(nleaf))
+    allocate(leaf_level_i4(nleaf))
+
+    call fits_read_table_column(unit, 1, xleaf,         status)
+    call fits_read_table_column(unit, 2, yleaf,         status)
+    call fits_read_table_column(unit, 3, zleaf,         status)
+    call fits_read_table_column(unit, 4, leaf_level_i4, status)
+    call fits_read_table_column(unit, 5, nH_cgs,        status)
+    call fits_read_table_column(unit, 6, T_cgs,         status)
+    call fits_read_table_column(unit, 7, vx_cgs,        status)
+    call fits_read_table_column(unit, 8, vy_cgs,        status)
+    call fits_read_table_column(unit, 9, vz_cgs,        status)
+    if (status /= 0) stop 'generic_amr_read_fits: cannot read table columns'
+
+    call fits_close(unit, status)
+
+    xleaf(:) = xleaf(:) - origin_x
+    yleaf(:) = yleaf(:) - origin_y
+    zleaf(:) = zleaf(:) - origin_z
+    leaf_level(:) = int(leaf_level_i4(:))
+
+    deallocate(leaf_level_i4)
+  end subroutine generic_amr_read_fits
+
+  logical function filename_is_fits(filename)
+    character(len=*), intent(in) :: filename
+    character(len=:), allocatable :: name
+    integer :: n
+
+    name = trim(filename)
+    n = len(name)
+    filename_is_fits = .false.
+    if (n >= 5) then
+      if (name(n-4:n) == '.fits' .or. name(n-4:n) == '.FITS') then
+        filename_is_fits = .true.
+        return
+      end if
+    end if
+    if (n >= 8) then
+      if (name(n-7:n) == '.fits.gz' .or. name(n-7:n) == '.FITS.GZ') then
+        filename_is_fits = .true.
+        return
+      end if
+    end if
+  end function filename_is_fits
 
   !=========================================================================
   ! Skip n Fortran unformatted records.

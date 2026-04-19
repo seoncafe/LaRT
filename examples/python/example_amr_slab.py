@@ -8,9 +8,9 @@ velocity criterion is satisfied. Cells not fully contained within the slab are
 forced to the maximum refinement level.
 
 Density profiles available:
-  uniform    : nH = const inside the slab, 0 outside
-  gaussian   : nH(z) = nH0 * exp(-(z - z0)^2 / (2 * h_s^2))
-  exponential: nH(z) = nH0 * exp(-|z - z0| / h_s)
+  uniform    : gasDen = const inside the slab, 0 outside
+  gaussian   : gasDen(z) = gasDen0 * exp(-(z - z0)^2 / (2 * h_s^2))
+  exponential: gasDen(z) = gasDen0 * exp(-|z - z0| / h_s)
 
 Velocity options:
   static     : v = 0
@@ -37,7 +37,7 @@ from make_amr_grid import AMRGrid
 def make_slab(boxlen=100.0,
               slab_half=20.0,
               profile='uniform',
-              nH0=1e-2,
+              gasDen0=1e-2,
               h_sigma=10.0,
               T=1e4,
               level_coarse=2,
@@ -53,14 +53,14 @@ def make_slab(boxlen=100.0,
     z0 = boxlen / 2.0
 
     if profile == 'uniform':
-        def nH_fn(x, y, z):
-            return nH0 if abs(z - z0) <= slab_half else 0.0
+        def gasDen_fn(x, y, z):
+            return gasDen0 if abs(z - z0) <= slab_half else 0.0
     elif profile == 'gaussian':
-        def nH_fn(x, y, z):
-            return nH0 * np.exp(-0.5 * ((z - z0) / h_sigma)**2)
+        def gasDen_fn(x, y, z):
+            return gasDen0 * np.exp(-0.5 * ((z - z0) / h_sigma)**2)
     elif profile == 'exponential':
-        def nH_fn(x, y, z):
-            return nH0 * np.exp(-abs(z - z0) / h_sigma)
+        def gasDen_fn(x, y, z):
+            return gasDen0 * np.exp(-abs(z - z0) / h_sigma)
     else:
         raise ValueError(f"Unknown profile: {profile!r}. Choose 'uniform', 'gaussian', or 'exponential'.")
 
@@ -82,7 +82,7 @@ def make_slab(boxlen=100.0,
     grid.refine(lambda c: True, level_max=level_coarse)
     grid.refine_slab_by_physics(
         'z', z0 - slab_half, z0 + slab_half,
-        nH_fn=nH_fn,
+        gasDen_fn=gasDen_fn,
         vel_fn=vel_fn,
         dens_threshold=dens_threshold,
         vel_threshold=vel_threshold,
@@ -90,7 +90,7 @@ def make_slab(boxlen=100.0,
         nprobe=nprobe,
     )
 
-    grid.set_density(nH_fn)
+    grid.set_density(gasDen_fn)
     grid.set_temperature(T)
     if vel_fn is not None:
         grid.set_velocity(vel_fn)
@@ -150,7 +150,7 @@ if __name__ == '__main__':
     parser.add_argument('--profile',     choices=['uniform', 'gaussian', 'exponential'],
                         default='uniform',
                         help='Density profile shape (default: uniform)')
-    parser.add_argument('--nH0',         type=float, default=1e-2,
+    parser.add_argument('--gasDen0',     type=float, default=1e-2,
                         help='Peak HI density [cm^-3] (default: 1e-2)')
     parser.add_argument('--h-sigma',     type=float, default=10.0,
                         help='Density scale height [kpc] (default: 10)')
@@ -187,7 +187,7 @@ if __name__ == '__main__':
         boxlen       = args.boxlen,
         slab_half    = args.slab_half,
         profile      = args.profile,
-        nH0          = args.nH0,
+        gasDen0      = args.gasDen0,
         h_sigma      = args.h_sigma,
         T            = args.temperature,
         level_coarse = args.level_coarse,

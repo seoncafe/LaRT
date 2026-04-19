@@ -9,7 +9,7 @@ Two refinement levels are used:
     the refinement sphere, plus any fully contained cells that satisfy the
     density/velocity refinement criterion.
 
-Density profile  : Gaussian   nH(r) = nH0 * exp(-r^2 / (2*r_s^2))
+Density profile  : Gaussian   gasDen(r) = gasDen0 * exp(-r^2 / (2*r_s^2))
 Temperature      : uniform    T = 1e4 K
 Velocity options : static  |  Hubble-like expansion  |  solid-body rotation
 
@@ -33,7 +33,7 @@ from make_amr_grid import AMRGrid
 def make_sphere(boxlen=100.0,
                 r_refine=40.0,
                 r_sigma=30.0,
-                nH0=3.2e-4,
+                gasDen0=3.2e-4,
                 T=1e4,
                 level_coarse=2,
                 level_fine=3,
@@ -57,7 +57,7 @@ def make_sphere(boxlen=100.0,
         toward ``level_fine`` only when the physics criterion is satisfied.
     r_sigma : float
         Gaussian density scale radius [kpc].
-    nH0 : float
+    gasDen0 : float
         Peak hydrogen number density at r=0 [cm^-3].
     T : float
         Gas temperature [K] (uniform).
@@ -85,10 +85,10 @@ def make_sphere(boxlen=100.0,
     """
     cx0 = cy0 = cz0 = boxlen / 2.0
 
-    def nH_fn(x, y, z):
+    def gasDen_fn(x, y, z):
         r2 = (x-cx0)**2 + (y-cy0)**2 + (z-cz0)**2
-        return nH0 * np.exp(-r2 / (2.0 * r_sigma**2))
-        return nH0
+        return gasDen0 * np.exp(-r2 / (2.0 * r_sigma**2))
+        return gasDen0
 
     vel_fn = None
     if velocity == 'static':
@@ -120,7 +120,7 @@ def make_sphere(boxlen=100.0,
     grid.refine(lambda c: True, level_max=level_coarse)
     grid.refine_sphere_by_physics(
         cx0, cy0, cz0, r_refine,
-        nH_fn=nH_fn,
+        gasDen_fn=gasDen_fn,
         vel_fn=vel_fn,
         dens_threshold=dens_threshold,
         vel_threshold=vel_threshold,
@@ -128,7 +128,7 @@ def make_sphere(boxlen=100.0,
         nprobe=nprobe,
     )
 
-    grid.set_density(nH_fn)
+    grid.set_density(gasDen_fn)
     grid.set_temperature(T)
     if vel_fn is not None:
         grid.set_velocity(vel_fn)
@@ -180,7 +180,7 @@ if __name__ == '__main__':
                         help='Refinement sphere radius [kpc] (default: 40)')
     parser.add_argument('--r-sigma',  type=float, default=30.0,
                         help='Gaussian density scale radius [kpc] (default: 30)')
-    parser.add_argument('--nH0',      type=float, default=1.0,
+    parser.add_argument('--gasDen0',      type=float, default=1.0,
                         help='Peak HI density [cm^-3] (default: 1.0)')
     parser.add_argument('--temperature', type=float, default=1e4,
                         help='Gas temperature [K] (default: 1e4)')
@@ -213,7 +213,7 @@ if __name__ == '__main__':
         boxlen      = args.boxlen,
         r_refine    = args.r_refine,
         r_sigma     = args.r_sigma,
-        nH0         = args.nH0,
+        gasDen0     = args.gasDen0,
         T           = args.temperature,
         level_coarse= args.level_coarse,
         level_fine  = args.level_fine,

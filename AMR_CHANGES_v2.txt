@@ -8,6 +8,11 @@ Update note (2026-04-19):
 This revision adds diffuse-emissivity source support in AMR mode and refactors
 the Cartesian diffuse-emissivity setup into a dedicated helper subroutine so
 that Cartesian and AMR injection paths now have matching high-level structure.
+It also extends the generic AMR reader so that if `par%amr_file` ends with
+`.fits` or `.fits.gz`, LaRT reads the file as an AMRGrid FITS binary table
+using the FITS I/O helper routines. For the FITS table, the generic reader
+uses the column order (x, y, z, level, gas density, T, vx, vy, vz) rather
+than matching specific column names.
 
 --------------------------------------------------------------------------------
 Overview
