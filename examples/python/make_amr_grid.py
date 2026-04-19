@@ -846,6 +846,7 @@ class AMRGrid:
         import matplotlib.pyplot as plt
         import matplotlib.patches as mpatches
         from matplotlib.collections import PatchCollection
+        from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 
         if ax is None:
             _, ax = plt.subplots()
@@ -908,5 +909,15 @@ class AMRGrid:
         ax.set_xlabel(ha)
         ax.set_ylabel(va)
         label = f'log10({quantity})' if log else quantity
-        plt.colorbar(pc, ax=ax, label=label)
+
+        cax = inset_axes(
+            ax,
+            width="4%",
+            height="100%",
+            loc='lower left',
+            bbox_to_anchor=(1.02, 0.0, 1.0, 1.0),
+            bbox_transform=ax.transAxes,
+            borderpad=0,
+        )
+        ax.figure.colorbar(pc, cax=cax, label=label)
         return pc

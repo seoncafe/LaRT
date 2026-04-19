@@ -44,11 +44,11 @@ def make_uniform_sphere_grid(level_fine=3):
 grid3 = make_uniform_sphere_grid(level_fine=3)
 print("level=3:", grid3.level_counts())
 
-fig, ax = plt.subplots(figsize=(6, 6))
+fig, ax = plt.subplots(figsize=(6.5, 6))
 grid3.slice_plot(axis="z", value=50.0, quantity="nH", ax=ax, log=False, show_leaf_boundaries=True, show_leaf_centers=True)
 ax.set_title("Uniform sphere slice (level_max=3)")
-plt.tight_layout()
-plt.savefig("uniform_sphere_slice_l3.png", dpi=150)
+#plt.tight_layout()
+plt.savefig("uniform_sphere_slice_l3.pdf", dpi=600)
 plt.close(fig)
 
 
@@ -56,11 +56,11 @@ plt.close(fig)
 grid4 = make_uniform_sphere_grid(level_fine=4)
 print("level=4:", grid4.level_counts())
 
-fig, ax = plt.subplots(figsize=(6, 6))
+fig, ax = plt.subplots(figsize=(6.5, 6))
 grid4.slice_plot(axis="z", value=50.0, quantity="nH", ax=ax, log=False, show_leaf_boundaries=True, show_leaf_centers=True)
 ax.set_title("Uniform sphere slice (level_max=4)")
-plt.tight_layout()
-plt.savefig("uniform_sphere_slice_l4.png", dpi=150)
+#plt.tight_layout()
+plt.savefig("uniform_sphere_slice_l4.pdf", dpi=600)
 plt.close(fig)
 
 grid5 = make_uniform_sphere_grid(level_fine=5)
