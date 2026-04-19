@@ -16,6 +16,8 @@ module grid_mod_amr
   !-----------------------------------------------------------------------
   use octree_mod
   use read_ramses_amr_mod
+  use read_text_data
+  use random
   use voigt_mod
   use utility
   implicit none
@@ -260,10 +262,23 @@ contains
       amr_grid%xcrit2 = amr_grid%xcrit ** 2
     end if
 
-    !--- Step 7: Set up frequency grid --------------------------------
+    !--- Step 7: Diffuse emissivity setup ------------------------------
+    grid%xmin   = amr_grid%xmin
+    grid%xmax   = amr_grid%xmax
+    grid%ymin   = amr_grid%ymin
+    grid%ymax   = amr_grid%ymax
+    grid%zmin   = amr_grid%zmin
+    grid%zmax   = amr_grid%zmax
+    grid%xrange = amr_grid%xmax - amr_grid%xmin
+    grid%yrange = amr_grid%ymax - amr_grid%ymin
+    grid%zrange = amr_grid%zmax - amr_grid%zmin
+
+    call amr_setup_emissivity(grid)
+
+    !--- Step 8: Set up frequency grid --------------------------------
     call amr_setup_freq_grid(atau0, boxlen_code * par%distance2cm)
 
-    !--- Step 8: Allocate output arrays -------------------------------
+    !--- Step 9: Allocate output arrays -------------------------------
     call amr_alloc_output(par%save_Jin, par%save_Jabs, par%DGR > 0.0_wp)
 
     !--- Print summary ------------------------------------------------
@@ -350,6 +365,102 @@ contains
   end function voigt_array
 
   !=========================================================================
+  ! Prepare diffuse-emissivity sampling data for AMR runs.
+  !=========================================================================
+  subroutine amr_setup_emissivity(grid)
+    use define
+    use mpi
+    implicit none
+    type(grid_type), intent(in) :: grid
+
+    integer  :: il, ierr
+    real(wp) :: cell_volume, total_positive_volume, norm
+    real(wp) :: f_comp, f_comp1
+
+    if (len_trim(par%emiss_file) <= 0) return
+
+    select case(trim(get_extension(par%emiss_file)))
+    case ('txt', 'dat')
+      if (trim(par%geometry) == 'plane_atmosphere') then
+        call setup_plane_emissivity(trim(par%emiss_file), emiss_prof, grid, &
+                                    par%sampling_method, par%f_composite)
+      else
+        call setup_spherical_emissivity(trim(par%emiss_file), emiss_prof, grid, &
+                                        par%sampling_method, par%f_composite)
+      end if
+      return
+    case ('density1')
+      call create_shared_mem(amr_grid%Pem, [amr_grid%nleaf])
+      if (mpar%h_rank == 0) amr_grid%Pem(:) = amr_grid%rhokap(:)
+    case ('density2')
+      call create_shared_mem(amr_grid%Pem, [amr_grid%nleaf])
+      if (mpar%h_rank == 0) amr_grid%Pem(:) = amr_grid%rhokap(:)**2
+    case default
+      write(6,'(a)') 'AMR diffuse emissivity currently supports txt/dat, density1, and density2.'
+      stop 'amr_setup_emissivity: unsupported emissivity input for AMR mode'
+    end select
+    call MPI_BARRIER(mpar%hostcomm, ierr)
+
+    select case(par%sampling_method)
+    case (0)
+      call create_shared_mem(amr_grid%alias, [amr_grid%nleaf])
+      if (mpar%h_rank == 0) then
+        do il = 1, amr_grid%nleaf
+          cell_volume = (2.0_wp * amr_grid%ch(amr_grid%icell_of_leaf(il)))**3
+          amr_grid%Pem(il) = amr_grid%Pem(il) * cell_volume
+        end do
+        norm = sum(amr_grid%Pem)
+        if (norm > 0.0_wp) then
+          amr_grid%Pem(:) = amr_grid%Pem(:) / norm
+          call random_alias_setup(amr_grid%Pem, amr_grid%alias)
+        end if
+      end if
+    case (1)
+      call create_shared_mem(amr_grid%Pwgt,  [amr_grid%nleaf])
+      call create_shared_mem(amr_grid%alias, [amr_grid%nleaf])
+      if (mpar%h_rank == 0) then
+        do il = 1, amr_grid%nleaf
+          cell_volume = (2.0_wp * amr_grid%ch(amr_grid%icell_of_leaf(il)))**3
+          amr_grid%Pem(il) = amr_grid%Pem(il) * cell_volume
+        end do
+
+        norm = sum(amr_grid%Pem)
+        if (norm > 0.0_wp) then
+          amr_grid%Pem(:) = amr_grid%Pem(:) / norm
+          total_positive_volume = 0.0_wp
+          do il = 1, amr_grid%nleaf
+            if (amr_grid%Pem(il) > 0.0_wp) then
+              total_positive_volume = total_positive_volume + &
+                  (2.0_wp * amr_grid%ch(amr_grid%icell_of_leaf(il)))**3
+            end if
+          end do
+
+          f_comp  = par%f_composite
+          f_comp1 = 1.0_wp - f_comp
+          do il = 1, amr_grid%nleaf
+            if (amr_grid%Pem(il) > 0.0_wp) then
+              cell_volume = (2.0_wp * amr_grid%ch(amr_grid%icell_of_leaf(il)))**3
+              amr_grid%Pwgt(il) = amr_grid%Pem(il) / &
+                  (f_comp1 * amr_grid%Pem(il) + f_comp * cell_volume / total_positive_volume)
+              amr_grid%Pem(il) = f_comp1 * amr_grid%Pem(il) + &
+                  f_comp * cell_volume / total_positive_volume
+            else
+              amr_grid%Pwgt(il) = 0.0_wp
+            end if
+          end do
+          call random_alias_setup(amr_grid%Pem, amr_grid%alias)
+        end if
+      end if
+    case default
+      if (mpar%h_rank == 0) then
+        norm = maxval(amr_grid%Pem)
+        if (norm > 0.0_wp) amr_grid%Pem(:) = amr_grid%Pem(:) / norm
+      end if
+    end select
+    call MPI_BARRIER(mpar%hostcomm, ierr)
+  end subroutine amr_setup_emissivity
+
+  !=========================================================================
   ! Point grid spectral pointer arrays at amr_grid data and copy scalar
   ! metadata.  Must be called after grid_create_amr and before any output
   ! routine that takes a grid_type argument.
@@ -411,6 +522,9 @@ contains
     if (associated(amr_grid%vfx))           call destroy_mem(amr_grid%vfx)
     if (associated(amr_grid%vfy))           call destroy_mem(amr_grid%vfy)
     if (associated(amr_grid%vfz))           call destroy_mem(amr_grid%vfz)
+    if (associated(amr_grid%Pem))           call destroy_mem(amr_grid%Pem)
+    if (associated(amr_grid%Pwgt))          call destroy_mem(amr_grid%Pwgt)
+    if (associated(amr_grid%alias))         call destroy_mem(amr_grid%alias)
     if (associated(amr_grid%xfreq))         call destroy_mem(amr_grid%xfreq)
     if (associated(amr_grid%velocity))      call destroy_mem(amr_grid%velocity)
     if (associated(amr_grid%wavelength))    call destroy_mem(amr_grid%wavelength)

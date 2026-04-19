@@ -37,6 +37,45 @@ contains
         photon%x = amr_grid%L_box*rand_number() + amr_grid%xmin
         photon%y = amr_grid%L_box*rand_number() + amr_grid%ymin
         photon%z = amr_grid%L_box*rand_number() + amr_grid%zmin
+     case ('diffuse_emissivity')
+        select case(trim(par%geometry))
+        case ('plane_atmosphere')
+           photon%x = (amr_grid%xmax - amr_grid%xmin) * rand_number() + amr_grid%xmin
+           photon%y = (amr_grid%ymax - amr_grid%ymin) * rand_number() + amr_grid%ymin
+           if (par%sampling_method > 0) then
+              call random_alias_linear_wgt(emiss_prof%prob_alias, emiss_prof%alias, &
+                                           emiss_prof%axis, emiss_prof%prob, emiss_prof%wgt, photon%z, photon%wgt)
+           else
+              call random_alias_linear(emiss_prof%prob_alias, emiss_prof%alias, &
+                                       emiss_prof%axis, emiss_prof%prob, photon%z)
+              photon%wgt = 1.0_wp
+           endif
+        case ('spherical_atmosphere', 'sphere')
+           if (par%sampling_method > 0) then
+              call random_alias_linear_wgt(emiss_prof%prob_alias, emiss_prof%alias, &
+                                           emiss_prof%axis, emiss_prof%prob, emiss_prof%wgt, rp, photon%wgt)
+           else
+              call random_alias_linear(emiss_prof%prob_alias, emiss_prof%alias, &
+                                       emiss_prof%axis, emiss_prof%prob, rp)
+              photon%wgt = 1.0_wp
+           endif
+           cost     = 2.0_wp*rand_number()-1.0_wp
+           sint     = sqrt(1.0_wp-cost*cost)
+           phi      = twopi*rand_number()
+           photon%x = amr_grid%cx(1) + rp*sint*cos(phi)
+           photon%y = amr_grid%cy(1) + rp*sint*sin(phi)
+           photon%z = amr_grid%cz(1) + rp*cost
+        case default
+           if (par%sampling_method == 0) then
+              call random_emiss_alias_amr(photon)
+           else if (par%sampling_method == 1) then
+              call random_emiss_composite_alias_amr(photon)
+           else if (par%sampling_method == 2) then
+              call random_emiss_naive_amr(photon)
+           else
+              call random_emiss_composite_amr(photon)
+           endif
+        end select
      case default
         photon%x = par%xs_point
         photon%y = par%ys_point
@@ -237,46 +276,7 @@ contains
   case ('point_illumination')
      call random_point_illumination(grid,photon)
   case ('diffuse_emissivity')
-     select case(trim(par%geometry))
-     case ('plane_atmosphere')
-        photon%x = grid%xrange * rand_number() + grid%xmin
-        photon%y = grid%yrange * rand_number() + grid%ymin
-        if (par%sampling_method > 0) then
-           call random_alias_linear_wgt(emiss_prof%prob_alias, emiss_prof%alias, &
-                                        emiss_prof%axis, emiss_prof%prob, emiss_prof%wgt, photon%z, photon%wgt)
-        else
-           call random_alias_linear(emiss_prof%prob_alias, emiss_prof%alias, emiss_prof%axis, emiss_prof%prob, photon%z)
-           photon%wgt = 1.0_wp
-        endif
-        call setup_isotropic_injection(grid,photon)
-     case ('spherical_atmosphere', 'sphere')
-        if (par%sampling_method > 0) then
-           call random_alias_linear_wgt(emiss_prof%prob_alias, emiss_prof%alias, &
-                                        emiss_prof%axis, emiss_prof%prob, emiss_prof%wgt, rp, photon%wgt)
-        else
-           call random_alias_linear(emiss_prof%prob_alias, emiss_prof%alias, emiss_prof%axis, emiss_prof%prob, rp)
-           photon%wgt = 1.0_wp
-        endif
-        cost       = 2.0_wp*rand_number()-1.0_wp
-        sint       = sqrt(1.0_wp-cost*cost)
-        phi        = twopi*rand_number()
-        photon%x   = rp*sint*cos(phi)
-        photon%y   = rp*sint*sin(phi)
-        photon%z   = rp*cost
-        call setup_isotropic_injection(grid,photon)
-     case default
-        !--- diffuse emission, using emissivity
-        if (par%sampling_method == 0) then
-           call random_emiss_alias(grid,photon)
-        else if (par%sampling_method == 1) then
-           call random_emiss_composite_alias(grid,photon)
-        else if (par%sampling_method == 2) then
-           call random_emiss_naive(grid,photon)
-        else
-           call random_emiss_composite(grid,photon)
-        endif
-        call setup_isotropic_injection(grid,photon)
-     endselect
+     call setup_diffuse_emissivity_cartesian(grid,photon)
   case default
      photon%x = par%xs_point
      photon%y = par%ys_point
@@ -489,6 +489,57 @@ contains
   end subroutine setup_isotropic_injection
 
   !================================================
+  subroutine setup_diffuse_emissivity_cartesian(grid,photon)
+  use define
+  use random
+  implicit none
+  type(grid_type),   intent(in)    :: grid
+  type(photon_type), intent(inout) :: photon
+  real(kind=wp) :: rp, cost, sint, phi
+
+  select case(trim(par%geometry))
+  case ('plane_atmosphere')
+     photon%x = grid%xrange * rand_number() + grid%xmin
+     photon%y = grid%yrange * rand_number() + grid%ymin
+     if (par%sampling_method > 0) then
+        call random_alias_linear_wgt(emiss_prof%prob_alias, emiss_prof%alias, &
+                                     emiss_prof%axis, emiss_prof%prob, emiss_prof%wgt, photon%z, photon%wgt)
+     else
+        call random_alias_linear(emiss_prof%prob_alias, emiss_prof%alias, &
+                                 emiss_prof%axis, emiss_prof%prob, photon%z)
+        photon%wgt = 1.0_wp
+     endif
+  case ('spherical_atmosphere', 'sphere')
+     if (par%sampling_method > 0) then
+        call random_alias_linear_wgt(emiss_prof%prob_alias, emiss_prof%alias, &
+                                     emiss_prof%axis, emiss_prof%prob, emiss_prof%wgt, rp, photon%wgt)
+     else
+        call random_alias_linear(emiss_prof%prob_alias, emiss_prof%alias, &
+                                 emiss_prof%axis, emiss_prof%prob, rp)
+        photon%wgt = 1.0_wp
+     endif
+     cost     = 2.0_wp*rand_number()-1.0_wp
+     sint     = sqrt(1.0_wp-cost*cost)
+     phi      = twopi*rand_number()
+     photon%x = rp*sint*cos(phi)
+     photon%y = rp*sint*sin(phi)
+     photon%z = rp*cost
+  case default
+     if (par%sampling_method == 0) then
+        call random_emiss_alias(grid,photon)
+     else if (par%sampling_method == 1) then
+        call random_emiss_composite_alias(grid,photon)
+     else if (par%sampling_method == 2) then
+        call random_emiss_naive(grid,photon)
+     else
+        call random_emiss_composite(grid,photon)
+     endif
+  endselect
+
+  call setup_isotropic_injection(grid,photon)
+  end subroutine setup_diffuse_emissivity_cartesian
+
+  !================================================
   !--- Alias sampling routine according to emissivity
   subroutine random_emiss_alias(grid,photon)
   use define
@@ -615,6 +666,131 @@ contains
   end subroutine random_emiss_composite
 
   !================================================
+  subroutine random_emiss_alias_amr(photon)
+  use define
+  use random
+  use octree_mod, only: amr_grid
+  implicit none
+  type(photon_type), intent(inout) :: photon
+  integer :: il, icell
+  real(kind=wp) :: h
+
+  photon%wgt       = 1.0_wp
+  photon%nrejected = 0.0_wp
+
+  il               = rand_alias_choise(amr_grid%Pem, amr_grid%alias)
+  icell            = amr_grid%icell_of_leaf(il)
+  h                = amr_grid%ch(icell)
+  photon%icell_amr = il
+  photon%x         = 2.0_wp*h*rand_number() + (amr_grid%cx(icell) - h)
+  photon%y         = 2.0_wp*h*rand_number() + (amr_grid%cy(icell) - h)
+  photon%z         = 2.0_wp*h*rand_number() + (amr_grid%cz(icell) - h)
+  end subroutine random_emiss_alias_amr
+
+  !================================================
+  subroutine random_emiss_composite_alias_amr(photon)
+  use define
+  use random
+  use octree_mod, only: amr_grid
+  implicit none
+  type(photon_type), intent(inout) :: photon
+  integer :: il, icell
+  real(kind=wp) :: h
+
+  photon%nrejected = 0.0_wp
+
+  il               = rand_alias_choise(amr_grid%Pem, amr_grid%alias)
+  icell            = amr_grid%icell_of_leaf(il)
+  h                = amr_grid%ch(icell)
+  photon%icell_amr = il
+  photon%wgt       = amr_grid%Pwgt(il)
+  photon%x         = 2.0_wp*h*rand_number() + (amr_grid%cx(icell) - h)
+  photon%y         = 2.0_wp*h*rand_number() + (amr_grid%cy(icell) - h)
+  photon%z         = 2.0_wp*h*rand_number() + (amr_grid%cz(icell) - h)
+  end subroutine random_emiss_composite_alias_amr
+
+  !================================================
+  subroutine random_emiss_naive_amr(photon)
+  use define
+  use random
+  use octree_mod, only: amr_grid, amr_find_leaf
+  implicit none
+  type(photon_type), intent(inout) :: photon
+  integer :: il
+
+  photon%wgt       = 1.0_wp
+  photon%nrejected = 0.0_wp
+
+  do while(.true.)
+     photon%x = amr_grid%L_box*rand_number() + amr_grid%xmin
+     photon%y = amr_grid%L_box*rand_number() + amr_grid%ymin
+     photon%z = amr_grid%L_box*rand_number() + amr_grid%zmin
+     il = amr_find_leaf(photon%x, photon%y, photon%z)
+     if (il <= 0) cycle
+     photon%icell_amr = il
+     if (rand_number() <= amr_grid%Pem(il)) then
+        exit
+     else
+        photon%nrejected = photon%nrejected + 1.0_wp
+     endif
+  enddo
+  end subroutine random_emiss_naive_amr
+
+  !================================================
+  subroutine random_emiss_composite_amr(photon)
+  use define
+  use random
+  use octree_mod, only: amr_grid, amr_find_leaf
+  implicit none
+  type(photon_type), intent(inout) :: photon
+  logical, save       :: setup_Qem = .false.
+  real(kind=wp), save :: Qem
+  integer :: il
+  real(kind=wp) :: positive_volume, cell_volume
+
+  if (.not. setup_Qem) then
+     Qem = 0.0_wp
+     positive_volume = 0.0_wp
+     do il = 1, amr_grid%nleaf
+        if (amr_grid%Pem(il) > 0.0_wp) then
+           cell_volume = (2.0_wp * amr_grid%ch(amr_grid%icell_of_leaf(il)))**3
+           Qem = Qem + amr_grid%Pem(il) * cell_volume
+           positive_volume = positive_volume + cell_volume
+        endif
+     enddo
+     if (positive_volume > 0.0_wp) Qem = Qem / positive_volume
+     setup_Qem = .true.
+  endif
+
+  photon%nrejected = 0.0_wp
+  if (rand_number() < par%f_composite) then
+     do while(.true.)
+        photon%x = amr_grid%L_box*rand_number() + amr_grid%xmin
+        photon%y = amr_grid%L_box*rand_number() + amr_grid%ymin
+        photon%z = amr_grid%L_box*rand_number() + amr_grid%zmin
+        il = amr_find_leaf(photon%x, photon%y, photon%z)
+        if (il > 0 .and. amr_grid%Pem(il) > 0.0_wp) exit
+     enddo
+  else
+     do while(.true.)
+        photon%x = amr_grid%L_box*rand_number() + amr_grid%xmin
+        photon%y = amr_grid%L_box*rand_number() + amr_grid%ymin
+        photon%z = amr_grid%L_box*rand_number() + amr_grid%zmin
+        il = amr_find_leaf(photon%x, photon%y, photon%z)
+        if (il <= 0) cycle
+        if (rand_number() <= amr_grid%Pem(il)) then
+           exit
+        else
+           photon%nrejected = photon%nrejected + 1.0_wp
+        endif
+     enddo
+  endif
+
+  photon%icell_amr = il
+  photon%wgt = 1.0_wp / ((1.0_wp-par%f_composite) + par%f_composite * Qem/amr_grid%Pem(il))
+  end subroutine random_emiss_composite_amr
+
+  !================================================
   subroutine setup_isotropic_injection_amr(grid, photon)
   use define
   use random
@@ -624,7 +800,9 @@ contains
   type(photon_type), intent(inout) :: photon
   real(kind=wp) :: cost, sint, phi, cosp, sinp
 
-  photon%wgt = 1.0_wp
+  if (trim(par%source_geometry) /= 'diffuse_emissivity') then
+     photon%wgt = 1.0_wp
+  endif
 
   cost = 2.0_wp*rand_number()-1.0_wp
   sint = sqrt(1.0_wp-cost*cost)

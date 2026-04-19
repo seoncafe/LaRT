@@ -55,6 +55,9 @@ module octree_mod
     real(wp), pointer :: vfx(:)      => null()  ! x-velocity / v_thermal(local)
     real(wp), pointer :: vfy(:)      => null()  ! y-velocity / v_thermal(local)
     real(wp), pointer :: vfz(:)      => null()  ! z-velocity / v_thermal(local)
+    real(wp), pointer :: Pem(:)      => null()  ! diffuse emissivity helper array
+    real(wp), pointer :: Pwgt(:)     => null()  ! composite-bias emission weights
+    integer,  pointer :: alias(:)    => null()  ! alias table for Pem
 
     ! ------ frequency / spectral grid -- shared memory ------
     integer  :: nxfreq    = 0
