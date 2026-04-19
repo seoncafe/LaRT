@@ -22,6 +22,9 @@ backup/
 # macOS
 .DS_Store
 
+# gitignore
+.gitignore
+
 # LaTeX build artifacts
 *.aux
 *.log
