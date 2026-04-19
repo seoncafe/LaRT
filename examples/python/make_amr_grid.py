@@ -238,23 +238,23 @@ class AMRGrid:
             level_max
         )
 
-    def refine_geometry(self, inside_fn, level_max, criterion_inside=None):
+    def refine_geometry(self, inside_fn, intersects_fn, level_max, criterion_inside=None):
         """
         Refine a geometry-aware region up to ``level_max``.
 
-        Cells fully contained inside the geometry are refined only when
-        ``criterion_inside(cell)`` is True.  Every other cell (boundary or
-        outside the geometry) is refined unconditionally until ``level_max``.
-
-        This matches the rule:
-            - fully inside geometry  -> refine only by physics criterion
-            - not fully inside       -> always refine to ``level_max``
+        Cells that intersect the geometry boundary are always refined until
+        ``level_max``.  Cells that are fully contained inside the geometry
+        are refined only when ``criterion_inside(cell)`` is True.  Cells
+        completely outside the geometry are left untouched.
 
         Parameters
         ----------
         inside_fn : callable
             ``inside_fn(cell) -> bool``.  Must return True when the whole
             cell is contained in the geometry.
+        intersects_fn : callable
+            ``intersects_fn(cell) -> bool``.  Must return True when the cell
+            overlaps the geometry at all (including fully-contained cells).
         level_max : int
             Maximum refinement level.
         criterion_inside : callable or None
@@ -262,28 +262,31 @@ class AMRGrid:
             If None, fully-contained cells are not further refined.
         """
         self._refine_geometry_recursive(
-            self.root, inside_fn, criterion_inside, level_max
+            self.root, inside_fn, intersects_fn, criterion_inside, level_max
         )
 
-    def _refine_geometry_recursive(self, cell, inside_fn,
+    def _refine_geometry_recursive(self, cell, inside_fn, intersects_fn,
                                    criterion_inside, level_max):
         if cell.is_leaf:
             if cell.level >= level_max:
                 return
 
             fully_inside = inside_fn(cell)
-            if fully_inside and (criterion_inside is None or not criterion_inside(cell)):
+            if fully_inside:
+                if criterion_inside is None or not criterion_inside(cell):
+                    return
+            elif not intersects_fn(cell):
                 return
 
             cell.split()
             for child in cell.children:
                 self._refine_geometry_recursive(
-                    child, inside_fn, criterion_inside, level_max
+                    child, inside_fn, intersects_fn, criterion_inside, level_max
                 )
         else:
             for child in cell.children:
                 self._refine_geometry_recursive(
-                    child, inside_fn, criterion_inside, level_max
+                    child, inside_fn, intersects_fn, criterion_inside, level_max
                 )
 
     def refine_sphere_adaptive(self, cx, cy, cz, radius, level_max,
@@ -291,9 +294,10 @@ class AMRGrid:
         """
         Geometry-aware refinement for a sphere.
 
-        Cells fully inside the sphere are refined only when
-        ``criterion_inside`` evaluates to True.  Every cell that is not
-        fully contained in the sphere is refined until ``level_max``.
+        Boundary cells (cells that intersect the sphere but are not fully
+        contained in it) are always refined until ``level_max``.  Cells
+        fully inside the sphere are refined only when ``criterion_inside``
+        evaluates to True.
         """
         r2 = radius**2
 
@@ -304,7 +308,13 @@ class AMRGrid:
                      (corners[:, 2] - cz)**2)
             return np.all(dist2 <= r2)
 
-        self.refine_geometry(inside, level_max, criterion_inside)
+        def intersects(c):
+            dx = max(c.xmin - cx, 0.0, cx - c.xmax)
+            dy = max(c.ymin - cy, 0.0, cy - c.ymax)
+            dz = max(c.zmin - cz, 0.0, cz - c.zmax)
+            return dx*dx + dy*dy + dz*dz <= r2
+
+        self.refine_geometry(inside, intersects, level_max, criterion_inside)
 
     def refine_slab_adaptive(self, axis, lo, hi, level_max,
                              criterion_inside=None):
@@ -312,9 +322,8 @@ class AMRGrid:
         Geometry-aware refinement for a slab.
 
         The slab spans ``[lo, hi]`` along ``axis`` ('x', 'y', or 'z').
-        Cells fully inside the slab are refined only when
-        ``criterion_inside`` is True.  Every cell that is not fully contained
-        in the slab is refined until ``level_max``.
+        Boundary cells are always refined until ``level_max``; cells fully
+        inside the slab are refined only when ``criterion_inside`` is True.
         """
         axis = axis.lower()
         min_attr = {'x': 'xmin', 'y': 'ymin', 'z': 'zmin'}[axis]
@@ -323,23 +332,30 @@ class AMRGrid:
         def inside(c):
             return lo <= getattr(c, min_attr) and getattr(c, max_attr) <= hi
 
-        self.refine_geometry(inside, level_max, criterion_inside)
+        def intersects(c):
+            return getattr(c, max_attr) >= lo and getattr(c, min_attr) <= hi
+
+        self.refine_geometry(inside, intersects, level_max, criterion_inside)
 
     def refine_box_adaptive(self, xlo, xhi, ylo, yhi, zlo, zhi, level_max,
                             criterion_inside=None):
         """
         Geometry-aware refinement for an axis-aligned rectangular box.
 
-        Cells fully inside the box are refined only when
-        ``criterion_inside`` is True.  Every cell that is not fully contained
-        in the box is refined until ``level_max``.
+        Boundary cells are always refined until ``level_max``; cells fully
+        inside the box are refined only when ``criterion_inside`` is True.
         """
         def inside(c):
             return (xlo <= c.xmin and c.xmax <= xhi and
                     ylo <= c.ymin and c.ymax <= yhi and
                     zlo <= c.zmin and c.zmax <= zhi)
 
-        self.refine_geometry(inside, level_max, criterion_inside)
+        def intersects(c):
+            return (c.xmax >= xlo and c.xmin <= xhi and
+                    c.ymax >= ylo and c.ymin <= yhi and
+                    c.zmax >= zlo and c.zmin <= zhi)
+
+        self.refine_geometry(inside, intersects, level_max, criterion_inside)
 
     def refine_by_density(self, nH_fn, threshold=0.1, level_max=6,
                           nprobe=2, floor=1e-30):
@@ -470,12 +486,12 @@ class AMRGrid:
                                  dens_threshold=0.1, vel_threshold=0.1,
                                  level_max=6, nprobe=2, floor=1e-30):
         """
-        Sphere refinement with non-contained cells forced to ``level_max``.
+        Sphere refinement with boundary cells forced to ``level_max``.
 
         A leaf cell fully inside the sphere is refined only when the density
-        and/or velocity gradient criterion is satisfied.  Any cell that is
-        not fully contained in the sphere is refined all the way to
-        ``level_max``.
+        and/or velocity gradient criterion is satisfied.  Any cell that
+        intersects the sphere but is not fully contained in it is refined all
+        the way to ``level_max`` so that the geometric boundary is resolved.
         """
         criterion = self._make_physics_criterion(
             nH_fn, vel_fn, dens_threshold, vel_threshold, nprobe, floor
@@ -486,12 +502,11 @@ class AMRGrid:
                                dens_threshold=0.1, vel_threshold=0.1,
                                level_max=6, nprobe=2, floor=1e-30):
         """
-        Slab refinement with non-contained cells forced to ``level_max``.
+        Slab refinement with boundary cells forced to ``level_max``.
 
         A leaf cell fully inside the slab is refined only when the density
-        and/or velocity gradient criterion is satisfied.  Any cell that is
-        not fully contained in the slab is refined all the way to
-        ``level_max``.
+        and/or velocity gradient criterion is satisfied.  Any cell that
+        overlaps the slab boundary is refined all the way to ``level_max``.
         """
         criterion = self._make_physics_criterion(
             nH_fn, vel_fn, dens_threshold, vel_threshold, nprobe, floor
@@ -503,12 +518,11 @@ class AMRGrid:
                               vel_threshold=0.1, level_max=6, nprobe=2,
                               floor=1e-30):
         """
-        Box refinement with non-contained cells forced to ``level_max``.
+        Box refinement with boundary cells forced to ``level_max``.
 
         A leaf cell fully inside the box is refined only when the density
-        and/or velocity gradient criterion is satisfied.  Any cell that is
-        not fully contained in the box is refined all the way to
-        ``level_max``.
+        and/or velocity gradient criterion is satisfied.  Any cell that
+        overlaps the box boundary is refined all the way to ``level_max``.
         """
         criterion = self._make_physics_criterion(
             nH_fn, vel_fn, dens_threshold, vel_threshold, nprobe, floor
@@ -780,7 +794,13 @@ class AMRGrid:
     # ------------------------------------------------------------------ #
 
     def slice_plot(self, axis='z', value=None, quantity='nH',
-                   ax=None, log=True, cmap='viridis', **kwargs):
+                   ax=None, log=True, cmap='viridis',
+                   show_leaf_boundaries=False,
+                   boundary_color='k', boundary_lw=0.3,
+                   boundary_alpha=0.7,
+                   show_leaf_centers=False,
+                   center_color='k', center_marker='o',
+                   center_size=8, center_alpha=0.9, **kwargs):
         """
         Quick 2-D slice plot of a physical quantity through the grid.
 
@@ -796,8 +816,28 @@ class AMRGrid:
         log : bool
             Plot log10 of the quantity if True.
         cmap : str
+        show_leaf_boundaries : bool
+            If True, overlay boundaries of the leaf cells that intersect
+            the slice plane.
+        boundary_color : str
+            Edge colour for the leaf-cell boundary overlay.
+        boundary_lw : float
+            Line width for the leaf-cell boundary overlay.
+        boundary_alpha : float
+            Transparency for the leaf-cell boundary overlay.
+        show_leaf_centers : bool
+            If True, overlay markers at the centres of leaf cells that
+            intersect the slice plane.
+        center_color : str
+            Marker colour for the leaf-cell centre overlay.
+        center_marker : str
+            Matplotlib marker style for the leaf-cell centre overlay.
+        center_size : float
+            Marker size for the leaf-cell centre overlay.
+        center_alpha : float
+            Transparency for the leaf-cell centre overlay.
         **kwargs
-            Passed to ``matplotlib.patches.Rectangle``.
+            Passed to ``matplotlib.patches.Rectangle`` for the filled cells.
 
         Returns
         -------
@@ -819,27 +859,49 @@ class AMRGrid:
         ha, va, ca, da, na = ax_map[axis.lower()]
 
         patches, values = [], []
-        axis_idx = {'x': 0, 'y': 1, 'z': 2}[axis.lower()]
-        box_max = self.origin[axis_idx] + self.boxlen
-        tol = 1e-12 * max(1.0, self.boxlen)
+        boundary_patches = []
+        center_x, center_y = [], []
         for lf in self.leaves():
-            lo = getattr(lf, na) - lf.h
-            hi = getattr(lf, na) + lf.h
-            hits_plane = (lo <= value < hi)
-            if abs(value - box_max) <= tol and abs(hi - box_max) <= tol:
-                hits_plane = (lo <= value <= hi)
-            if hits_plane:
+            c_normal = getattr(lf, na)
+            if abs(c_normal - value) <= lf.h:
                 cx_ = getattr(lf, ca)
                 cy_ = getattr(lf, da)
                 rect = mpatches.Rectangle(
                     (cx_ - lf.h, cy_ - lf.h), 2*lf.h, 2*lf.h, **kwargs)
                 patches.append(rect)
+                if show_leaf_boundaries:
+                    boundary_patches.append(
+                        mpatches.Rectangle(
+                            (cx_ - lf.h, cy_ - lf.h), 2*lf.h, 2*lf.h
+                        )
+                    )
+                if show_leaf_centers:
+                    center_x.append(cx_)
+                    center_y.append(cy_)
                 v = getattr(lf, quantity)
                 values.append(np.log10(max(v, 1e-100)) if log else v)
 
         pc = PatchCollection(patches, cmap=cmap, linewidths=0)
         pc.set_array(np.array(values))
         ax.add_collection(pc)
+
+        if show_leaf_boundaries and boundary_patches:
+            pc_boundary = PatchCollection(
+                boundary_patches,
+                facecolor='none',
+                edgecolor=boundary_color,
+                linewidths=boundary_lw,
+                alpha=boundary_alpha,
+            )
+            ax.add_collection(pc_boundary)
+
+        if show_leaf_centers and center_x:
+            ax.scatter(
+                center_x, center_y,
+                c=center_color, marker=center_marker, s=center_size,
+                alpha=center_alpha
+            )
+
         ax.set_xlim(self.origin[0], self.origin[0] + self.boxlen)
         ax.set_ylim(self.origin[1], self.origin[1] + self.boxlen)
         ax.set_aspect('equal')
