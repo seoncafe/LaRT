@@ -1,5 +1,6 @@
 # Old/backup source files
 backup_f90/
+backup/
 
 # Compiled objects and modules
 *.o

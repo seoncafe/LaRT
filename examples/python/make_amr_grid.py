@@ -117,6 +117,16 @@ class Cell:
     @property
     def zmax(self): return self.cz + self.h
 
+    def corners(self):
+        """Return the 8 cell-corner coordinates as an (8, 3) array."""
+        offs = (-self.h, self.h)
+        return np.array([
+            (self.cx + dx, self.cy + dy, self.cz + dz)
+            for dz in offs
+            for dy in offs
+            for dx in offs
+        ], dtype=float)
+
     # ------------------------------------------------------------------ #
     def split(self):
         """Replace this leaf with 8 child leaves at half the size."""
@@ -227,6 +237,109 @@ class AMRGrid:
                        zlo <= c.cz <= zhi),
             level_max
         )
+
+    def refine_geometry(self, inside_fn, level_max, criterion_inside=None):
+        """
+        Refine a geometry-aware region up to ``level_max``.
+
+        Cells fully contained inside the geometry are refined only when
+        ``criterion_inside(cell)`` is True.  Every other cell (boundary or
+        outside the geometry) is refined unconditionally until ``level_max``.
+
+        This matches the rule:
+            - fully inside geometry  -> refine only by physics criterion
+            - not fully inside       -> always refine to ``level_max``
+
+        Parameters
+        ----------
+        inside_fn : callable
+            ``inside_fn(cell) -> bool``.  Must return True when the whole
+            cell is contained in the geometry.
+        level_max : int
+            Maximum refinement level.
+        criterion_inside : callable or None
+            Optional refinement criterion for cells fully inside the geometry.
+            If None, fully-contained cells are not further refined.
+        """
+        self._refine_geometry_recursive(
+            self.root, inside_fn, criterion_inside, level_max
+        )
+
+    def _refine_geometry_recursive(self, cell, inside_fn,
+                                   criterion_inside, level_max):
+        if cell.is_leaf:
+            if cell.level >= level_max:
+                return
+
+            fully_inside = inside_fn(cell)
+            if fully_inside and (criterion_inside is None or not criterion_inside(cell)):
+                return
+
+            cell.split()
+            for child in cell.children:
+                self._refine_geometry_recursive(
+                    child, inside_fn, criterion_inside, level_max
+                )
+        else:
+            for child in cell.children:
+                self._refine_geometry_recursive(
+                    child, inside_fn, criterion_inside, level_max
+                )
+
+    def refine_sphere_adaptive(self, cx, cy, cz, radius, level_max,
+                               criterion_inside=None):
+        """
+        Geometry-aware refinement for a sphere.
+
+        Cells fully inside the sphere are refined only when
+        ``criterion_inside`` evaluates to True.  Every cell that is not
+        fully contained in the sphere is refined until ``level_max``.
+        """
+        r2 = radius**2
+
+        def inside(c):
+            corners = c.corners()
+            dist2 = ((corners[:, 0] - cx)**2 +
+                     (corners[:, 1] - cy)**2 +
+                     (corners[:, 2] - cz)**2)
+            return np.all(dist2 <= r2)
+
+        self.refine_geometry(inside, level_max, criterion_inside)
+
+    def refine_slab_adaptive(self, axis, lo, hi, level_max,
+                             criterion_inside=None):
+        """
+        Geometry-aware refinement for a slab.
+
+        The slab spans ``[lo, hi]`` along ``axis`` ('x', 'y', or 'z').
+        Cells fully inside the slab are refined only when
+        ``criterion_inside`` is True.  Every cell that is not fully contained
+        in the slab is refined until ``level_max``.
+        """
+        axis = axis.lower()
+        min_attr = {'x': 'xmin', 'y': 'ymin', 'z': 'zmin'}[axis]
+        max_attr = {'x': 'xmax', 'y': 'ymax', 'z': 'zmax'}[axis]
+
+        def inside(c):
+            return lo <= getattr(c, min_attr) and getattr(c, max_attr) <= hi
+
+        self.refine_geometry(inside, level_max, criterion_inside)
+
+    def refine_box_adaptive(self, xlo, xhi, ylo, yhi, zlo, zhi, level_max,
+                            criterion_inside=None):
+        """
+        Geometry-aware refinement for an axis-aligned rectangular box.
+
+        Cells fully inside the box are refined only when
+        ``criterion_inside`` is True.  Every cell that is not fully contained
+        in the box is refined until ``level_max``.
+        """
+        def inside(c):
+            return (xlo <= c.xmin and c.xmax <= xhi and
+                    ylo <= c.ymin and c.ymax <= yhi and
+                    zlo <= c.zmin and c.zmax <= zhi)
+
+        self.refine_geometry(inside, level_max, criterion_inside)
 
     def refine_by_density(self, nH_fn, threshold=0.1, level_max=6,
                           nprobe=2, floor=1e-30):
@@ -339,6 +452,68 @@ class AMRGrid:
             return any(crit(c) for crit in criteria)
 
         self.refine(combined, level_max)
+
+    def _make_physics_criterion(self, nH_fn, vel_fn=None,
+                                dens_threshold=0.1, vel_threshold=0.1,
+                                nprobe=2, floor=1e-30):
+        """Return the combined density/velocity refinement criterion."""
+        criteria = []
+        if dens_threshold is not None:
+            criteria.append(self._make_dens_criterion(nH_fn, dens_threshold, floor, nprobe))
+        if vel_fn is not None and vel_threshold is not None:
+            criteria.append(self._make_vel_criterion(vel_fn, nH_fn, vel_threshold, floor, nprobe))
+        if not criteria:
+            return None
+        return (lambda c: any(crit(c) for crit in criteria))
+
+    def refine_sphere_by_physics(self, cx, cy, cz, radius, nH_fn, vel_fn=None,
+                                 dens_threshold=0.1, vel_threshold=0.1,
+                                 level_max=6, nprobe=2, floor=1e-30):
+        """
+        Sphere refinement with non-contained cells forced to ``level_max``.
+
+        A leaf cell fully inside the sphere is refined only when the density
+        and/or velocity gradient criterion is satisfied.  Any cell that is
+        not fully contained in the sphere is refined all the way to
+        ``level_max``.
+        """
+        criterion = self._make_physics_criterion(
+            nH_fn, vel_fn, dens_threshold, vel_threshold, nprobe, floor
+        )
+        self.refine_sphere_adaptive(cx, cy, cz, radius, level_max, criterion)
+
+    def refine_slab_by_physics(self, axis, lo, hi, nH_fn, vel_fn=None,
+                               dens_threshold=0.1, vel_threshold=0.1,
+                               level_max=6, nprobe=2, floor=1e-30):
+        """
+        Slab refinement with non-contained cells forced to ``level_max``.
+
+        A leaf cell fully inside the slab is refined only when the density
+        and/or velocity gradient criterion is satisfied.  Any cell that is
+        not fully contained in the slab is refined all the way to
+        ``level_max``.
+        """
+        criterion = self._make_physics_criterion(
+            nH_fn, vel_fn, dens_threshold, vel_threshold, nprobe, floor
+        )
+        self.refine_slab_adaptive(axis, lo, hi, level_max, criterion)
+
+    def refine_box_by_physics(self, xlo, xhi, ylo, yhi, zlo, zhi, nH_fn,
+                              vel_fn=None, dens_threshold=0.1,
+                              vel_threshold=0.1, level_max=6, nprobe=2,
+                              floor=1e-30):
+        """
+        Box refinement with non-contained cells forced to ``level_max``.
+
+        A leaf cell fully inside the box is refined only when the density
+        and/or velocity gradient criterion is satisfied.  Any cell that is
+        not fully contained in the box is refined all the way to
+        ``level_max``.
+        """
+        criterion = self._make_physics_criterion(
+            nH_fn, vel_fn, dens_threshold, vel_threshold, nprobe, floor
+        )
+        self.refine_box_adaptive(xlo, xhi, ylo, yhi, zlo, zhi, level_max, criterion)
 
     # ------------------------------------------------------------------ #
     # Private gradient criterion builders
@@ -644,9 +819,16 @@ class AMRGrid:
         ha, va, ca, da, na = ax_map[axis.lower()]
 
         patches, values = [], []
+        axis_idx = {'x': 0, 'y': 1, 'z': 2}[axis.lower()]
+        box_max = self.origin[axis_idx] + self.boxlen
+        tol = 1e-12 * max(1.0, self.boxlen)
         for lf in self.leaves():
-            c_normal = getattr(lf, na)
-            if abs(c_normal - value) <= lf.h:
+            lo = getattr(lf, na) - lf.h
+            hi = getattr(lf, na) + lf.h
+            hits_plane = (lo <= value < hi)
+            if abs(value - box_max) <= tol and abs(hi - box_max) <= tol:
+                hits_plane = (lo <= value <= hi)
+            if hits_plane:
                 cx_ = getattr(lf, ca)
                 cy_ = getattr(lf, da)
                 rect = mpatches.Rectangle(
