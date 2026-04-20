@@ -8,8 +8,10 @@ module read_ramses_amr_mod
   !
   ! RAMSES convention assumed here:
   !   - Non-cosmological run (cosmo = .false.) OR cosmological (boxlen in Mpc/h)
-  !   - Standard conservative hydro variables (density, rho*v, energy/pressure, metallicity)
   !   - Unit scales read from output_{snapnum}/info_{snapnum}.txt
+  !   - If present, hydro_file_descriptor.txt is used to detect non-standard
+  !     layouts such as RAMSES RMHD variants with velocity_x/y/z and
+  !     thermal_pressure fields.
   !   - nHI computed from nH + T using either CIE or supplied neutral fraction
   !-----------------------------------------------------------------------
   use define
@@ -23,6 +25,16 @@ module read_ramses_amr_mod
 
   ! Precision flag for RAMSES hydro output (4 = single, 8 = double)
   integer :: ramses_hydro_prec = 8
+  integer :: ramses_density_var = 1
+  integer :: ramses_velocity_var(3) = [2, 3, 4]
+  integer :: ramses_thermo_var = 5
+  character(len=16) :: ramses_velocity_layout = 'momentum'
+  character(len=16) :: ramses_thermo_mode    = 'energy'
+  logical :: ramses_descriptor_found = .false.
+
+  real(kind=8), parameter :: massH_cgs = 1.6726d-24
+  real(kind=8), parameter :: boltzmann_cgs = 1.381d-16
+  real(kind=8), parameter :: mu_neutral = 1.22d0
 
 contains
 
@@ -70,6 +82,7 @@ contains
     ! Read unit scales and number of CPUs from info file
     call ramses_read_info(repository, snapnum, ncpu, &
         unit_l, unit_d, unit_t, boxlen_code, gamma_eos)
+    call ramses_detect_layout(repository, snapnum)
 
     unit_v    = unit_l / unit_t  ! cm/s
     boxlen_cm = boxlen_code * unit_l
@@ -205,7 +218,7 @@ contains
         ngridfile(ncpu_f+1:ncpu_f+nboundary, :) = ngridbound
         deallocate(ngridbound)
       end if
-      call skip_records(iu, 5)
+      call skip_records(iu, 6)
 
       ! Count leaves for this cpu
       do ilevel = 1, nlevelmax
@@ -281,11 +294,12 @@ contains
     real(kind=4), allocatable :: var_sp(:)
     real(kind=8), allocatable :: xc(:,:)  ! (twotondim, ndim) cell offsets
     integer :: twotondim
-    real(kind=8) :: dx, massH_cgs
+    real(kind=8) :: dx
     real(kind=8) :: xbound(3)
-    real(kind=8) :: rho_cgs, dens_code, px, py, pz, eint
-
-    massH_cgs = 1.6726e-24_8
+    real(kind=8) :: rho_cgs, dens_code, px, py, pz, eint, pressure_cgs
+    real(kind=8) :: kinetic_code
+    integer :: dens_ivar, vel_ivar(3), thermo_ivar
+    character(len=16) :: velocity_layout, thermo_mode
     il_out = 0
 
     do icpu = 1, ncpu
@@ -324,7 +338,7 @@ contains
         ngridfile(ncpu_f+1:ncpu_f+nboundary, :) = ngridbound
         deallocate(ngridbound)
       end if
-      call skip_records(iu_amr, 5)
+      call skip_records(iu_amr, 6)
 
       ! --- Hydro header ---
       read(iu_hyd)          ! ncpu
@@ -333,6 +347,19 @@ contains
       read(iu_hyd)          ! nlevelmax
       read(iu_hyd)          ! nboundary
       read(iu_hyd) gamma_f
+
+      dens_ivar = ramses_density_var
+      vel_ivar  = ramses_velocity_var
+      thermo_ivar = ramses_thermo_var
+      velocity_layout = ramses_velocity_layout
+      thermo_mode     = ramses_thermo_mode
+
+      if (dens_ivar < 1 .or. dens_ivar > nvar) dens_ivar = 1
+      if (any(vel_ivar < 1) .or. any(vel_ivar > nvar)) vel_ivar = [2, 3, 4]
+      if (thermo_ivar < 1 .or. thermo_ivar > nvar) then
+        thermo_ivar = min(5, nvar)
+        if (thermo_mode /= 'pressure' .and. thermo_mode /= 'energy') thermo_mode = 'constant'
+      end if
 
       allocate(xc(twotondim, ndim))
 
@@ -421,38 +448,50 @@ contains
                 ! var(:,:,1) = mass density [code units]
                 ! var(:,:,2:4) = momentum density or velocity [code units]
                 ! var(:,:,5) = total energy or thermal pressure [code units]
-                dens_code = var(j, ind, 1)
+                dens_code = var(j, ind, dens_ivar)
                 rho_cgs   = dens_code * unit_d
                 nH_arr(il_out) = real(rho_cgs / massH_cgs, wp)
 
-                ! Velocity: check if RAMSES stored momentum or velocity
-                ! Standard RAMSES: stored as momentum density ρ*v
-                if (dens_code > 0.0d0) then
-                  px = var(j, ind, 2) / dens_code * unit_v
-                  py = var(j, ind, 3) / dens_code * unit_v
-                  pz = var(j, ind, 4) / dens_code * unit_v
+                kinetic_code = 0.0d0
+                if (trim(velocity_layout) == 'velocity') then
+                  px = var(j, ind, vel_ivar(1)) * unit_v
+                  py = var(j, ind, vel_ivar(2)) * unit_v
+                  pz = var(j, ind, vel_ivar(3)) * unit_v
+                  kinetic_code = 0.5d0 * dens_code * ( &
+                      var(j,ind,vel_ivar(1))**2 + &
+                      var(j,ind,vel_ivar(2))**2 + &
+                      var(j,ind,vel_ivar(3))**2 )
                 else
-                  px = 0.0d0;  py = 0.0d0;  pz = 0.0d0
+                  ! Standard RAMSES: stored as momentum density rho*v
+                  if (dens_code > 0.0d0) then
+                    px = var(j, ind, vel_ivar(1)) / dens_code * unit_v
+                    py = var(j, ind, vel_ivar(2)) / dens_code * unit_v
+                    pz = var(j, ind, vel_ivar(3)) / dens_code * unit_v
+                    kinetic_code = 0.5d0 * dens_code * ( &
+                        (var(j,ind,vel_ivar(1))/max(dens_code,1d-40))**2 + &
+                        (var(j,ind,vel_ivar(2))/max(dens_code,1d-40))**2 + &
+                        (var(j,ind,vel_ivar(3))/max(dens_code,1d-40))**2 )
+                  else
+                    px = 0.0d0;  py = 0.0d0;  pz = 0.0d0
+                  end if
                 end if
                 vx_arr(il_out) = real(px, wp)
                 vy_arr(il_out) = real(py, wp)
                 vz_arr(il_out) = real(pz, wp)
 
-                ! Temperature from internal energy or thermal pressure
-                ! Standard RAMSES: var5 = total energy density
-                ! T = (gamma-1) * eint / (rho/mu/mH) * mH/kB  — use unit conversion
-                ! A simpler approximation: T = (gamma-1)*eint_per_mass * mu*mH/kB
-                ! We use unit_T2 = (unit_v)^2 * mu * mH / kB  where mu ~ 1.22 (fully neutral)
-                if (nvar >= 5) then
-                  eint = (var(j, ind, 5) - 0.5d0 * dens_code * (                &
-                          (var(j,ind,2)/max(dens_code,1d-40))**2 +              &
-                          (var(j,ind,3)/max(dens_code,1d-40))**2 +              &
-                          (var(j,ind,4)/max(dens_code,1d-40))**2)) / dens_code
+                if (trim(thermo_mode) == 'pressure') then
+                  pressure_cgs = var(j, ind, thermo_ivar) * unit_d * unit_v**2
+                  if (rho_cgs > 0.0d0) then
+                    T_arr(il_out) = real(pressure_cgs * mu_neutral * massH_cgs / &
+                        max(rho_cgs, 1.0d-40) / boltzmann_cgs, wp)
+                  else
+                    T_arr(il_out) = 10.0_wp
+                  end if
+                else if (trim(thermo_mode) == 'energy') then
+                  eint = (var(j, ind, thermo_ivar) - kinetic_code) / max(dens_code, 1d-40)
                   eint = max(eint, 0.0d0)
-                  ! T in K: (gamma-1)*eint[erg/g] * mu*mH/kB  (mu*mH/kB in K/(erg/g))
-                  ! unit_v^2 has units [cm^2/s^2 = erg/g]; kB = 1.381e-16 erg/K
                   T_arr(il_out) = real((gamma_f - 1.0d0) * eint * unit_v**2 * &
-                      1.22d0 * 1.6726d-24 / 1.381d-16, wp)
+                      mu_neutral * massH_cgs / boltzmann_cgs, wp)
                 else
                   T_arr(il_out) = 1.0e4_wp
                 end if
@@ -620,6 +659,97 @@ contains
 
     deallocate(leaf_level_i4)
   end subroutine generic_amr_read_fits
+
+  subroutine ramses_detect_layout(repository, snapnum)
+    character(len=*), intent(in) :: repository
+    integer,          intent(in) :: snapnum
+
+    character(len=512) :: filename, line
+    character(len=128) :: name, names(256)
+    integer :: ios, unit, ivar, ipos1, ipos2
+
+    ramses_descriptor_found = .false.
+    ramses_density_var = 1
+    ramses_velocity_var = [2, 3, 4]
+    ramses_thermo_var = 5
+    ramses_velocity_layout = 'momentum'
+    ramses_thermo_mode = 'energy'
+    names = ''
+
+    write(filename, '(a,"/output_",i5.5,"/hydro_file_descriptor.txt")') &
+        trim(repository), snapnum
+
+    unit = 52
+    open(unit, file=trim(filename), status='old', action='read', iostat=ios)
+    if (ios /= 0) return
+
+    ramses_descriptor_found = .true.
+    do
+      read(unit, '(a)', iostat=ios) line
+      if (ios /= 0) exit
+      ipos1 = index(line, '#')
+      ipos2 = index(line, ':')
+      if (ipos1 <= 0 .or. ipos2 <= ipos1) cycle
+      read(line(ipos1+1:ipos2-1), *, iostat=ios) ivar
+      if (ios /= 0) cycle
+      if (ivar < 1 .or. ivar > size(names)) cycle
+      name = str_lower(adjustl(line(ipos2+1:)))
+      names(ivar) = trim(name)
+    end do
+    close(unit)
+
+    do ivar = 1, size(names)
+      if (trim(names(ivar)) == 'density') then
+        ramses_density_var = ivar
+        exit
+      end if
+    end do
+
+    if (index(names(2), 'velocity_x') > 0 .and. index(names(3), 'velocity_y') > 0 .and. &
+        index(names(4), 'velocity_z') > 0) then
+      ramses_velocity_layout = 'velocity'
+      ramses_velocity_var = [2, 3, 4]
+    else if (index(names(2), 'momentum_x') > 0 .and. index(names(3), 'momentum_y') > 0 .and. &
+             index(names(4), 'momentum_z') > 0) then
+      ramses_velocity_layout = 'momentum'
+      ramses_velocity_var = [2, 3, 4]
+    end if
+
+    do ivar = 1, size(names)
+      if (trim(names(ivar)) == 'thermal_pressure') then
+        ramses_thermo_mode = 'pressure'
+        ramses_thermo_var = ivar
+        return
+      end if
+    end do
+
+    do ivar = 1, size(names)
+      select case (trim(names(ivar)))
+      case ('pressure', 'gas_pressure', 'thermal_energy_density')
+        ramses_thermo_mode = 'pressure'
+        ramses_thermo_var = ivar
+        return
+      case ('total_energy', 'energy')
+        ramses_thermo_mode = 'energy'
+        ramses_thermo_var = ivar
+        return
+      end select
+    end do
+  end subroutine ramses_detect_layout
+
+  pure function str_lower(str) result(out)
+    character(len=*), intent(in) :: str
+    character(len=len(str)) :: out
+    integer :: i, code
+
+    out = str
+    do i = 1, len(str)
+      code = iachar(out(i:i))
+      if (code >= iachar('A') .and. code <= iachar('Z')) then
+        out(i:i) = achar(code + 32)
+      end if
+    end do
+  end function str_lower
 
   logical function filename_is_fits(filename)
     character(len=*), intent(in) :: filename

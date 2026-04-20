@@ -1,8 +1,20 @@
 ================================================================================
 LaRT_v2.00 AMR (Adaptive Mesh Refinement) Extension
 ================================================================================
-Date: 2026-04-19
+Date: 2026-04-20
 Author: Kwang-Il Seon
+
+Update note (2026-04-20):
+This revision adds RAMSES RMHD layout support to the binary AMR reader.
+If `output_NNNNN/hydro_file_descriptor.txt` is present, the reader now
+detects whether hydro variables 2--4 are stored as momentum densities or
+velocities, and whether the thermodynamic variable is total energy density or
+thermal pressure. The AMR header skip count was also corrected to match the
+IDL `rd_amr.pro` reader (`headf`, `ordering`, Hilbert keys, coarse `son`,
+`flag1`, `cpu_map` -> six records after `ngridlevel` / boundary arrays).
+In addition, a standalone Fortran converter,
+`convert_ramses_to_generic_fits.f90`, was added to export RAMSES snapshots to
+generic AMR FITS or FITS.GZ tables.
 
 Update note (2026-04-19):
 This revision adds diffuse-emissivity source support in AMR mode and refactors

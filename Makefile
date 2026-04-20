@@ -160,6 +160,13 @@ default: clean main
 main:$(OBJSB) $(MAIN).o
 	$(FC) $(MAIN).o $(OBJSB) $(LDFLAGS) -o $(exec)
 
+ramses2fits:
+	$(FC) -O3 -cpp -DMPI -c define.f90
+	$(FC) -O3 -cpp -DMPI -c fitsio_mod.f90
+	$(FC) -O3 -cpp -DMPI -c read_ramses_amr.f90
+	$(FC) -O3 -cpp -DMPI -c convert_ramses_to_generic_fits.f90
+	$(FC) -O3 -cpp -DMPI define.o fitsio_mod.o read_ramses_amr.o convert_ramses_to_generic_fits.o -lcfitsio -L/usr/local/lib -o convert_ramses_to_generic_fits.x
+
 clean:
 	/bin/rm -f *.o *.mod
 

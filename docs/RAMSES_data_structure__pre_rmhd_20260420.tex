@@ -31,7 +31,7 @@
 
 \title{RAMSES Data Structure and the LaRT Interface}
 \author{Kwang-Il Seon}
-\date{2026-04-20}
+\date{2026-04-18}
 \maketitle
 
 \tableofcontents
@@ -159,7 +159,7 @@ Record & Variable(s) & Description \\
 22 & \texttt{ngridlevel(:,:)} & Grid count array: \texttt{(ncpu, nlevelmax)} \\
 23 & (level sums)           & Skipped \\
 24--27 & (boundary grids)   & Only present if \texttt{nboundary > 0} (skipped) \\
-28--33 & (coarse-grid / ordering arrays)  & \texttt{headf}, \texttt{ordering}, Hilbert keys, coarse \texttt{son}, \texttt{flag1}, \texttt{cpu\_map}; skipped by LaRT \\
+28--32 & (ordering arrays)  & Peano--Hilbert keys, son maps, etc.\ (skipped) \\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -302,27 +302,6 @@ Index & Variable & Physical meaning \\
 \end{tabular}
 \end{center}
 
-\paragraph{RMHD / jellyfish variant.}
-Some RAMSES derivatives provide a plain-text
-\texttt{hydro\_file\_descriptor.txt} file inside \texttt{output\_NNNNN/}.  The
-\texttt{jellyfish/RMHD} outputs inspected for this work use:
-\begin{center}
-\begin{tabular}{cll}
-\toprule
-Index & Variable & Meaning \\
-\midrule
-1 & $\rho$ & Gas density \\
-2--4 & $v_x, v_y, v_z$ & \emph{velocity} (not momentum) \\
-5--10 & $B_\mathrm{left/right}$ & Magnetic field components \\
-11 & $P_\mathrm{nt}$ & Non-thermal pressure \\
-12 & $P_\mathrm{th}$ & Thermal pressure \\
-13$+$ & passive scalars & Tracers / chemistry fields \\
-\bottomrule
-\end{tabular}
-\end{center}
-In this case the velocity conversion omits the division by density and the
-temperature is reconstructed from thermal pressure rather than total energy.
-
 \paragraph{Level block structure.}
 For each level $l$ and domain $j$, the hydro file contains:
 \begin{enumerate}
@@ -370,7 +349,7 @@ neutral.
 
 \subsection{Velocity}
 
-For standard RAMSES, variables 2--4 store momentum density $\rho v_\alpha$.
+RAMSES stores momentum density $\rho v_\alpha$ (variable indices 2--4).
 The velocity in CGS is:
 \begin{equation}
   v_\alpha \;[\mathrm{cm\,s}^{-1}]
@@ -378,17 +357,12 @@ The velocity in CGS is:
     \times \texttt{unit\_v},
   \quad \texttt{unit\_v} = \frac{\texttt{unit\_l}}{\texttt{unit\_t}}.
 \end{equation}
-For the RMHD variant described above, variables 2--4 are already
-\emph{velocities} in code units, so LaRT instead uses
-\begin{equation}
-  v_\alpha = v_{\alpha,\mathrm{code}} \times \texttt{unit\_v}.
-\end{equation}
 LaRT receives velocities in km~s$^{-1}$ (divided by $10^5$).
 
 \subsection{Temperature}
 
-For standard RAMSES, variable 5 is the \emph{total energy density} $E$
-(kinetic plus thermal).  The thermal energy density is:
+RAMSES variable 5 is the \emph{total energy density} $E$ (kinetic plus
+thermal).  The thermal energy density is:
 \begin{equation}
   e_\mathrm{th} = E - \frac{1}{2}\rho\,v^2
   = E - \frac{(\rho v_x)^2 + (\rho v_y)^2 + (\rho v_z)^2}{2\rho}.
@@ -410,19 +384,6 @@ neutral gas):
 \end{equation}
 A floor of $T = 10\;\mathrm{K}$ is applied after conversion.
 
-For the RMHD / jellyfish variant, the reader uses the thermal pressure
-\texttt{P\_th} from \texttt{hydro\_file\_descriptor.txt} (variable 12 in the
-example outputs) and reconstructs the temperature directly from the ideal gas
-law:
-\begin{equation}
-  T = \frac{P_\mathrm{th}}{\rho}\frac{\bar\mu m_H}{k_B},
-\end{equation}
-where
-\begin{equation}
-  P_\mathrm{th}[\mathrm{erg\,cm}^{-3}]
-  = P_{\mathrm{th,code}}\times \texttt{unit\_d}\times \texttt{unit\_v}^2.
-\end{equation}
-
 %=============================================================================
 \section{The LaRT Reader: Step-by-Step}
 %=============================================================================
@@ -433,11 +394,6 @@ The reader in \texttt{read\_ramses\_amr.f90} proceeds as follows:
   \item \textbf{Read \texttt{info} file.}  Extract \texttt{ncpu},
         \texttt{unit\_l}, \texttt{unit\_d}, \texttt{unit\_t},
         \texttt{boxlen}, and $\gamma$.
-
-  \item \textbf{Detect hydro layout.}  If
-        \texttt{output\_NNNNN/hydro\_file\_descriptor.txt} exists, parse it to
-        determine whether variables 2--4 are velocities or momenta and whether
-        the thermodynamic variable is total energy or thermal pressure.
 
   \item \textbf{Count leaf cells (first pass).}
         \texttt{ramses\_count\_leaves} opens every
@@ -599,10 +555,10 @@ density, temperature, and velocity fields.
         single-precision hydro.
 
   \item \textbf{Non-standard variable ordering.}  If the RAMSES simulation
-        includes passive scalars before the thermodynamic variable, the
-        standard assumption ($E =$ var~5) may be wrong.  The current reader
-        first checks \texttt{hydro\_file\_descriptor.txt}; if that file is
-        absent, standard RAMSES ordering is assumed.
+        includes passive scalars before the energy variable (e.g., some
+        MHD setups), the variable index for energy ($E =$ var~5) may be
+        wrong.  Check the RAMSES namelist (\texttt{hydro.nml}) for the
+        actual ordering.
 
   \item \textbf{Memory.}  All leaf cells are broadcast to every MPI rank
         in LaRT.  For large RAMSES outputs ($\gtrsim 10^7$ leaf cells)

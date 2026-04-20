@@ -1,0 +1,19 @@
+&parameters
+ par%use_amr_grid  = .true.
+ par%amr_type      = 'generic'
+ par%amr_file      = 'rmhd_00091_generic.fits.gz'
+ par%distance_unit = 'kpc'
+ par%no_photons    = 1e+06
+ par%taumax        = 1.0e+04
+ par%DGR           = 0.0
+ par%spectral_type = 'voigt'
+ par%source_geometry = 'point'
+ par%xs_point      = 150.000000
+ par%ys_point      = 150.000000
+ par%zs_point      = 150.000000
+ par%nxfreq        = 121
+ par%nxim          = 128
+ par%nyim          = 128
+ par%nprint        = 100000
+ par%out_merge     = .false.
+/
