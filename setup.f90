@@ -533,9 +533,14 @@ contains
      raytrace_to_dist         => raytrace_to_dist_amr
      raytrace_to_dist_tau_gas => raytrace_to_dist_tau_gas_amr
      raytrace_to_dist_column  => raytrace_to_dist_column_amr
-     ! Scattering routines use amr_grid data
-     scatter_dust             => scatter_dust_nostokes_amr
-     scatter_resonance        => scatter_resonance_nostokes_amr
+     ! Scattering routines use amr_grid data (Stokes or nostokes)
+     if (par%use_stokes) then
+        scatter_dust      => scatter_dust_stokes_amr
+        scatter_resonance => scatter_resonance_stokes_amr
+     else
+        scatter_dust      => scatter_dust_nostokes_amr
+        scatter_resonance => scatter_resonance_nostokes_amr
+     end if
      ! do_resonance: AMR version matching line type
      select case(line%line_type)
      case (1);   do_resonance => do_resonance1_amr
@@ -558,9 +563,9 @@ contains
      ! Observer/peel-off: AMR-aware routines
      peeling_direct             => peeling_direct_amr
      peeling_dust_nostokes      => peeling_dust_nostokes_amr
-     peeling_dust_stokes        => peeling_dust_stokes_outside   ! Stokes not yet implemented for AMR
+     peeling_dust_stokes        => peeling_dust_stokes_amr
      peeling_resonance_nostokes => peeling_resonance_nostokes_amr
-     peeling_resonance_stokes   => peeling_resonance_stokes_outside
+     peeling_resonance_stokes   => peeling_resonance_stokes_amr
      observer_create            => observer_create_outside
      observer_destroy           => observer_destroy_outside
      make_sightline_tau         => make_sightline_tau_outside

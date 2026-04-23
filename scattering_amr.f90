@@ -1,14 +1,14 @@
 module scattering_amr_mod
   !-----------------------------------------------------------------------
-  ! AMR scattering routines.  These mirror the non-Stokes routines in
+  ! AMR scattering routines.  These mirror the routines in
   ! scattering_car_v2a.f90 but read physical quantities from amr_grid
   ! instead of the Cartesian grid arrays.
   !
   ! photon%icell_amr = current leaf index in amr_grid.
   !
   ! In AMR mode, the procedure pointers are reassigned to these routines:
-  !   scatter_dust      => scatter_dust_nostokes_amr
-  !   scatter_resonance => scatter_resonance_nostokes_amr
+  !   scatter_dust      => scatter_dust_nostokes_amr / scatter_dust_stokes_amr
+  !   scatter_resonance => scatter_resonance_nostokes_amr / scatter_resonance_stokes_amr
   !   do_resonance      => do_resonance1_amr  (or do_resonance2_amr etc.)
   !-----------------------------------------------------------------------
   use octree_mod
@@ -19,7 +19,9 @@ module scattering_amr_mod
   private
 
   public :: scatter_dust_nostokes_amr
+  public :: scatter_dust_stokes_amr
   public :: scatter_resonance_nostokes_amr
+  public :: scatter_resonance_stokes_amr
   public :: do_resonance1_amr
   public :: do_resonance2_amr
   public :: do_resonance4_amr
@@ -187,6 +189,195 @@ contains
       photon%kz = cost*kz1 - sint*cosp*kr
     end if
   end subroutine scatter_resonance_nostokes_amr
+
+  !=========================================================================
+  ! AMR dust scattering with Stokes polarization.
+  ! Mirrors scatter_dust_stokes in scattering_car.f90.
+  !=========================================================================
+  subroutine scatter_dust_stokes_amr(photon, grid)
+    use define
+    implicit none
+    type(photon_type), intent(inout) :: photon
+    type(grid_type),   intent(inout) :: grid
+
+    integer  :: il, ix
+    real(wp) :: uu1, xfreq_ref
+    real(wp) :: cost, sint, phi, phi1, cosp, sinp, cos2p, sin2p
+    real(wp) :: px, py, pz
+    real(wp) :: Prand, Pcomp, S12overS11
+    real(wp) :: S11, S12, S33, S34
+    real(wp) :: Q0, U0, I1, Q1, U1, V1
+
+    il = photon%icell_amr
+    photon%nscatt_dust = photon%nscatt_dust + photon%wgt
+
+    if (.not. par%use_reduced_wgt) then
+      if (rand_number() > par%albedo) then
+        if (par%save_Jabs .and. allocated(amr_grid%Jabs)) then
+          uu1       = amr_grid%vfx(il)*photon%kx + amr_grid%vfy(il)*photon%ky + amr_grid%vfz(il)*photon%kz
+          xfreq_ref = (photon%xfreq + uu1) * (amr_grid%Dfreq(il) / amr_grid%Dfreq_ref)
+          ix        = floor((xfreq_ref - amr_grid%xfreq_min) / amr_grid%dxfreq) + 1
+          if (ix >= 1 .and. ix <= amr_grid%nxfreq) then
+            !$OMP ATOMIC UPDATE
+            amr_grid%Jabs(ix) = amr_grid%Jabs(ix) + photon%wgt
+          end if
+        end if
+        photon%inside = .false.
+        return
+      end if
+    else
+      if (par%save_Jabs .and. allocated(amr_grid%Jabs)) then
+        uu1       = amr_grid%vfx(il)*photon%kx + amr_grid%vfy(il)*photon%ky + amr_grid%vfz(il)*photon%kz
+        xfreq_ref = (photon%xfreq + uu1) * (amr_grid%Dfreq(il) / amr_grid%Dfreq_ref)
+        ix        = floor((xfreq_ref - amr_grid%xfreq_min) / amr_grid%dxfreq) + 1
+        if (ix >= 1 .and. ix <= amr_grid%nxfreq) then
+          !$OMP ATOMIC UPDATE
+          amr_grid%Jabs(ix) = amr_grid%Jabs(ix) + photon%wgt * (1.0_wp - par%albedo)
+        end if
+      end if
+      photon%wgt = photon%wgt * par%albedo
+    end if
+
+    if (par%save_peeloff) call peeling_dust_stokes(photon, grid)
+
+    ! Sample new polar angle from scattering phase function via alias method
+    cost = rand_alias_linear(scatt_mat%phase_PDF, scatt_mat%alias, scatt_mat%coss, scatt_mat%S11)
+    sint = sqrt(1.0_wp - cost**2)
+
+    call interp_eq(scatt_mat%coss, scatt_mat%S11, cost, S11)
+    call interp_eq(scatt_mat%coss, scatt_mat%S12, cost, S12)
+    call interp_eq(scatt_mat%coss, scatt_mat%S33, cost, S33)
+    call interp_eq(scatt_mat%coss, scatt_mat%S34, cost, S34)
+    S12overS11 = S12 / S11
+
+    ! Sample azimuthal angle via rejection method (Stokes-weighted)
+    do while (.true.)
+      phi   = twopi * rand_number()
+      phi1  = 2.0_wp * phi
+      Prand = (1.0_wp + abs(S12overS11) * sqrt(photon%Q**2 + photon%U**2)) * rand_number()
+      Pcomp =  1.0_wp + S12overS11 * (photon%Q*cos(phi1) + photon%U*sin(phi1))
+      if (Prand <= Pcomp) exit
+    end do
+    cosp  = cos(phi);  sinp  = sin(phi)
+    cos2p = 2.0_wp*cosp*cosp - 1.0_wp
+    sin2p = 2.0_wp*cosp*sinp
+
+    ! Update Stokes parameters
+    Q0 =  cos2p*photon%Q + sin2p*photon%U
+    U0 = -sin2p*photon%Q + cos2p*photon%U
+    I1 =  S11 + S12*Q0
+    Q1 =  S12 + S11*Q0
+    U1 =  S33*U0 + S34*photon%V
+    V1 = -S34*U0 + S33*photon%V
+    photon%I = 1.0_wp
+    photon%Q = Q1 / I1
+    photon%U = U1 / I1
+    photon%V = V1 / I1
+
+    ! Update reference frame triad and propagation direction
+    px = cosp*photon%mx + sinp*photon%nx
+    py = cosp*photon%my + sinp*photon%ny
+    pz = cosp*photon%mz + sinp*photon%nz
+
+    photon%nx = cosp*photon%nx - sinp*photon%mx
+    photon%ny = cosp*photon%ny - sinp*photon%my
+    photon%nz = cosp*photon%nz - sinp*photon%mz
+
+    photon%mx = cost*px - sint*photon%kx
+    photon%my = cost*py - sint*photon%ky
+    photon%mz = cost*pz - sint*photon%kz
+
+    photon%kx = sint*px + cost*photon%kx
+    photon%ky = sint*py + cost*photon%ky
+    photon%kz = sint*pz + cost*photon%kz
+  end subroutine scatter_dust_stokes_amr
+
+  !=========================================================================
+  ! AMR resonance scattering with Stokes polarization.
+  ! Mirrors scatter_resonance_stokes in scattering_car.f90.
+  !=========================================================================
+  subroutine scatter_resonance_stokes_amr(photon, grid)
+    use define
+    implicit none
+    type(photon_type), intent(inout) :: photon
+    type(grid_type),   intent(inout) :: grid
+
+    integer  :: il
+    real(wp) :: uz, xfreq_atom, cost, sint, phi, phi1, phi2, cosp, sinp, cos2p, sin2p
+    real(wp) :: px, py, pz
+    real(wp) :: Prand, Pcomp, S12overS11
+    real(wp) :: S11, S12, S22, S33, S44
+    real(wp) :: Q0, U0, I1, Q1, U1, V1
+    real(wp) :: ux, uy, uxy, g_recoil
+
+    il = photon%icell_amr
+    photon%nscatt_gas = photon%nscatt_gas + photon%wgt
+
+    call do_resonance(photon, grid, uz, xfreq_atom, cost, sint, S11, S22, S12, S33, S44)
+    S12overS11 = S12 / S11
+
+    ! Sample azimuthal angle via rejection method (Stokes-weighted)
+    do while (.true.)
+      phi   = twopi * rand_number()
+      phi1  = 2.0_wp * phi
+      Prand = (1.0_wp + abs(S12overS11) * sqrt(photon%Q**2 + photon%U**2)) * rand_number()
+      Pcomp =  1.0_wp + S12overS11 * (photon%Q*cos(phi1) + photon%U*sin(phi1))
+      if (Prand <= Pcomp) exit
+    end do
+    cosp = cos(phi);  sinp = sin(phi)
+
+    ! Update photon frequency (core-skip or full thermal sampling)
+    if (par%core_skip .and. abs(photon%xfreq) < amr_grid%xcrit) then
+      phi2 = twopi * rand_number()
+      uxy  = sqrt(amr_grid%xcrit2 - log(rand_number()))
+      ux   = uxy * cos(phi2);  uy = uxy * sin(phi2)
+      photon%xfreq = xfreq_atom + uz*cost + (ux*cosp + uy*sinp)*sint
+    else
+      ux   = rand_gauss() * one_over_sqrt2
+      uy   = rand_gauss() * one_over_sqrt2
+      photon%xfreq = xfreq_atom + uz*cost + (ux*cosp + uy*sinp)*sint
+    end if
+
+    if (par%recoil) then
+      g_recoil     = line%g_recoil0 / amr_grid%Dfreq(il)
+      photon%xfreq = photon%xfreq - g_recoil * (1.0_wp - cost)
+    end if
+
+    ! Peeling-off before updating triad
+    if (par%save_peeloff) call peeling_resonance_stokes(photon, grid, xfreq_atom, [ux, uy, uz])
+
+    cos2p = 2.0_wp*cosp*cosp - 1.0_wp
+    sin2p = 2.0_wp*cosp*sinp
+
+    ! Update Stokes parameters
+    Q0 =  cos2p*photon%Q + sin2p*photon%U
+    U0 = -sin2p*photon%Q + cos2p*photon%U
+    I1 =  S11 + S12*Q0
+    Q1 =  S12 + S22*Q0
+    U1 =  S33*U0
+    V1 =  S44*photon%V
+    photon%I = 1.0_wp
+    photon%Q = Q1 / I1
+    photon%U = U1 / I1
+    photon%V = V1 / I1
+
+    ! Update reference frame triad and propagation direction
+    px = cosp*photon%mx + sinp*photon%nx
+    py = cosp*photon%my + sinp*photon%ny
+    pz = cosp*photon%mz + sinp*photon%nz
+
+    photon%nx = cosp*photon%nx - sinp*photon%mx
+    photon%ny = cosp*photon%ny - sinp*photon%my
+    photon%nz = cosp*photon%nz - sinp*photon%mz
+
+    photon%mx = cost*px - sint*photon%kx
+    photon%my = cost*py - sint*photon%ky
+    photon%mz = cost*pz - sint*photon%kz
+
+    photon%kx = sint*px + cost*photon%kx
+    photon%ky = sint*py + cost*photon%ky
+    photon%kz = sint*pz + cost*photon%kz
+  end subroutine scatter_resonance_stokes_amr
 
   !=========================================================================
   ! AMR do_resonance1: single-line resonance (Ly-alpha H I, FeII, etc.)

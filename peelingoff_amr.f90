@@ -21,7 +21,9 @@ module peelingoff_amr_mod
 
   public :: peeling_direct_amr
   public :: peeling_dust_nostokes_amr
+  public :: peeling_dust_stokes_amr
   public :: peeling_resonance_nostokes_amr
+  public :: peeling_resonance_stokes_amr
 
 contains
 
@@ -233,5 +235,249 @@ contains
     end if
   end do
   end subroutine peeling_resonance_nostokes_amr
+
+  !=========================================================================
+  subroutine peeling_dust_stokes_amr(photon, grid)
+  implicit none
+  type(photon_type), intent(in) :: photon
+  type(grid_type),   intent(in) :: grid
+  type(photon_type) :: pobs
+  real(wp) :: r2, r
+  real(wp) :: cost, sint, cosp, sinp, cos2p, sin2p, cosg, sing, cos2g, sin2g
+  real(wp) :: S11, S12, S33, S34
+  real(wp) :: Q0, U0
+  real(wp) :: Iobs, Qobs, Uobs, Vobs, Idet, Qdet, Udet, Vdet
+  real(wp) :: kx, ky, kz
+  real(wp) :: tau, wgt
+  real(wp) :: xfreq_ref, u1
+  integer  :: ix, iy, ixf, il, i
+
+  il = photon%icell_amr
+
+  do i = 1, par%nobs
+    pobs    = photon
+    pobs%kx = observer(i)%x - photon%x
+    pobs%ky = observer(i)%y - photon%y
+    pobs%kz = observer(i)%z - photon%z
+    r2      = pobs%kx**2 + pobs%ky**2 + pobs%kz**2
+    r       = sqrt(r2)
+    pobs%kx = pobs%kx / r
+    pobs%ky = pobs%ky / r
+    pobs%kz = pobs%kz / r
+
+    kx = observer(i)%rmatrix(1,1)*pobs%kx + observer(i)%rmatrix(1,2)*pobs%ky + observer(i)%rmatrix(1,3)*pobs%kz
+    ky = observer(i)%rmatrix(2,1)*pobs%kx + observer(i)%rmatrix(2,2)*pobs%ky + observer(i)%rmatrix(2,3)*pobs%kz
+    kz = observer(i)%rmatrix(3,1)*pobs%kx + observer(i)%rmatrix(3,2)*pobs%ky + observer(i)%rmatrix(3,3)*pobs%kz
+
+    ix = floor(atan2(-kx,kz)*rad2deg/observer(i)%dxim + observer(i)%nxim/2.0_wp) + 1
+    iy = floor(atan2(-ky,kz)*rad2deg/observer(i)%dyim + observer(i)%nyim/2.0_wp) + 1
+
+    u1        = amr_grid%vfx(il)*pobs%kx + amr_grid%vfy(il)*pobs%ky + amr_grid%vfz(il)*pobs%kz
+    xfreq_ref = photon%xfreq + u1
+    xfreq_ref = xfreq_ref * (amr_grid%Dfreq(il) / grid%Dfreq_ref)
+    ixf       = floor((xfreq_ref - grid%xfreq_min) / grid%dxfreq) + 1
+
+    if (ix >= 1 .and. ix <= observer(i)%nxim .and. iy >= 1 .and. iy <= observer(i)%nyim) then
+       cost = photon%kx*pobs%kx + photon%ky*pobs%ky + photon%kz*pobs%kz
+       sint = sqrt(1.0_wp - cost*cost)
+
+       if (sint == 0.0_wp) then
+          cosp  = 1.0_wp;  sinp  = 1.0_wp
+          cos2p = 1.0_wp;  sin2p = 1.0_wp
+       else
+          cosp  = (pobs%kx*photon%mx + pobs%ky*photon%my + pobs%kz*photon%mz) / sint
+          sinp  = (pobs%kx*photon%nx + pobs%ky*photon%ny + pobs%kz*photon%nz) / sint
+          cos2p = 2.0_wp*cosp*cosp - 1.0_wp
+          sin2p = 2.0_wp*cosp*sinp
+       end if
+
+       pobs%nx = -sinp*photon%mx + cosp*photon%nx
+       pobs%ny = -sinp*photon%my + cosp*photon%ny
+       pobs%nz = -sinp*photon%mz + cosp*photon%nz
+
+       call interp_eq(scatt_mat%coss, scatt_mat%S11, cost, S11)
+       call interp_eq(scatt_mat%coss, scatt_mat%S12, cost, S12)
+       call interp_eq(scatt_mat%coss, scatt_mat%S33, cost, S33)
+       call interp_eq(scatt_mat%coss, scatt_mat%S34, cost, S34)
+
+       Q0 =  cos2p*photon%Q + sin2p*photon%U
+       U0 = -sin2p*photon%Q + cos2p*photon%U
+
+       Iobs = ( S11*photon%I + S12*Q0      ) / twopi
+       Qobs = ( S12*photon%I + S11*Q0      ) / twopi
+       Uobs = ( S33*U0       + S34*photon%V) / twopi
+       Vobs = (-S34*U0       + S33*photon%V) / twopi
+
+       cosg  = -(observer(i)%rmatrix(1,1)*pobs%nx + observer(i)%rmatrix(1,2)*pobs%ny + observer(i)%rmatrix(1,3)*pobs%nz)
+       sing  =   observer(i)%rmatrix(2,1)*pobs%nx + observer(i)%rmatrix(2,2)*pobs%ny + observer(i)%rmatrix(2,3)*pobs%nz
+       cos2g = 2.0_wp*cosg*cosg - 1.0_wp
+       sin2g = 2.0_wp*cosg*sing
+
+       Idet =  Iobs
+       Qdet =  cos2g*Qobs + sin2g*Uobs
+       Udet = -sin2g*Qobs + cos2g*Uobs
+       Vdet =  Vobs
+
+       call raytrace_to_edge(pobs, grid, tau)
+       wgt = 1.0_wp / r2 * exp(-tau) * photon%wgt
+
+       if (par%save_peeloff_2D) then
+          !$OMP ATOMIC UPDATE
+          observer(i)%scatt_2D(ix,iy) = observer(i)%scatt_2D(ix,iy) + wgt * Idet
+          !$OMP ATOMIC UPDATE
+          observer(i)%I_2D(ix,iy)     = observer(i)%I_2D(ix,iy)     + wgt * Idet
+          !$OMP ATOMIC UPDATE
+          observer(i)%Q_2D(ix,iy)     = observer(i)%Q_2D(ix,iy)     + wgt * Qdet
+          !$OMP ATOMIC UPDATE
+          observer(i)%U_2D(ix,iy)     = observer(i)%U_2D(ix,iy)     + wgt * Udet
+          !$OMP ATOMIC UPDATE
+          observer(i)%V_2D(ix,iy)     = observer(i)%V_2D(ix,iy)     + wgt * Vdet
+       end if
+
+       if (par%save_peeloff_3D .and. ixf >= 1 .and. ixf <= grid%nxfreq) then
+          !$OMP ATOMIC UPDATE
+          observer(i)%scatt(ixf,ix,iy) = observer(i)%scatt(ixf,ix,iy) + wgt * Idet
+          if (par%save_dust_scattered) then
+             !$OMP ATOMIC UPDATE
+             observer(i)%scatt_dust(ixf,ix,iy) = observer(i)%scatt_dust(ixf,ix,iy) + wgt * Idet
+          end if
+          !$OMP ATOMIC UPDATE
+          observer(i)%I(ixf,ix,iy) = observer(i)%I(ixf,ix,iy) + wgt * Idet
+          !$OMP ATOMIC UPDATE
+          observer(i)%Q(ixf,ix,iy) = observer(i)%Q(ixf,ix,iy) + wgt * Qdet
+          !$OMP ATOMIC UPDATE
+          observer(i)%U(ixf,ix,iy) = observer(i)%U(ixf,ix,iy) + wgt * Udet
+          !$OMP ATOMIC UPDATE
+          observer(i)%V(ixf,ix,iy) = observer(i)%V(ixf,ix,iy) + wgt * Vdet
+       end if
+    end if
+  end do
+  end subroutine peeling_dust_stokes_amr
+
+  !=========================================================================
+  subroutine peeling_resonance_stokes_amr(photon, grid, xfreq_atom, vel_atom)
+  use random
+  implicit none
+  type(photon_type), intent(in) :: photon
+  type(grid_type),   intent(in) :: grid
+  real(wp),          intent(in) :: xfreq_atom
+  real(wp),          intent(in) :: vel_atom(3)
+  type(photon_type) :: pobs
+  real(wp) :: r2, r
+  real(wp) :: cost, cost2, sint, cosp, sinp, cos2p, sin2p, cosg, sing, cos2g, sin2g
+  real(wp) :: S11, S12, S22, S33, S44
+  real(wp) :: Q0, U0
+  real(wp) :: Iobs, Qobs, Uobs, Vobs, Idet, Qdet, Udet, Vdet
+  real(wp) :: kx, ky, kz
+  real(wp) :: tau, wgt
+  real(wp) :: xfreq, xfreq_ref, g_recoil, u1
+  integer  :: ix, iy, ixf, il, i
+
+  il = photon%icell_amr
+
+  do i = 1, par%nobs
+    pobs    = photon
+    pobs%kx = observer(i)%x - photon%x
+    pobs%ky = observer(i)%y - photon%y
+    pobs%kz = observer(i)%z - photon%z
+    r2      = pobs%kx**2 + pobs%ky**2 + pobs%kz**2
+    r       = sqrt(r2)
+    pobs%kx = pobs%kx / r
+    pobs%ky = pobs%ky / r
+    pobs%kz = pobs%kz / r
+
+    kx = observer(i)%rmatrix(1,1)*pobs%kx + observer(i)%rmatrix(1,2)*pobs%ky + observer(i)%rmatrix(1,3)*pobs%kz
+    ky = observer(i)%rmatrix(2,1)*pobs%kx + observer(i)%rmatrix(2,2)*pobs%ky + observer(i)%rmatrix(2,3)*pobs%kz
+    kz = observer(i)%rmatrix(3,1)*pobs%kx + observer(i)%rmatrix(3,2)*pobs%ky + observer(i)%rmatrix(3,3)*pobs%kz
+
+    ix = floor(atan2(-kx,kz)*rad2deg/observer(i)%dxim + observer(i)%nxim/2.0_wp) + 1
+    iy = floor(atan2(-ky,kz)*rad2deg/observer(i)%dyim + observer(i)%nyim/2.0_wp) + 1
+
+    if (ix >= 1 .and. ix <= observer(i)%nxim .and. iy >= 1 .and. iy <= observer(i)%nyim) then
+       cost  = photon%kx*pobs%kx + photon%ky*pobs%ky + photon%kz*pobs%kz
+       cost2 = cost**2
+       sint  = sqrt(1.0_wp - cost2)
+
+       if (sint == 0.0_wp) then
+          cosp  = 1.0_wp;  sinp  = 1.0_wp
+          cos2p = 1.0_wp;  sin2p = 1.0_wp
+       else
+          cosp  = (pobs%kx*photon%mx + pobs%ky*photon%my + pobs%kz*photon%mz) / sint
+          sinp  = (pobs%kx*photon%nx + pobs%ky*photon%ny + pobs%kz*photon%nz) / sint
+          cos2p = 2.0_wp*cosp*cosp - 1.0_wp
+          sin2p = 2.0_wp*cosp*sinp
+       end if
+
+       pobs%nx = -sinp*photon%mx + cosp*photon%nx
+       pobs%ny = -sinp*photon%my + cosp*photon%ny
+       pobs%nz = -sinp*photon%mz + cosp*photon%nz
+
+       S22 = three_over_four * photon%E1 * (cost2 + 1.0_wp)
+       S11 = S22 + photon%E2
+       S12 = three_over_four * photon%E1 * (cost2 - 1.0_wp)
+       S33 = three_over_two  * photon%E1 * cost
+       S44 = three_over_two  * photon%E3 * cost
+
+       xfreq = xfreq_atom + (vel_atom(1)*cosp + vel_atom(2)*sinp)*sint + vel_atom(3)*cost
+       if (par%recoil) then
+          g_recoil = line%g_recoil0 / amr_grid%Dfreq(il)
+          xfreq    = xfreq - g_recoil * (1.0_wp - cost)
+       end if
+
+       u1        = amr_grid%vfx(il)*pobs%kx + amr_grid%vfy(il)*pobs%ky + amr_grid%vfz(il)*pobs%kz
+       xfreq_ref = xfreq + u1
+       xfreq_ref = xfreq_ref * (amr_grid%Dfreq(il) / grid%Dfreq_ref)
+       ixf       = floor((xfreq_ref - grid%xfreq_min) / grid%dxfreq) + 1
+
+       Q0 =  cos2p*photon%Q + sin2p*photon%U
+       U0 = -sin2p*photon%Q + cos2p*photon%U
+
+       Iobs = (S11 + S12*Q0) / fourpi
+       Qobs = (S12 + S22*Q0) / fourpi
+       Uobs = (S33*U0      ) / fourpi
+       Vobs = (S44*photon%V) / fourpi
+
+       cosg  = -(observer(i)%rmatrix(1,1)*pobs%nx + observer(i)%rmatrix(1,2)*pobs%ny + observer(i)%rmatrix(1,3)*pobs%nz)
+       sing  =   observer(i)%rmatrix(2,1)*pobs%nx + observer(i)%rmatrix(2,2)*pobs%ny + observer(i)%rmatrix(2,3)*pobs%nz
+       cos2g = 2.0_wp*cosg*cosg - 1.0_wp
+       sin2g = 2.0_wp*cosg*sing
+
+       Idet =  Iobs
+       Qdet =  cos2g*Qobs + sin2g*Uobs
+       Udet = -sin2g*Qobs + cos2g*Uobs
+       Vdet =  Vobs
+
+       pobs%xfreq = xfreq
+       call raytrace_to_edge(pobs, grid, tau)
+       wgt = 1.0_wp / r2 * exp(-tau) * photon%wgt
+
+       if (par%save_peeloff_2D) then
+          !$OMP ATOMIC UPDATE
+          observer(i)%scatt_2D(ix,iy) = observer(i)%scatt_2D(ix,iy) + wgt * Idet
+          !$OMP ATOMIC UPDATE
+          observer(i)%I_2D(ix,iy)     = observer(i)%I_2D(ix,iy)     + wgt * Idet
+          !$OMP ATOMIC UPDATE
+          observer(i)%Q_2D(ix,iy)     = observer(i)%Q_2D(ix,iy)     + wgt * Qdet
+          !$OMP ATOMIC UPDATE
+          observer(i)%U_2D(ix,iy)     = observer(i)%U_2D(ix,iy)     + wgt * Udet
+          !$OMP ATOMIC UPDATE
+          observer(i)%V_2D(ix,iy)     = observer(i)%V_2D(ix,iy)     + wgt * Vdet
+       end if
+
+       if (par%save_peeloff_3D .and. ixf >= 1 .and. ixf <= grid%nxfreq) then
+          !$OMP ATOMIC UPDATE
+          observer(i)%scatt(ixf,ix,iy) = observer(i)%scatt(ixf,ix,iy) + wgt * Idet
+          !$OMP ATOMIC UPDATE
+          observer(i)%I(ixf,ix,iy) = observer(i)%I(ixf,ix,iy) + wgt * Idet
+          !$OMP ATOMIC UPDATE
+          observer(i)%Q(ixf,ix,iy) = observer(i)%Q(ixf,ix,iy) + wgt * Qdet
+          !$OMP ATOMIC UPDATE
+          observer(i)%U(ixf,ix,iy) = observer(i)%U(ixf,ix,iy) + wgt * Udet
+          !$OMP ATOMIC UPDATE
+          observer(i)%V(ixf,ix,iy) = observer(i)%V(ixf,ix,iy) + wgt * Vdet
+       end if
+    end if
+  end do
+  end subroutine peeling_resonance_stokes_amr
 
 end module peelingoff_amr_mod

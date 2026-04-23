@@ -4,6 +4,46 @@ LaRT_v2.00 AMR (Adaptive Mesh Refinement) Extension
 Date: 2026-04-20
 Author: Kwang-Il Seon
 
+Update note (2026-04-23):
+This revision adds Stokes polarization support to AMR scattering and peel-off
+routines, bringing AMR mode to full parity with the Cartesian Stokes path.
+
+  scattering_amr.f90:
+    scatter_dust_stokes_amr(photon, grid)
+        Dust scattering with full Stokes vector update. Samples new polar angle
+        from the scattering phase function via rand_alias_linear (alias method),
+        selects azimuthal angle via a Stokes-weighted rejection method using
+        S12/S11. Updates I, Q, U, V and rotates the reference frame triad
+        (m, n, k) accordingly. Uses amr_grid%Jabs/Dfreq/vf* for cell data.
+
+    scatter_resonance_stokes_amr(photon, grid)
+        Resonance scattering with full Stokes vector update. Calls do_resonance
+        procedure pointer with optional S11,S22,S12,S33,S44 output. Selects
+        azimuthal angle by Stokes-weighted rejection. Supports core-skip
+        (amr_grid%xcrit/xcrit2) and recoil correction (amr_grid%Dfreq(il)).
+        Updates I, Q, U, V and triad vectors.
+
+  peelingoff_amr.f90:
+    peeling_dust_stokes_amr(photon, grid)
+        Dust peel-off with Stokes I/Q/U/V output. Computes scattering angles
+        (cost/sint) and azimuthal angle (cosp/sinp) toward the observer,
+        looks up the scattering matrix elements (S11/S12/S33/S34) via
+        interp_eq, applies the IAU frame rotation (cos2g/sin2g) to align
+        Stokes parameters with the detector plane, and accumulates I/Q/U/V
+        in both 2D and 3D observer arrays.
+
+    peeling_resonance_stokes_amr(photon, grid)
+        Resonance peel-off with Stokes I/Q/U/V output. Computes the resonance
+        scattering matrix (S11/S22/S12/S33/S44) from photon%E1/E2/E3 (set by
+        do_resonance). Applies Doppler frequency shift using amr_grid%Dfreq(il),
+        rotates Stokes to the detector frame, and accumulates I/Q/U/V.
+
+  setup.f90 (AMR block):
+    scatter_dust/resonance now dispatches to stokes_amr or nostokes_amr based
+    on par%use_stokes (previously always assigned nostokes_amr).
+    peeling_dust_stokes and peeling_resonance_stokes now point to the new
+    AMR-native routines instead of the Cartesian fallbacks.
+
 Update note (2026-04-20):
 This revision adds RAMSES RMHD layout support to the binary AMR reader.
 If `output_NNNNN/hydro_file_descriptor.txt` is present, the reader now
@@ -240,7 +280,7 @@ New Files
 4. scattering_amr.f90
    Module: scattering_amr_mod
 
-   AMR scattering routines (no Stokes polarisation) that read physical
+   AMR scattering routines (Stokes and no-Stokes) that read physical
    quantities from amr_grid instead of the Cartesian grid arrays.
    Mirrors scattering_car.f90 in structure.
 
@@ -250,7 +290,7 @@ New Files
        then calls scatter_dust or scatter_resonance via the procedure
        pointers (which have already been reassigned to the AMR variants).
 
-   scatter_dust_nostokes_amr(photon, grid)
+   scatter_dust_nostokes_amr(photon, grid)  [no Stokes]
        Dust scattering event:
          - Stochastic absorption test (or reduced-weight albedo weighting).
          - Records absorbed weight in amr_grid%Jabs(ix) if save_Jabs.
@@ -259,7 +299,10 @@ New Files
          - New direction sampled from Henyey-Greenstein phase function
            (isotropic if hgg = 0).
 
-   scatter_resonance_nostokes_amr(photon, grid)
+   scatter_dust_stokes_amr(photon, grid)  [Stokes, added 2026-04-23]
+       Dust scattering with full Stokes vector update. See Update note above.
+
+   scatter_resonance_nostokes_amr(photon, grid)  [no Stokes]
        Resonance (line) scattering event:
          - Calls do_resonance procedure pointer (reassigned to an AMR variant)
            to sample the scattering atom velocity uz and new direction
@@ -271,6 +314,9 @@ New Files
          - Core-skip acceleration using amr_grid%xcrit / xcrit2.
          - Recoil correction: xfreq -= g_recoil*(1-cost) if par%recoil.
          - Updates photon direction vector.
+
+   scatter_resonance_stokes_amr(photon, grid)  [Stokes, added 2026-04-23]
+       Resonance scattering with full Stokes vector update. See Update note above.
 
    do_resonance1_amr(photon, grid, uz, xfreq_atom, cost, sint [, Sij])
        Single-line resonance (Ly-alpha H I, Fe II, etc.).
@@ -368,17 +414,23 @@ New Files
    AMR peel-off observer calculation. Called by setup.f90 when
    par%use_amr_grid = .true. and par%save_peeloff = .true.
 
-   peeling_dust_nostokes_amr(photon, grid)
+   peeling_dust_nostokes_amr(photon, grid)  [no Stokes]
        Peel-off contribution for dust scattering: computes the Henyey-
        Greenstein phase function weight for the observer direction, then
        calls raytrace_to_edge_amr to compute the optical depth to the box
        boundary, and records the attenuated contribution in the observer map.
 
-   peeling_resonance_nostokes_amr(photon, grid)
+   peeling_dust_stokes_amr(photon, grid)  [Stokes, added 2026-04-23]
+       Peel-off with full Stokes I/Q/U/V output. See Update note above.
+
+   peeling_resonance_nostokes_amr(photon, grid)  [no Stokes]
        Peel-off contribution for resonance scattering: computes the
        resonance phase function weight for the observer direction, applies
        the Doppler frequency shift for the observer geometry, calls
        raytrace_to_edge_amr, and records in the observer map.
+
+   peeling_resonance_stokes_amr(photon, grid, xfreq_atom, vel_atom)  [Stokes, added 2026-04-23]
+       Peel-off with full Stokes I/Q/U/V output. See Update note above.
 
 --------------------------------------------------------------------------------
 Modified Existing Files
@@ -439,14 +491,24 @@ Modified Existing Files
           raytrace_to_dist         => raytrace_to_dist_amr
           raytrace_to_dist_tau_gas => raytrace_to_dist_tau_gas_amr
           raytrace_to_dist_column  => raytrace_to_dist_column_amr
-          scatter_dust             => scatter_dust_nostokes_amr
-          scatter_resonance        => scatter_resonance_nostokes_amr
+          if (par%use_stokes) then               ! updated 2026-04-23
+             scatter_dust      => scatter_dust_stokes_amr
+             scatter_resonance => scatter_resonance_stokes_amr
+          else
+             scatter_dust      => scatter_dust_nostokes_amr
+             scatter_resonance => scatter_resonance_nostokes_amr
+          end if
           select case(line%line_type)
           case (1);     do_resonance => do_resonance1_amr
           case (2);     do_resonance => do_resonance2_amr
           case (4);     do_resonance => do_resonance4_amr
           case default; do_resonance => do_resonance1_amr
           end select
+          peeling_dust_stokes        => peeling_dust_stokes_amr        ! updated 2026-04-23
+          peeling_dust_nostokes      => peeling_dust_nostokes_amr
+          peeling_resonance_stokes   => peeling_resonance_stokes_amr   ! updated 2026-04-23
+          peeling_resonance_nostokes => peeling_resonance_nostokes_amr
+          ...
           return
        end if
 
