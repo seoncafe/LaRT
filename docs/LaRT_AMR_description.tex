@@ -41,9 +41,9 @@ RAMSES.
 
 AMR mode is activated with \texttt{par\%use\_amr\_grid = .true.} in the input
 namelist. All photon-physics modules (scattering, raytrace, peel-off, output)
-are selected through Fortran procedure pointers set in \texttt{setup\_v2c.f90};
-the outer simulation loop (\texttt{run\_simulation\_mod\_v2a}) and photon
-injection (\texttt{gen\_photon\_car\_v2b}) are therefore unchanged.
+are selected through Fortran procedure pointers set in \texttt{setup.f90};
+the outer simulation loop (\texttt{run\_simulation\_mod}) and photon
+injection (\texttt{gen\_photon\_car}) are therefore unchanged.
 
 The new source files are:
 \begin{center}
