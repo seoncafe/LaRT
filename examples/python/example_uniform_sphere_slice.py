@@ -7,7 +7,8 @@ from make_amr_grid import AMRGrid
 def make_uniform_sphere_grid(level_fine=3):
     boxlen = 100.0
     cx0 = cy0 = cz0 = boxlen / 2.0
-    r_sphere = 40.0
+    r_sphere = boxlen/2.0
+    #r_sphere = 40.0
 
     grid = AMRGrid(boxlen)
 
@@ -63,7 +64,7 @@ ax.set_title("Uniform sphere slice (level_max=4)")
 plt.savefig("uniform_sphere_slice_l4.pdf", dpi=600)
 plt.close(fig)
 
-grid5 = make_uniform_sphere_grid(level_fine=5)
-#outfile = 'uniform_100kpc.dat'
+# ---- level 7  -----------------------------------------------------------
+grid = make_uniform_sphere_grid(level_fine=6)
 outfile = 'uniform_100kpc.fits.gz'
-grid5.write(outfile)
+grid.write(outfile)

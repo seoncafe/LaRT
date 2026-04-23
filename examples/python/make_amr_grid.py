@@ -811,35 +811,35 @@ class AMRGrid:
 
         return cls._build_from_rows(boxlen, data, origin=origin)
 
+    def _insert_cell(self, cx, cy, cz, target_level,
+                     gasDen=0.0, T=1e4, vx=0.0, vy=0.0, vz=0.0):
+        """Navigate from root to the leaf at (cx,cy,cz)/target_level, splitting as needed.
+
+        O(target_level) per call — avoids the O(tree_size) full traversal of refine().
+        Child index convention matches Cell.split(): iz*4 + iy*2 + ix.
+        """
+        cell = self.root
+        for _ in range(target_level):
+            if cell.is_leaf:
+                cell.split()
+            ix = 1 if cx >= cell.cx else 0
+            iy = 1 if cy >= cell.cy else 0
+            iz = 1 if cz >= cell.cz else 0
+            cell = cell.children[iz * 4 + iy * 2 + ix]
+        cell.gasDen = gasDen
+        cell.T  = T
+        cell.vx = vx
+        cell.vy = vy
+        cell.vz = vz
+
     @classmethod
     def _build_from_rows(cls, boxlen, data, origin=(0.0, 0.0, 0.0)):
         grid = cls(boxlen, origin=origin)
-
-        # Insert leaves by descending the tree to the correct level
         for row in data:
-            cx, cy, cz = row[0], row[1], row[2]
-            level = int(row[3])
-            # Refine until the cell at (cx,cy,cz) exists at `level`
-            grid.refine(
-                lambda c, _cx=cx, _cy=cy, _cz=cz, _lv=level:
-                    c.level < _lv and
-                    c.xmin <= _cx <= c.xmax and
-                    c.ymin <= _cy <= c.ymax and
-                    c.zmin <= _cz <= c.zmax,
-                level_max=level
+            grid._insert_cell(
+                float(row[0]), float(row[1]), float(row[2]), int(row[3]),
+                float(row[4]), float(row[5]), float(row[6]), float(row[7]), float(row[8]),
             )
-
-        # Now assign physical data
-        leaflist = grid.leaves()
-        for lf, row in zip(
-            sorted(leaflist, key=lambda c: (round(c.cx, 6), round(c.cy, 6), round(c.cz, 6))),
-            sorted(data, key=lambda r: (round(r[0], 6), round(r[1], 6), round(r[2], 6)))
-        ):
-            lf.gasDen = row[4]
-            lf.T = row[5]
-            lf.vx = row[6]
-            lf.vy = row[7]
-            lf.vz = row[8]
         return grid
 
     def write(self, filename):
@@ -905,6 +905,16 @@ class AMRGrid:
     # Visualisation helpers
     # ------------------------------------------------------------------ #
 
+    def _collect_slice_leaves(self, cell, na, value, result):
+        """Traverse the tree, pruning subtrees entirely outside the slice plane."""
+        if abs(getattr(cell, na) - value) > cell.h:
+            return
+        if cell.is_leaf:
+            result.append(cell)
+        else:
+            for child in cell.children:
+                self._collect_slice_leaves(child, na, value, result)
+
     def slice_plot(self, axis='z', value=None, quantity='gasDen',
                    ax=None, log=False, cmap='viridis',
                    show_leaf_boundaries=False,
@@ -916,10 +926,9 @@ class AMRGrid:
         """
         Quick 2-D slice plot of a physical quantity through the grid.
 
-        This implementation is optimized for large AMR grids.  Instead of
-        creating one ``Rectangle`` object per intersected leaf cell, it builds
-        a single ``PolyCollection`` from polygon vertices, which is much
-        faster when the slice contains many cells (e.g. ``level_max >= 6``).
+        Uses tree pruning (skips subtrees outside the slice plane entirely)
+        and numpy-vectorised polygon construction for speed at high refinement
+        levels (e.g. ``level_max >= 6``).
 
         Parameters
         ----------
@@ -978,33 +987,37 @@ class AMRGrid:
         ha, va, ca, da, na = ax_map[axis]
         quantity_key = 'gasDen' if quantity == 'nH' else quantity
 
-        polys = []
-        values = []
-        center_x, center_y = [], []
+        # Collect only leaves that intersect the slice plane (tree pruning).
+        # This visits O(N_slice * depth) nodes instead of all N_total leaves.
+        slice_leaves = []
+        self._collect_slice_leaves(self.root, na, value, slice_leaves)
 
-        for lf in self.leaves():
-            h = lf.h
-            c_normal = getattr(lf, na)
-            if abs(c_normal - value) > h:
-                continue
+        n = len(slice_leaves)
+        if n == 0:
+            return None
 
-            cx_ = getattr(lf, ca)
-            cy_ = getattr(lf, da)
-            xmin, xmax = cx_ - h, cx_ + h
-            ymin, ymax = cy_ - h, cy_ + h
-            polys.append([
-                (xmin, ymin),
-                (xmax, ymin),
-                (xmax, ymax),
-                (xmin, ymax),
-            ])
+        # Build numpy arrays in a single pass over the (small) slice leaf list.
+        h_arr  = np.empty(n, dtype=float)
+        cx_arr = np.empty(n, dtype=float)
+        cy_arr = np.empty(n, dtype=float)
+        v_arr  = np.empty(n, dtype=float)
+        for i, lf in enumerate(slice_leaves):
+            h_arr[i]  = lf.h
+            cx_arr[i] = getattr(lf, ca)
+            cy_arr[i] = getattr(lf, da)
+            v_arr[i]  = getattr(lf, quantity_key)
 
-            if show_leaf_centers:
-                center_x.append(cx_)
-                center_y.append(cy_)
+        xmin = cx_arr - h_arr;  xmax = cx_arr + h_arr
+        ymin = cy_arr - h_arr;  ymax = cy_arr + h_arr
 
-            v = getattr(lf, quantity_key)
-            values.append(np.log10(max(v, 1e-100)) if log else v)
+        # Build (N, 4, 2) polygon array without any Python-level list nesting.
+        polys = np.empty((n, 4, 2), dtype=float)
+        polys[:, 0, 0] = xmin;  polys[:, 0, 1] = ymin
+        polys[:, 1, 0] = xmax;  polys[:, 1, 1] = ymin
+        polys[:, 2, 0] = xmax;  polys[:, 2, 1] = ymax
+        polys[:, 3, 0] = xmin;  polys[:, 3, 1] = ymax
+
+        values = np.log10(np.maximum(v_arr, 1e-100)) if log else v_arr
 
         pc = PolyCollection(
             polys,
@@ -1013,10 +1026,10 @@ class AMRGrid:
             closed=True,
             **kwargs,
         )
-        pc.set_array(np.asarray(values, dtype=float))
+        pc.set_array(values)
         ax.add_collection(pc)
 
-        if show_leaf_boundaries and polys:
+        if show_leaf_boundaries:
             pc_boundary = PolyCollection(
                 polys,
                 facecolors='none',
@@ -1027,9 +1040,9 @@ class AMRGrid:
             )
             ax.add_collection(pc_boundary)
 
-        if show_leaf_centers and center_x:
+        if show_leaf_centers:
             ax.scatter(
-                center_x, center_y,
+                cx_arr, cy_arr,
                 c=center_color, marker=center_marker, s=center_size,
                 alpha=center_alpha
             )
