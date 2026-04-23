@@ -1378,6 +1378,13 @@ class AMRGrid:
             (e.g. ``'white'``, ``'black'``, ``'lightgray'``, ``'#eeeeee'``).
             Pass ``None`` to leave the axes background unchanged (inherits
             from the current matplotlib style).
+
+            Cells whose value is zero (linear scale) or non-positive (log
+            scale) are *excluded* from the filled PolyCollection entirely, so
+            empty regions (e.g. the vacuum outside a sphere) show the axis
+            background colour rather than the colourmap minimum colour.  Pass
+            ``background_color=None`` to disable this filtering and colour
+            every leaf cell (including zero-density cells) with the colourmap.
         show_leaf_boundaries : bool
             If True, overlay boundaries of the leaf cells that intersect
             the slice plane.
@@ -1445,6 +1452,34 @@ class AMRGrid:
             cx_arr[i] = getattr(lf, ca)
             cy_arr[i] = getattr(lf, da)
             v_arr[i]  = getattr(lf, quantity_key)
+
+        # Exclude cells that should show as background instead of colourmap.
+        # For log scale: non-positive values have no valid log → background.
+        # For linear scale with a background colour set: zero-value cells
+        # (e.g. vacuum outside a sphere) are left unpainted so the axis
+        # background colour shows through rather than being covered by the
+        # colourmap minimum (dark purple in 'viridis').
+        if log:
+            keep = v_arr > 0
+        elif background_color is not None:
+            keep = v_arr != 0.0
+        else:
+            keep = np.ones(n, dtype=bool)
+
+        if not np.all(keep):
+            h_arr  = h_arr[keep]
+            cx_arr = cx_arr[keep]
+            cy_arr = cy_arr[keep]
+            v_arr  = v_arr[keep]
+            n = len(v_arr)
+
+        if n == 0:
+            ax.set_xlim(self.origin[0], self.origin[0] + self.boxlen)
+            ax.set_ylim(self.origin[1], self.origin[1] + self.boxlen)
+            ax.set_aspect('equal')
+            ax.set_xlabel(ha)
+            ax.set_ylabel(va)
+            return None
 
         xmin = cx_arr - h_arr;  xmax = cx_arr + h_arr
         ymin = cy_arr - h_arr;  ymax = cy_arr + h_arr
