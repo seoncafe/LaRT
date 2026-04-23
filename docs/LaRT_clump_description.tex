@@ -1,0 +1,535 @@
+%% LaRT Clump Medium Technical Description
+%% Author: Kwang-Il Seon
+\documentclass[english,a4paper]{kiseon_memo}
+\synctex=1
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{amsmath}
+\usepackage{amssymb}
+
+\lstset{
+  basicstyle=\ttfamily\small,
+  keywordstyle=\color{blue}\bfseries,
+  commentstyle=\color{gray},
+  stringstyle=\color{olive},
+  frame=single,
+  breaklines=true,
+  numbers=left,
+  numberstyle=\tiny\color{gray},
+  language=[95]Fortran
+}
+
+\usepackage{babel}
+\begin{document}
+
+\title{Clumpy Medium Extension of LaRT: Algorithm Description}
+\author{Kwang-Il Seon}
+\date{2026-04-24}
+\maketitle
+
+\tableofcontents
+\bigskip
+
+%=============================================================================
+\section{Overview}
+%=============================================================================
+
+The clumpy medium mode adds a population of $N$ non-overlapping spherical
+clumps inside a spherical domain of radius $R$.  Each clump is a sphere of
+radius $r_c$ with uniform Lyman-$\alpha$ opacity; the inter-clump medium is
+vacuum.
+
+The mode is activated by
+\begin{lstlisting}
+par%use_clump_medium = .true.
+\end{lstlisting}
+in the input namelist.  All raytrace procedure pointers are redirected to
+clump-aware routines (\texttt{raytrace\_clump.f90}) while scatter and
+peel-off reuse the standard Cartesian routines from
+\texttt{scattering\_car.f90} and \texttt{peelingoff\_rect.f90}, since the
+uniform clump physical parameters ($T$, $v_\mathrm{bulk}$) are broadcast to
+the Cartesian grid arrays ($\texttt{grid\%Dfreq}$, $\texttt{grid\%voigt\_a}$).
+
+New source files introduced for this mode:
+\begin{center}
+\begin{tabular}{ll}
+\hline
+File & Role \\
+\hline
+\texttt{clump\_mod.f90}       & Clump population: init, RSA placement, CSR grid, raytrace helpers \\
+\texttt{raytrace\_clump.f90}  & Raytrace through the clump medium (DDA + sphere intersection) \\
+\texttt{grid\_mod\_clump.f90} & Grid setup: creates Cartesian shell grid, then calls \texttt{init\_clumps} \\
+\hline
+\end{tabular}
+\end{center}
+
+%=============================================================================
+\section{Physical Setup}
+%=============================================================================
+
+\subsection{Geometry}
+
+The outer domain is a sphere of radius $R = \texttt{par\%rmax}$ (code units).
+$N$ spherical clumps of radius $r_c = \texttt{par\%clump\_radius}$ are placed
+at random inside this sphere (non-overlapping).
+
+A Cartesian grid of $N_x \times N_y \times N_z$ cells is created with the
+same bounding box $[-R, R]^3$.  Grid arrays ($\texttt{rhokap}$, $\texttt{Dfreq}$,
+$\texttt{voigt\_a}$, $\texttt{vf}$) are set to uniform values:
+\begin{itemize}
+  \item $\texttt{rhokap} = 0$ everywhere (opacity lives only inside clumps);
+  \item $\texttt{Dfreq} = \Delta\nu_D^{cl}$ (clump Doppler frequency);
+  \item $\texttt{voigt\_a} = a_V^{cl}$ (clump Voigt parameter);
+  \item $\texttt{vfx} = \texttt{vfy} = \texttt{vfz} = 0$.
+\end{itemize}
+Peel-off and scattering routines read these uniform grid values, so no
+special-casing is needed inside those modules.
+
+\subsection{Clump Count}
+
+The user specifies one of three equivalent parameters; the code derives $N$
+from whichever is set:
+
+\paragraph{From $N_\mathrm{cov}$ (covering factor):}
+The mean number of clumps intercepted by a radial ray from the centre to the
+sphere surface is
+\begin{equation}
+  N_\mathrm{cov} = N\,\frac{\pi r_c^2}{\pi R^2}\cdot\frac{R}{\frac{4}{3}\pi R^3/(4\pi R^2)}
+  = \frac{3}{4}\,N\!\left(\frac{r_c}{R}\right)^2 ,
+\end{equation}
+hence
+\begin{equation}
+  N = \frac{4}{3}\,N_\mathrm{cov}\!\left(\frac{R}{r_c}\right)^2 .
+\end{equation}
+Input parameter: \texttt{par\%clump\_N\_cov}.
+
+\paragraph{From $f_\mathrm{vol}$ (volume filling factor):}
+\begin{equation}
+  f_\mathrm{vol} = N\left(\frac{r_c}{R}\right)^3 ,
+  \qquad N = f_\mathrm{vol}\!\left(\frac{R}{r_c}\right)^3 .
+\end{equation}
+Input parameter: \texttt{par\%clump\_f\_vol}.
+
+\paragraph{Direct specification:} \texttt{par\%clump\_N\_clumps}.
+
+\subsection{Clump Physical Parameters}
+
+The clump temperature $T_c$ defaults to $\texttt{par\%temperature}$ unless
+\texttt{par\%clump\_temperature} $> 0$.  Derived quantities:
+\begin{align}
+  v_\mathrm{th} &= v_{\mathrm{th},1}\sqrt{T_c},\quad
+                   v_{\mathrm{th},1} = \sqrt{2k_B/m_H}\approx 12.84\;\mathrm{km\,s^{-1}/\sqrt{10^4\,K}},\\
+  \Delta\nu_D^{cl} &= v_\mathrm{th} / (\lambda_0 \times \mathrm{km2um}),\\
+  a_V^{cl} &= \frac{A_{21}}{4\pi\,\Delta\nu_D^{cl}},
+\end{align}
+where $\lambda_0$ is the Lyman-$\alpha$ rest wavelength.
+
+The line-centre optical depth of a clump (centre to surface) is
+\texttt{par\%clump\_tau0}; from this the uniform opacity is
+\begin{equation}
+  \kappa_c = \frac{\tau_0}{\phi(0,a_V^{cl})\, r_c},
+\end{equation}
+where $\phi(x, a)$ is the Voigt profile at dimensionless frequency $x$.
+Alternatively, the hydrogen number density \texttt{par\%clump\_nH} may be
+given, in which case $\kappa_c = n_H\,\sigma_0\,d_\mathrm{cm}$ (requires
+\texttt{par\%distance\_unit}).
+
+\subsection{Clump Velocities}
+
+Each clump's velocity is the sum of two independent components:
+\begin{equation}
+  \mathbf{v}_i = \mathbf{v}_\mathrm{sys}(\mathbf{r}_i) + \mathbf{v}_\mathrm{rand,i},
+\end{equation}
+where $\mathbf{v}_\mathrm{sys}$ is a position-dependent systematic flow
+(set by \texttt{par\%velocity\_type}) and $\mathbf{v}_\mathrm{rand}$ is an
+independent Gaussian random component (set by \texttt{par\%clump\_sigma\_v}).
+Either component can be zero.
+
+\paragraph{Random component:}
+If \texttt{par\%clump\_sigma\_v} $> 0$, each clump is assigned
+$\mathbf{v}_{\mathrm{rand},i} \sim \mathcal{N}(0,\sigma_v^2)$ per component
+(drawn in \texttt{generate\_clumps}).
+
+\paragraph{Systematic component (\texttt{par\%velocity\_type}):}
+After RSA placement, \texttt{assign\_clump\_velocities\_from\_type} evaluates
+the flow velocity at each clump centre and \emph{adds} it to the existing
+(possibly non-zero) velocity.  Supported types:
+
+\begin{center}
+\begin{tabular}{lll}
+\hline
+\texttt{velocity\_type} & Formula & Parameters \\
+\hline
+\texttt{'hubble'} & $\mathbf{v} = V_\mathrm{exp}\,\mathbf{r}/R$ & \texttt{Vexp} \\
+\texttt{'constant\_radial'} & $\mathbf{v} = V_\mathrm{exp}\,\hat{\mathbf{r}}$ & \texttt{Vexp} \\
+\texttt{'parallel\_velocity'} & $\mathbf{v} = (V_x, V_y, V_z)$ & \texttt{Vx, Vy, Vz} \\
+\texttt{'ssh'} & see below & \texttt{Vpeak, rpeak, DeltaV} \\
+\texttt{'rotating\_solid\_body'} & $\mathbf{v} = V_\mathrm{rot}(-y,x,0)/R$ & \texttt{Vrot} \\
+\texttt{'rotating\_galaxy\_halo'} & flat rotation about $z$ & \texttt{Vrot, rinner} \\
+\hline
+\end{tabular}
+\end{center}
+
+All velocity magnitudes are in km/s.  The \texttt{'ssh'} model (Song, Seon \&
+Hwang 2020) gives a linear rise inside $r_\mathrm{peak}$ and a Hubble-like
+outer flow:
+\begin{equation}
+  v(r) = \begin{cases}
+    V_\mathrm{peak}\,r / r_\mathrm{peak} & r < r_\mathrm{peak}, \\
+    V_\mathrm{peak} + \Delta V\,(r - r_\mathrm{peak})/(R - r_\mathrm{peak}) & r \ge r_\mathrm{peak}.
+  \end{cases}
+\end{equation}
+The \texttt{'rotating\_galaxy\_halo'} model uses the cylindrical radius
+$\rho = \sqrt{x^2+y^2}$ and gives solid-body rotation inside $r_\mathrm{inner}$
+and a flat curve ($v_\phi = V_\mathrm{rot}$) outside.
+
+%=============================================================================
+\section{Clump Placement: Random Sequential Addition (RSA)}
+%=============================================================================
+
+\subsection{Algorithm}
+
+Clumps are placed one at a time.  Each candidate position is drawn uniformly
+inside the sphere (box-rejection sampling) and accepted only if it does not
+overlap any previously placed clump (centre separation $\ge 2r_c$).
+
+Overlap checking is accelerated by a linked-list hash grid of cell size
+$\ell_\mathrm{RSA} \approx 2R/N_g$ where $N_g = \min(512, \lfloor N^{1/3}
+\rfloor + 1)$.  Only the $3^3 = 27$ neighbouring cells of the candidate are
+checked, reducing the expected check count to $O(1)$ per attempt (for
+$f_\mathrm{vol} < 35\%$).
+
+\begin{lstlisting}
+do while (icl < N_clumps)
+   !--- draw uniform point inside sphere
+   do
+      xc = (2*rand - 1)*R; yc = ...; zc = ...
+      if (xc^2+yc^2+zc^2 <= R^2) exit
+   enddo
+   !--- check 27 neighbours for overlap (min_sep = 2*r_c)
+   overlap = .false.
+   outer: do kg2=...; do jg2=...; do ig2=...
+      jnb = head(cell)
+      do while (jnb > 0)
+         if (dist2(xc,yc,zc, cl_x(jnb),...) < (2*r_c)^2) then
+            overlap=.true.; exit outer
+         endif
+         jnb = nxt(jnb)
+      enddo
+   enddo; enddo; enddo outer
+   if (overlap) cycle
+   icl = icl+1
+   cl_x(icl)=xc; cl_y(icl)=yc; cl_z(icl)=zc
+   ! assign velocity if sigma_v > 0
+   ! insert into linked list
+enddo
+\end{lstlisting}
+
+\subsection{Acceptance Rate}
+
+For the test case ($N_\mathrm{cov}=5$, $r_c/R=0.01$, $N=66667$,
+$f_\mathrm{vol}=0.067$) the RSA acceptance rate is approximately 74\%.
+
+%=============================================================================
+\section{CSR Acceleration Grid}
+%=============================================================================
+
+After RSA placement, a compressed-sparse-row (CSR) grid is built to
+accelerate ray--clump intersection queries during radiative transfer.
+
+\subsection{Structure}
+
+A 3-D Cartesian grid of $M_x \times M_y \times M_z$ cells ($M = N_g$ from above)
+covers the domain $[-R-r_c, R+r_c]^3$.  Each clump is registered in every CSR
+cell whose bounding box overlaps the clump sphere.  The CSR layout uses two
+arrays:
+\begin{itemize}
+  \item \texttt{cg\_start(icell)} -- index into \texttt{cg\_list} of the first
+        entry for cell \texttt{icell};
+  \item \texttt{cg\_list(j)} -- clump index stored at position $j$.
+\end{itemize}
+
+\subsection{Construction (Two-Pass)}
+
+Pass 1: count registrations per cell $\to$ prefix-sum to fill
+\texttt{cg\_start}.\\
+Pass 2: fill \texttt{cg\_list}.
+
+A clump is registered in cell $(i,j,k)$ if the cell's AABB intersects the
+clump sphere, i.e.\ the cell range in each dimension is
+$[\lfloor(c_x-r_c-x_\mathrm{min})/\delta\rfloor,
+  \lfloor(c_x+r_c-x_\mathrm{min})/\delta\rfloor]$.
+
+Both \texttt{cg\_start} and \texttt{cg\_list} are allocated as MPI-3
+shared-memory windows (one copy per node).
+
+%=============================================================================
+\section{Raytrace Through the Clump Medium}
+%=============================================================================
+
+\subsection{Overview}
+
+Photon propagation is split into two phases:
+
+\begin{enumerate}
+  \item \textbf{Advance through vacuum} -- use the DDA traversal of the CSR
+        grid (\S\ref{sec:dda}) to find the next clump hit.
+  \item \textbf{Traverse through a clump} -- accumulate optical depth along
+        a straight path through the sphere (\S\ref{sec:clump_traverse}).
+\end{enumerate}
+
+Frequency shifts due to individual clump bulk velocities are applied at
+clump entry and reversed at clump exit.
+
+\subsection{Ray--Sphere Intersection}
+
+Given a ray $\mathbf{p}(t) = \mathbf{o} + t\hat{\mathbf{k}}$ and a sphere
+centred at $\mathbf{c}$ with squared radius $r_c^2$, define
+$\mathbf{r} = \mathbf{o} - \mathbf{c}$, $b = \mathbf{r}\cdot\hat{\mathbf{k}}$,
+$\Delta = b^2 - |\mathbf{r}|^2 + r_c^2$.  If $\Delta < 0$ there is no
+intersection.  Otherwise
+\begin{equation}
+  t_\mathrm{entry} = -b - \sqrt{\Delta},\qquad
+  t_\mathrm{exit}  = -b + \sqrt{\Delta}.
+\end{equation}
+A hit is recorded when $t_\mathrm{exit} > 0$.
+
+\subsection{DDA Search for Next Clump}
+\label{sec:dda}
+
+The Amanatides \& Woo (1987) digital differential analyser (DDA) traverses
+the CSR cells along the ray in order of increasing path length.  For each
+cell, all registered clumps are tested with the ray--sphere formula.  The
+traversal stops as soon as the current cell's entry distance exceeds the
+best hit distance found so far.
+
+\begin{lstlisting}
+best_te  = huge;  best_icl = 0
+d        = 0     ! path length to current cell entry
+
+do while (.true.)
+   if (d > best_te .or. d > t_max) exit
+   ! test all clumps in current cell
+   do ip = cg_start(icell), cg_start(icell+1)-1
+      icl = cg_list(ip)
+      if (icl == skip_icl) cycle
+      call ray_sphere_isect(..., te, tx2, hit)
+      if (hit .and. tx2>0 .and. te<best_te) then
+         best_te=te; best_tx2=tx2; best_icl=icl
+      endif
+   enddo
+   ! advance to next cell (Amanatides & Woo)
+   if (tx<=ty .and. tx<=tz) then
+      d=tx; ci=ci+si; tx=tx+delx
+   elseif (ty<=tz) then
+      d=ty; cj=cj+sj; ty=ty+dely
+   else
+      d=tz; ck=ck+sk; tz=tz+delz
+   endif
+enddo
+\end{lstlisting}
+
+\subsection{Optical Depth Traversal}
+\label{sec:clump_traverse}
+
+\texttt{raytrace\_to\_tau\_clump} advances the photon until optical depth
+$\tau_\mathrm{in}$ is accumulated or the outer sphere is exited.
+
+\paragraph{Inside a clump ($\texttt{icell\_clump} > 0$):}
+The remaining path through the current clump is
+$s = t_\mathrm{exit}(\mathbf{p}, \hat{\mathbf{k}}, \mathrm{icl})$.
+Opacity at the current frequency:
+$\kappa = \kappa_c\,\phi(x, a_V)$.
+If $\tau_\mathrm{rem} \le \kappa s$, scatter at $\mathrm{d}s = \tau_\mathrm{rem}/\kappa$.
+Otherwise subtract $\kappa s$ from $\tau_\mathrm{rem}$, advance to clump exit,
+shift frequency back to the global frame, and continue in vacuum.
+
+\paragraph{In vacuum ($\texttt{icell\_clump} = 0$):}
+Call \texttt{find\_next\_clump} (DDA, \S\ref{sec:dda}) to find the nearest
+clump.  If none is found along the ray, advance to the sphere boundary and
+exit ($\texttt{photon\%inside} = \texttt{.false.}$).
+
+\paragraph{Frequency convention:}
+The photon frequency $x$ (in units of $\Delta\nu_D^{cl}$) is maintained in
+the local clump rest frame while inside a clump, and in the global frame in
+vacuum:
+\begin{align}
+  \text{at clump entry:}\quad &x \leftarrow x - u_\mathrm{los}/v_\mathrm{th},\\
+  \text{at clump exit:}\quad  &x \leftarrow x + u_\mathrm{los}/v_\mathrm{th},
+\end{align}
+where $u_\mathrm{los} = (\mathbf{v}_i \cdot \hat{\mathbf{k}})$.
+
+\paragraph{Jout accumulation:}
+When the photon exits the outer sphere (\texttt{photon\%inside} becomes
+\texttt{.false.}), the photon weight is accumulated into the escape spectrum:
+\begin{equation}
+  J_\mathrm{out}[i_x] \mathrel{+}= w,\qquad
+  i_x = \left\lfloor \frac{x - x_\mathrm{min}}{\delta x}\right\rfloor + 1,
+\end{equation}
+where $x$ is the photon frequency (global frame, in units of $\Delta\nu_D$)
+and $w$ is the photon weight.  This mirrors the behaviour of
+\texttt{raytrace\_to\_tau\_car}, where Jout is accumulated upon grid exit.
+There are three exit paths (clump-then-sphere exit, already-outside-sphere,
+and no-clump-found), all handled identically.
+
+\subsection{Optical Depth to Edge}
+
+\texttt{raytrace\_to\_edge\_clump} computes $\tau$ from the current position
+to the sphere boundary without moving the photon (read-only input).  The same
+DDA logic is used; frequency shifts at clump entry/exit are tracked locally.
+This is called by peel-off routines and by the forced-first-scatter
+initialisation in \texttt{run\_simulation\_mod}.
+
+%=============================================================================
+\section{Peel-Off Observations}
+%=============================================================================
+
+Peel-off is handled by the standard \texttt{peelingoff\_rect} routines
+(\texttt{peeling\_direct\_outside}, \texttt{peeling\_resonance\_nostokes\_outside},
+etc.) with \texttt{raytrace\_to\_edge} pointing to
+\texttt{raytrace\_to\_edge\_clump}.
+
+The observer distance defaults to $d = 100\,R$ and the image pixel size is
+set so that the full sphere subtends the image:
+\begin{equation}
+  \delta\theta = \frac{1}{N_x/2}\arcsin\!\left(\frac{R}{d}\right)\;\mathrm{[rad]}
+  \approx \frac{R}{d\,(N_x/2)}\;\mathrm{[rad]}.
+\end{equation}
+For $R=1$, $d=100$, $N_x=129$: $\delta\theta \approx 0\fdg0089$, covering
+$\pm 1\fdg14$, which exactly spans the sphere.
+
+%=============================================================================
+\section{FITS Output of Clump Information}
+%=============================================================================
+
+When \texttt{par\%save\_clump\_info = .true.}, the subroutine
+\texttt{write\_clumps\_fits} (in \texttt{clump\_mod.f90}) writes a binary-table
+FITS file \texttt{<base>\_clumps.fits.gz} containing:
+
+\paragraph{BinTable columns:}
+\texttt{X}, \texttt{Y}, \texttt{Z} (clump centres, code units);
+\texttt{VX}, \texttt{VY}, \texttt{VZ} (bulk velocities, km/s).
+
+\paragraph{Header keywords (in the BinTable HDU):}
+\begin{center}
+\begin{tabular}{lll}
+\hline
+Keyword & Value & Description \\
+\hline
+\texttt{N\_CLUMPS} & $N$ & number of clumps (realised) \\
+\texttt{SPHERE\_R} & $R$ & outer sphere radius (code units) \\
+\texttt{CL\_RAD}   & $r_c$ & clump radius (code units) \\
+\texttt{F\_VOL}    & $f_\mathrm{vol}$ & volume filling factor (realised) \\
+\texttt{N\_COV}    & $N_\mathrm{cov}$ & covering factor (realised) \\
+\texttt{TAU0}      & $\tau_0$ & line-centre $\tau$ per clump \\
+\texttt{SIGMA\_V}  & $\sigma_v$ & bulk velocity dispersion (km/s) \\
+\texttt{TEMP\_CL}  & $T_c$ & clump temperature used (K) \\
+\texttt{RHOKAP}    & $\kappa_c$ & opacity per code unit \\
+\texttt{CL\_DFREQ} & $\Delta\nu_D^{cl}$ & Doppler frequency (Hz) \\
+\texttt{VTHERM}    & $v_\mathrm{th}$ & thermal velocity (km/s) \\
+\texttt{VOIGT\_A}  & $a_V$ & Voigt damping parameter \\
+\texttt{RMAX}      & $R$ & \texttt{par\%rmax} (input) \\
+\texttt{IN\_NCOV}  & \texttt{par\%clump\_N\_cov} & input covering factor \\
+\texttt{IN\_FVOL}  & \texttt{par\%clump\_f\_vol} & input filling factor \\
+\texttt{IN\_NCL}   & \texttt{par\%clump\_N\_clumps} & input $N$ \\
+\texttt{IN\_NH}    & \texttt{par\%clump\_nH} & input $n_H$ (cm$^{-3}$) \\
+\texttt{IN\_TEMP}  & \texttt{par\%clump\_temperature} & input $T_c$ (K) \\
+\hline
+\end{tabular}
+\end{center}
+
+Note: column data are written first (which creates the BinTable HDU);
+header keywords are then written into that same HDU.  FITS keyword names
+must not exceed 8 characters.
+
+%=============================================================================
+\section{Input Parameters Summary}
+%=============================================================================
+
+\begin{center}
+\begin{tabular}{lll}
+\hline
+Parameter & Default & Description \\
+\hline
+\texttt{par\%use\_clump\_medium} & \texttt{.false.} & enable clump mode \\
+\texttt{par\%rmax}              & ---  & outer sphere radius (code units) \\
+\texttt{par\%clump\_radius}     & ---  & clump radius $r_c$ (code units) \\
+\texttt{par\%clump\_N\_cov}     & 0    & covering factor (input) \\
+\texttt{par\%clump\_f\_vol}     & 0    & volume filling factor (input) \\
+\texttt{par\%clump\_N\_clumps}  & 0    & number of clumps (input, direct) \\
+\texttt{par\%clump\_tau0}       & 0    & line-centre $\tau$ per clump \\
+\texttt{par\%clump\_nH}         & 0    & clump $n_H$ (cm$^{-3}$; requires \texttt{distance\_unit}) \\
+\texttt{par\%clump\_temperature}& $-1$ & clump $T$ (K); $<0$ $\Rightarrow$ \texttt{par\%temperature} \\
+\texttt{par\%clump\_sigma\_v}   & 0    & random velocity $\sigma$ per component (km/s) \\
+\texttt{par\%velocity\_type}    & \texttt{''} & systematic flow type (see \S2.4) \\
+\texttt{par\%Vexp}              & 0    & expansion speed for \texttt{hubble}/\texttt{constant\_radial} (km/s) \\
+\texttt{par\%Vx, Vy, Vz}        & 0    & bulk velocity for \texttt{parallel\_velocity} (km/s) \\
+\texttt{par\%Vpeak}             & 0    & peak speed for \texttt{ssh} (km/s) \\
+\texttt{par\%rpeak}             & 0    & peak radius for \texttt{ssh} (code units) \\
+\texttt{par\%DeltaV}            & 0    & outer velocity increment for \texttt{ssh} (km/s) \\
+\texttt{par\%Vrot}              & 0    & rotation speed for rotating models (km/s) \\
+\texttt{par\%rinner}            & 0    & solid-body radius for \texttt{rotating\_galaxy\_halo} \\
+\texttt{par\%save\_clump\_info} & \texttt{.false.} & write clump FITS file \\
+\hline
+\end{tabular}
+\end{center}
+
+\paragraph{Example input:}
+\begin{lstlisting}
+&parameters
+ par%use_clump_medium = .true.
+ par%rmax             = 1.0
+ par%clump_radius     = 0.01
+ par%clump_N_cov      = 5.0
+ par%clump_tau0       = 1000.0
+ par%temperature      = 1.0e4
+ par%clump_sigma_v    = 0.0
+ par%no_photons       = 1e5
+ par%spectral_type    = 'voigt'
+ par%nxfreq           = 301
+ par%velocity_min     = -100.0
+ par%velocity_max     =  100.0
+ par%nx = 11, par%ny = 11, par%nz = 11
+ par%nxim = 129, par%nyim = 129
+ par%save_clump_info  = .true.
+ par%out_file         = 'clump_test.fits.gz'
+/
+\end{lstlisting}
+
+%=============================================================================
+\section{Memory Layout}
+%=============================================================================
+
+Clump positions, velocities, and CSR arrays are allocated as MPI-3
+shared-memory windows via \texttt{create\_shared\_mem} from
+\texttt{memory\_mod}, giving one copy per compute node rather than per MPI
+rank.  On systems with multiple ranks per node this significantly reduces
+memory usage for large clump populations.
+
+Cleanup is performed by \texttt{destroy\_clumps} which calls
+\texttt{destroy\_shared\_mem\_all} (collective \texttt{MPI\_WIN\_FREE} across
+all ranks) followed by explicit \texttt{nullify} of all pointers.  The
+individual \texttt{destroy\_mem} is not used because
+\texttt{MPI\_WIN\_SHARED\_QUERY} returns the rank-0 base address, which
+differs from the local pointer on non-root ranks.
+
+%=============================================================================
+\section{Validation}
+%=============================================================================
+
+The test case \texttt{examples/clump\_sphere/clump\_test.in} sets
+$R=1$, $r_c=0.01$, $N_\mathrm{cov}=5$, $\tau_0=1000$, $T=10^4\,\mathrm{K}$,
+$10^5$ photons, 10 MPI ranks.  Typical results:
+\begin{itemize}
+  \item Realised $N_\mathrm{cov} \approx 5.00$, $f_\mathrm{vol} \approx 0.067$;
+  \item RSA acceptance rate $\sim 74\%$, $N=66667$ clumps placed;
+  \item Mean scattering count $\approx 6400$ per photon;
+  \item Wall time $\approx 3.75$ min (10 ranks).
+\end{itemize}
+
+The escaped spectrum $J_\mathrm{out}(x)$ shows the characteristic double-peak
+expected for a clumpy Lyman-$\alpha$ source.  The observer peel-off
+(\texttt{\_obs.fits.gz}) contains both \texttt{Scattered} (HDU~0) and
+\texttt{Direct} (HDU~1) spectral image cubes of shape $(301, 129, 129)$.
+
+\end{document}

@@ -1,0 +1,198 @@
+================================================================================
+CLUMPY MEDIUM EXTENSION — CHANGE LOG
+LaRT_v2.00
+Author: Kwang-Il Seon
+================================================================================
+
+DATE: 2026-04-24
+--------------------------------------------------------------------------------
+
+OVERVIEW
+--------
+Added a clumpy medium radiative transfer mode (par%use_clump_medium = .true.).
+The medium consists of N non-overlapping spherical clumps of radius r_c placed
+uniformly at random inside a sphere of radius R.  Inter-clump space is vacuum.
+Clumps have uniform opacity, temperature, and bulk velocities that are the sum
+of (1) a position-dependent systematic flow (par%velocity_type) and (2) an
+independent Gaussian random component (par%clump_sigma_v).  Either may be zero.
+
+NEW FILES
+---------
+  clump_mod.f90
+    - Module clump_mod: all clump physics and data.
+    - init_clumps(R_sphere): derives N_clumps from input (N_cov / f_vol /
+      N_clumps direct), computes cl_Dfreq / cl_voigt_a / cl_rhokap, allocates
+      MPI-3 shared memory, runs RSA placement, builds CSR grid.
+    - generate_clumps(): RSA with linked-list hash grid (O(N) expected).
+      Assigns Gaussian random velocity per component if par%clump_sigma_v > 0.
+    - assign_clump_velocities_from_type(): adds systematic flow velocity
+      (from par%velocity_type) to each clump's existing velocity.
+      Called after generate_clumps() when par%velocity_type is non-empty.
+      Supported types: 'hubble', 'constant_radial', 'parallel_velocity',
+      'ssh', 'rotating_solid_body', 'rotating_galaxy_halo'.
+      Uses same parameter names (Vexp, Vpeak, rpeak, DeltaV, Vrot, rinner,
+      Vx/Vy/Vz) as the Cartesian grid velocity assignment in grid_mod_car.f90.
+    - build_clump_csr(): two-pass CSR construction in MPI shared memory.
+    - find_next_clump(): DDA (Amanatides & Woo 1987) through CSR grid;
+      returns nearest clump hit along the ray.
+    - ray_sphere_isect(): ray–sphere intersection test.
+    - clump_exit_dist(): distance to clump exit from interior point.
+    - sphere_exit_dist(): distance to outer sphere exit.
+    - destroy_clumps(): collective MPI_WIN_FREE + nullify.
+    - write_clumps_fits(fname): writes clump positions/velocities/parameters
+      to a FITS binary table (called when par%save_clump_info = .true.).
+    - Module-level scalars: N_clumps, sphere_R, cl_radius, cl_rhokap,
+      cl_voigt_a, cl_Dfreq, cl_vtherm, cl_temperature.
+    - Shared-memory arrays: cl_x/y/z, cl_vx/vy/vz (positions/velocities),
+      cg_start/cg_list (CSR acceleration grid).
+
+  raytrace_clump.f90
+    - Module raytrace_clump_mod: photon propagation through the clump medium.
+    - raytrace_to_tau_clump: advances photon until tau_in is reached or photon
+      exits outer sphere. Handles photon inside/outside clump states, frequency
+      shifts at clump entry/exit, and Jout accumulation upon sphere exit.
+    - raytrace_to_edge_clump: computes tau from current position to sphere
+      boundary without moving the photon (read-only, used by peel-off and
+      forced-first-scatter).
+    - raytrace_to_edge_tau_gas_clump, raytrace_to_edge_column_clump,
+      raytrace_to_dist_clump, raytrace_to_dist_tau_gas_clump,
+      raytrace_to_dist_column_clump: additional raytrace variants for column
+      density and sightline calculations.
+    - update_cell_idx: internal helper to update photon%icell/jcell/kcell
+      from photon position using floor() mapping.
+
+  grid_mod_clump.f90
+    - Module grid_mod_clump.
+    - grid_create_clump(grid): forces bounding box to [-rmax, rmax]^3,
+      calls grid_create(), then init_clumps(), sets grid%rhokap=0 /
+      Dfreq=cl_Dfreq / voigt_a=cl_voigt_a / vf=0.
+    - grid_destroy_clump(grid): calls grid_destroy() + destroy_clumps().
+
+MODIFIED FILES
+--------------
+  define.f90
+    - Added to params_type:
+        logical :: use_clump_medium  = .false.
+        real    :: clump_radius      = 0.0
+        real    :: clump_N_cov       = 0.0
+        real    :: clump_f_vol       = 0.0
+        real    :: clump_N_clumps    = 0.0
+        real    :: clump_tau0        = 0.0
+        real    :: clump_nH          = 0.0
+        real    :: clump_temperature = -1.0
+        real    :: clump_sigma_v     = 0.0
+        logical :: save_clump_info   = .false.
+    - photon_type: added icell_clump (integer) to track current clump index
+      (0 = vacuum, > 0 = inside clump icl).
+
+  setup.f90
+    - read_input: added namelist entries for all par%clump_* parameters and
+      par%save_clump_info.
+    - setup_procedure: when par%use_clump_medium = .true., redirects
+      raytrace_to_tau / raytrace_to_edge / raytrace_to_dist (all variants)
+      to the clump raytrace routines, and sets scatter_resonance /
+      scatter_dust / peeling_* to the standard Cartesian routines (since
+      grid arrays are uniformly initialised to clump values).
+
+  main.f90
+    - Added branch: if par%use_clump_medium, call grid_create_clump /
+      grid_destroy_clump instead of grid_create / grid_destroy.
+
+  Makefile
+    - Added clump_mod.o, raytrace_clump.o, grid_mod_clump.o to OBJSB.
+    - Added -ffree-line-length-none (allow source lines > 132 chars).
+    - Added -fallow-argument-mismatch (suppress GFortran 13 MPI type warnings).
+
+ALGORITHMS
+----------
+  Placement (RSA):
+    Random Sequential Addition with linked-list hash grid.
+    Grid size: M = min(512, floor(N^{1/3}) + 1) per dimension.
+    Each candidate is drawn uniformly inside the sphere; accepted if no
+    existing clump within 2*r_c.  27-neighbour cell search ensures O(1)
+    expected cost per attempt for f_vol < 35%.
+
+  Acceleration grid (CSR):
+    Two-pass construction (count then fill).
+    Cell size: (2*(R+r_c)) / M.
+    Each clump registered in all cells whose AABB overlaps the clump sphere.
+    Arrays in MPI-3 shared memory.
+
+  Raytrace (DDA):
+    Amanatides & Woo (1987) traversal of CSR grid.
+    For each cell, test all registered clumps with ray–sphere intersection.
+    Stop when cell entry distance > best hit distance (early termination).
+    Frequency shifts applied at clump entry (subtract v_los/v_th) and exit
+    (add v_los/v_th) to maintain correct rest-frame opacity.
+
+BUGS FIXED
+----------
+  2026-04-24  Jout accumulation missing in raytrace_to_tau_clump
+    - raytrace_to_tau_car accumulates grid%Jout(ix) += photon%wgt when the
+      photon exits the grid boundary.  The clump version lacked this.
+    - Result: Jout only received the direct (unscattered) contribution from
+      add_escaped_fraction_to_Jout in run_simulation_mod; scattered-then-
+      escaped photons were not counted.
+    - Fix: added Jout += photon%wgt at all three exit paths in
+      raytrace_to_tau_clump (clump-then-sphere exit, already-outside-sphere,
+      no-clump-found-skip-to-sphere).
+    - File: raytrace_clump.f90
+
+  2026-04-24  FITS keyword names > 8 characters in write_clumps_fits
+    - CFITSIO silently fails (non-zero status) on keyword names > 8 chars.
+      Once status becomes non-zero, all subsequent CFITSIO calls are skipped,
+      producing an unreadable FITS file.
+    - Offending names: CL_RHOKAP (9 chars) -> RHOKAP (6),
+                       CL_VTHERM (9 chars) -> VTHERM (6).
+    - File: clump_mod.f90
+
+  2026-04-24  Keywords written before BinTable HDU existed
+    - fits_put_keyword was called on the primary HDU before
+      fits_write_table_column had created the BinTable extension.
+    - Fix: write all table columns first (creating the BinTable HDU), then
+      write keywords into that same HDU.
+    - File: clump_mod.f90
+
+  2026-04-24  N_cov formula missing factor 3/4 in write_clumps_fits
+    - The correct formula is N_cov = (3/4) * N * (r_c/R)^2 (radial path from
+      center to surface).  The realised N_cov stored in the FITS header was
+      missing the 3/4 factor.
+    - Fix: N_cov_actual = 0.75 * real(ncl) * (cl_radius/sphere_R)**2.
+    - File: clump_mod.f90
+
+  2026-04-24  Unnecessary fourpi_over3 variable in write_clumps_fits
+    - f_vol = N * (4pi/3 * r_c^3) / (4pi/3 * R^3) = N * (r_c/R)^3.
+      Simplified to: f_vol_actual = real(ncl) * (cl_radius/sphere_R)**3.
+    - File: clump_mod.f90
+
+  2026-04-24  destroy_clumps used destroy_mem on non-root MPI ranks
+    - destroy_mem uses MPI_WIN_SHARED_QUERY with rank=0 to find the base
+      address, which differs from the local pointer on non-root ranks,
+      causing a segfault on exit.
+    - Fix: use destroy_shared_mem_all() (collective MPI_WIN_FREE) then
+      nullify all pointers manually.
+    - File: clump_mod.f90
+
+  2026-04-24  use memory_mod_mpi instead of use memory_mod
+    - The memory module is named memory_mod (not memory_mod_mpi).
+    - File: clump_mod.f90
+
+EXAMPLE
+-------
+  examples/clump_sphere/clump_test.in
+    - Test case: R=1, r_c=0.01, N_cov=5, tau0=1000, T=1e4 K, 1e5 photons.
+    - Output: clump_test.fits.gz (Jout spectrum + Jin cube),
+              clump_test_obs.fits.gz (Scattered + Direct peel-off cubes,
+              301 freq x 129 x 129 pixels),
+              clump_test_clumps.fits.gz (clump positions + header parameters).
+    - Typical: N=66667 clumps placed, <N_scatt> ~ 6400, ~3.75 min on 10 ranks.
+
+DOCUMENTATION
+-------------
+  docs/LaRT_clump_description.tex
+    - Full algorithm description: geometry, RSA, CSR, raytrace (DDA), peel-off,
+      FITS output, input parameter reference.
+
+================================================================================
+END
+================================================================================

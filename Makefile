@@ -70,7 +70,7 @@ else ifeq ($(FC), mpif90)
     #--- GNU compilers
     CC     = mpicc
     CFLAGS = -O3
-    FFLAGS = -O3 -ffpe-summary=none $(FLAGS) $(EXTRAFLAG)
+    FFLAGS = -O3 -ffpe-summary=none -ffree-line-length-none -fallow-argument-mismatch $(FLAGS) $(EXTRAFLAG)
     #FFLAGS = -Ofast -w $(FLAGS) $(EXTRAFLAG)
     #FFLAGS = -Ofast -w -ffpe-summary=none -fall-intrinsics $(FLAGS) $(EXTRAFLAG)
     #FFLAGS = -O3 -w -ffpe-summary=none -fall-intrinsics $(FLAGS) $(EXTRAFLAG)
@@ -152,6 +152,9 @@ OBJSB	= \
 	scattering_amr.o \
 	grid_mod_amr.o \
 	peelingoff_amr.o \
+	clump_mod.o \
+	raytrace_clump.o \
+	grid_mod_clump.o \
 	setup.o \
 
 default: clean main

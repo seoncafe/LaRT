@@ -5,6 +5,7 @@
   use setup_mod
   use grid_mod
   use grid_mod_amr
+  use grid_mod_clump
   use utility
 
   !--- Parameter
@@ -21,7 +22,9 @@
   !--- Initial set up
   call read_input()
   call setup_procedure()
-  if (par%use_amr_grid) then
+  if (par%use_clump_medium) then
+     call grid_create_clump(grid)
+  else if (par%use_amr_grid) then
      call grid_create_amr(grid)
      call amr_sync_to_grid(grid)
   else
@@ -53,7 +56,9 @@
      write(6,'(2a)')        ' >>> STOP  @ ', get_date_time()
   endif
 
-  if (par%use_amr_grid) then
+  if (par%use_clump_medium) then
+     call grid_destroy_clump(grid)
+  else if (par%use_amr_grid) then
      call grid_destroy_amr()
   else
      call grid_destroy(grid)

@@ -480,6 +480,7 @@ contains
   use line_mod
   use raytrace
   use scatter_mod
+  use raytrace_clump_mod
   use raytrace_amr_mod
   use scattering_amr_mod
   use peelingoff_amr_mod
@@ -523,6 +524,50 @@ contains
      calc_voigt      => calc_voigt1
      do_resonance    => do_resonance1
   end select
+
+  !--- Clump medium mode: override raytrace pointers; reuse Cartesian scatter routines
+  !    (the clump grid has uniform voigt_a = cl_voigt_a, Dfreq = cl_Dfreq,
+  !    vfx/vfy/vfz = 0, rhokap = 0; do_resonance reads these correctly)
+  if (par%use_clump_medium) then
+     raytrace_to_tau          => raytrace_to_tau_clump
+     raytrace_to_edge         => raytrace_to_edge_clump
+     raytrace_to_edge_tau_gas => raytrace_to_edge_tau_gas_clump
+     raytrace_to_edge_column  => raytrace_to_edge_column_clump
+     raytrace_to_dist         => raytrace_to_dist_clump
+     raytrace_to_dist_tau_gas => raytrace_to_dist_tau_gas_clump
+     raytrace_to_dist_column  => raytrace_to_dist_column_clump
+     !--- Scatter routines: reuse Cartesian nostokes/stokes variants;
+     !    the uniform grid arrays ensure do_resonance uses cl_voigt_a, cl_Dfreq.
+     if (par%use_stokes) then
+        scatter_dust      => scatter_dust_stokes
+        scatter_resonance => scatter_resonance_stokes
+     else
+        scatter_dust      => scatter_dust_nostokes
+        scatter_resonance => scatter_resonance_nostokes
+     end if
+     !--- Photon loop (same as Cartesian)
+     if (par%use_master_slave) then
+        run_simulation => run_master_slave
+     else
+        run_simulation => run_equal_number
+     end if
+     !--- Output (same as Cartesian)
+     output_reduce    => output_reduce_outside
+     output_normalize => output_normalize_outside
+     write_output     => write_output_outside
+     !--- Peel-off and observer (same as Cartesian; note: for save_peeloff_3D
+     !    with clump_sigma_v > 0, the peel-off frequency bin may be slightly off
+     !    because grid%vfx = 0 ignores clump bulk velocities)
+     peeling_direct             => peeling_direct_outside
+     peeling_dust_nostokes      => peeling_dust_nostokes_outside
+     peeling_dust_stokes        => peeling_dust_stokes_outside
+     peeling_resonance_nostokes => peeling_resonance_nostokes_outside
+     peeling_resonance_stokes   => peeling_resonance_stokes_outside
+     observer_create            => observer_create_outside
+     observer_destroy           => observer_destroy_outside
+     make_sightline_tau         => make_sightline_tau_outside
+     return
+  end if
 
   !--- AMR mode: override raytrace, scattering, and do_resonance pointers
   if (par%use_amr_grid) then

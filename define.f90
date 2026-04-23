@@ -86,7 +86,8 @@ public
      real(kind=wp) :: mx,my,mz
      real(kind=wp) :: nx,ny,nz
      integer       :: icell,jcell,kcell
-     integer       :: icell_amr = 0        ! AMR leaf cell index (AMR mode only)
+     integer       :: icell_amr   = 0       ! AMR leaf cell index (AMR mode only)
+     integer       :: icell_clump = 0       ! current clump index (0 = vacuum; clump mode only)
      real(kind=wp) :: xfreq
      real(kind=wp) :: xfreq_ref
      real(kind=wp) :: wgt
@@ -286,6 +287,17 @@ public
      character(len=128) :: source_geometry = 'point'
      !character(len=128) :: spectral_type   = 'monochromatic'
      character(len=128) :: spectral_type   = 'voigt'
+     !--- clump medium parameters
+     logical       :: use_clump_medium  = .false.
+     real(kind=wp) :: clump_radius      = -1.0_wp  ! clump radius [code units]
+     real(kind=wp) :: clump_N_clumps    = -1.0_wp  ! number of clumps (specify one of three)
+     real(kind=wp) :: clump_f_vol       = -1.0_wp  ! volume filling factor
+     real(kind=wp) :: clump_N_cov       = -1.0_wp  ! covering factor
+     real(kind=wp) :: clump_tau0        = -1.0_wp  ! line-center tau: clump center to surface
+     real(kind=wp) :: clump_nH          = -1.0_wp  ! clump HI density [cm^-3]
+     real(kind=wp) :: clump_temperature = -1.0_wp  ! clump temperature [K] (default: par%temperature)
+     real(kind=wp) :: clump_sigma_v     =  0.0_wp  ! Gaussian sigma of clump bulk velocity [km/s]
+     logical       :: save_clump_info   = .false.  ! save clump positions/velocities to FITS
      !--- AMR grid parameters
      logical            :: use_amr_grid    = .false.
      character(len=128) :: amr_type        = 'ramses'  ! 'ramses' or 'generic'
