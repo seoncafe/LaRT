@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 from make_amr_grid import AMRGrid
 
 
-def make_uniform_sphere_grid(level_fine=3):
+def make_uniform_sphere_grid(level_min=1, level_max=3, refine_boundary=False):
     boxlen = 100.0
     cx0 = cy0 = cz0 = boxlen / 2.0
     r_sphere = boxlen/2.0
@@ -21,17 +21,29 @@ def make_uniform_sphere_grid(level_fine=3):
     def vel_fn(x, y, z):
         return 0.0, 0.0, 0.0
 
-    # geometry-aware refinement
-    # - fully inside sphere  -> refine only if physics criterion is met
-    # - not fully inside     -> refine unconditionally to level_fine
+    # Geometry-aware refinement with forced boundary resolution.
+    #
+    # refine_boundary=True is required here because the density field is a
+    # hard step function (1 inside, 0 outside).  At high refinement levels
+    # (level_max >= 5) cells near the surface become small enough that all
+    # 8 probe points of a boundary cell can fall on the same side of the
+    # sphere, making the gradient criterion miss that cell.  Forcing every
+    # cell that geometrically intersects the surface guarantees a sharp,
+    # gap-free boundary in the slice plot.
+    #
+    # Use refine_boundary=False (the default) when the density field varies
+    # smoothly and the gradient criterion is sufficient to capture the region
+    # of interest without special treatment of the geometric boundary.
     grid.refine_sphere_by_physics(
         cx0, cy0, cz0, r_sphere,
         gasDen_fn=gasDen_fn,
         vel_fn=vel_fn,
         dens_threshold=0.1,
         vel_threshold=0.1,
-        level_max=level_fine,
+        level_min=level_min,
+        level_max=level_max,
         nprobe=2,
+        refine_boundary=refine_boundary,
     )
 
     grid.set_density(gasDen_fn)
@@ -42,7 +54,7 @@ def make_uniform_sphere_grid(level_fine=3):
 
 
 # ---- level 3 -----------------------------------------------------------
-grid3 = make_uniform_sphere_grid(level_fine=3)
+grid3 = make_uniform_sphere_grid(level_max=3)
 print("level=3:", grid3.level_counts())
 
 fig, ax = plt.subplots(figsize=(6.5, 6))
@@ -54,7 +66,7 @@ plt.close(fig)
 
 
 # ---- level 4 -----------------------------------------------------------
-grid4 = make_uniform_sphere_grid(level_fine=4)
+grid4 = make_uniform_sphere_grid(level_max=4)
 print("level=4:", grid4.level_counts())
 
 fig, ax = plt.subplots(figsize=(6.5, 6))
@@ -65,6 +77,6 @@ plt.savefig("uniform_sphere_slice_l4.pdf", dpi=600)
 plt.close(fig)
 
 # ---- level 7  -----------------------------------------------------------
-grid = make_uniform_sphere_grid(level_fine=7)
+grid = make_uniform_sphere_grid(level_max=6,level_min=3,refine_boundary=True)
 outfile = 'uniform_100kpc.fits.gz'
 grid.write(outfile)

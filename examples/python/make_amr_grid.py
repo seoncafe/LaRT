@@ -117,6 +117,80 @@ The following optimizations have been applied to handle large grids
    O(N_slice·depth).  Polygon vertices are then built as a single
    (N, 4, 2) numpy array instead of a Python list-of-lists, eliminating
    per-cell Python object creation before passing to PolyCollection.
+
+Geometry boundary refinement  (refine_boundary parameter)
+-----------------------------------------------------------
+The ``refine_sphere_adaptive``, ``refine_slab_adaptive``,
+``refine_box_adaptive`` methods and their ``_by_physics`` variants all
+accept a ``refine_boundary`` keyword argument (default ``False``).
+
+When ``refine_boundary=False`` (default):
+    Only the physics criterion (density and/or velocity gradient) drives
+    refinement.  No special treatment is applied to the geometric boundary
+    of the sphere/slab/box.  This is sufficient — and faster — when the
+    density field itself captures the boundary (e.g. density drops sharply
+    at the sphere edge so the gradient criterion naturally produces fine
+    cells there).
+
+    Internally this is equivalent to calling ``grid.refine(criterion,
+    level_max)`` directly; the geometry shape plays no role.
+
+When ``refine_boundary=True``:
+    In addition to the physics criterion, every leaf cell that intersects
+    the geometric surface is forced all the way to ``level_max``
+    regardless of the local gradient.  Use this when the boundary is not
+    captured by the density/velocity field alone (e.g. a sharp density
+    step that lies exactly between two coarse cells, or a smooth field
+    whose gradient falls below the threshold near the boundary).
+
+    This was the only available behaviour before the ``refine_boundary``
+    parameter was introduced.
+
+Example usage::
+
+    # Default: physics gradient only (recommended starting point)
+    grid.refine_sphere_by_physics(50, 50, 50, radius=40, gasDen_fn=dens,
+                                  level_max=7)
+
+    # Forced boundary resolution on top of the physics criterion
+    grid.refine_sphere_by_physics(50, 50, 50, radius=40, gasDen_fn=dens,
+                                  level_max=7, refine_boundary=True)
+
+Trade-off:
+    ``refine_boundary=True`` guarantees a sharp geometric surface but
+    typically generates ~20–40 % more leaf cells near the boundary,
+    increasing both memory usage and LaRT run time.  Prefer
+    ``refine_boundary=False`` unless you observe staircase artefacts at
+    the geometry surface in your output.
+
+Minimum refinement level  (level_min parameter)
+-------------------------------------------------
+All physics-based refinement methods (``refine_by_density``,
+``refine_by_velocity``, ``refine_by_physics``, ``refine_sphere_by_physics``,
+``refine_slab_by_physics``, ``refine_box_by_physics``) accept a
+``level_min`` keyword argument (default ``2``).
+
+Before applying the gradient criterion, the entire grid is uniformly split
+down to ``level_min`` by calling ``refine_uniform(level_min)``.  This
+guarantees a coarse baseline resolution everywhere in the box and prevents
+the criterion from being evaluated only on the very coarse root cell (where
+all probe points may happen to land on the same side of a feature, missing
+it entirely).
+
+    level_min=2  →  8² = 64 cells before the gradient scan starts
+    level_min=3  →  8³ = 512 cells before the gradient scan starts
+    level_min=0  →  no pre-refinement (original behaviour)
+
+Set ``level_min=0`` to restore the old behaviour and let the gradient
+criterion drive all splitting from the root.
+
+The ``refine_uniform(level)`` method is also exposed as a public API and
+can be called directly to establish any desired baseline resolution before
+applying a custom ``refine()`` criterion::
+
+    grid = AMRGrid(100.0)
+    grid.refine_uniform(2)                        # 64 equal cells
+    grid.refine(my_criterion, level_max=7)        # physics refinement on top
 """
 
 import numpy as np
@@ -314,6 +388,26 @@ class AMRGrid:
             level_max
         )
 
+    def refine_uniform(self, level):
+        """
+        Unconditionally split all leaf cells below ``level``.
+
+        Every leaf whose level is less than ``level`` is split, regardless
+        of any physics criterion.  After this call the grid has at least
+        ``8**level`` cells, each at level ≥ ``level``.
+
+        This is called automatically by the physics-based refinement methods
+        via their ``level_min`` parameter, but can also be invoked directly
+        to establish a coarse baseline before applying a custom criterion.
+
+        Parameters
+        ----------
+        level : int
+            Target minimum level.  ``level=0`` is a no-op.
+        """
+        if level > 0:
+            self.refine(lambda c: True, level)
+
     def refine_geometry(self, inside_fn, intersects_fn, level_max, criterion_inside=None):
         """
         Refine a geometry-aware region up to ``level_max``.
@@ -366,15 +460,34 @@ class AMRGrid:
                 )
 
     def refine_sphere_adaptive(self, cx, cy, cz, radius, level_max,
-                               criterion_inside=None):
+                               criterion_inside=None, refine_boundary=False):
         """
-        Geometry-aware refinement for a sphere.
+        Refinement for a sphere, with optional geometry-forced boundary cells.
 
-        Boundary cells (cells that intersect the sphere but are not fully
-        contained in it) are always refined until ``level_max``.  Cells
-        fully inside the sphere are refined only when ``criterion_inside``
-        evaluates to True.
+        Parameters
+        ----------
+        cx, cy, cz : float
+            Centre of the sphere.
+        radius : float
+            Sphere radius (same unit as boxlen).
+        level_max : int
+            Maximum refinement level.
+        criterion_inside : callable or None
+            Additional refinement criterion applied to cells fully inside the
+            sphere.  Ignored when ``refine_boundary=False``.
+        refine_boundary : bool, optional (default False)
+            If False (default), apply ``criterion_inside`` to all leaf cells
+            with no special treatment of the geometric boundary — equivalent
+            to calling ``refine(criterion_inside, level_max)``.
+            If True, force every cell that intersects the sphere surface all
+            the way to ``level_max`` regardless of the physics criterion, so
+            that the geometric boundary is sharply resolved.
         """
+        if not refine_boundary:
+            if criterion_inside is not None:
+                self.refine(criterion_inside, level_max)
+            return
+
         r2 = radius**2
 
         def inside(c):
@@ -393,14 +506,31 @@ class AMRGrid:
         self.refine_geometry(inside, intersects, level_max, criterion_inside)
 
     def refine_slab_adaptive(self, axis, lo, hi, level_max,
-                             criterion_inside=None):
+                             criterion_inside=None, refine_boundary=False):
         """
-        Geometry-aware refinement for a slab.
+        Refinement for a slab, with optional geometry-forced boundary cells.
 
-        The slab spans ``[lo, hi]`` along ``axis`` ('x', 'y', or 'z').
-        Boundary cells are always refined until ``level_max``; cells fully
-        inside the slab are refined only when ``criterion_inside`` is True.
+        Parameters
+        ----------
+        axis : {'x', 'y', 'z'}
+            Normal axis of the slab.
+        lo, hi : float
+            Slab extent along ``axis``.
+        level_max : int
+            Maximum refinement level.
+        criterion_inside : callable or None
+            Additional refinement criterion for cells fully inside the slab.
+        refine_boundary : bool, optional (default False)
+            If False (default), apply ``criterion_inside`` globally with no
+            forced boundary refinement.
+            If True, force every cell that overlaps the slab boundary to
+            ``level_max``.
         """
+        if not refine_boundary:
+            if criterion_inside is not None:
+                self.refine(criterion_inside, level_max)
+            return
+
         axis = axis.lower()
         min_attr = {'x': 'xmin', 'y': 'ymin', 'z': 'zmin'}[axis]
         max_attr = {'x': 'xmax', 'y': 'ymax', 'z': 'zmax'}[axis]
@@ -414,13 +544,29 @@ class AMRGrid:
         self.refine_geometry(inside, intersects, level_max, criterion_inside)
 
     def refine_box_adaptive(self, xlo, xhi, ylo, yhi, zlo, zhi, level_max,
-                            criterion_inside=None):
+                            criterion_inside=None, refine_boundary=False):
         """
-        Geometry-aware refinement for an axis-aligned rectangular box.
+        Refinement for a box, with optional geometry-forced boundary cells.
 
-        Boundary cells are always refined until ``level_max``; cells fully
-        inside the box are refined only when ``criterion_inside`` is True.
+        Parameters
+        ----------
+        xlo, xhi, ylo, yhi, zlo, zhi : float
+            Box extents.
+        level_max : int
+            Maximum refinement level.
+        criterion_inside : callable or None
+            Additional refinement criterion for cells fully inside the box.
+        refine_boundary : bool, optional (default False)
+            If False (default), apply ``criterion_inside`` globally with no
+            forced boundary refinement.
+            If True, force every cell that overlaps the box boundary to
+            ``level_max``.
         """
+        if not refine_boundary:
+            if criterion_inside is not None:
+                self.refine(criterion_inside, level_max)
+            return
+
         def inside(c):
             return (xlo <= c.xmin and c.xmax <= xhi and
                     ylo <= c.ymin and c.ymax <= yhi and
@@ -434,7 +580,7 @@ class AMRGrid:
         self.refine_geometry(inside, intersects, level_max, criterion_inside)
 
     def refine_by_density(self, gasDen_fn, threshold=0.1, level_max=6,
-                          nprobe=2, floor=1e-30):
+                          level_min=2, nprobe=2, floor=1e-30):
         """
         Refine cells where the density gradient exceeds ``threshold``.
 
@@ -458,18 +604,25 @@ class AMRGrid:
             Gradient threshold ∈ [0, 1).  0.1 means 10 % relative variation.
         level_max : int
             Maximum refinement level.
+        level_min : int, optional (default 2)
+            Minimum refinement level.  All cells are unconditionally split to
+            this level before the gradient criterion is applied.  This ensures
+            a coarse baseline resolution everywhere and prevents the criterion
+            from being evaluated only on the (very coarse) root cell.
+            Set to 0 to disable uniform pre-refinement.
         nprobe : int
             Sub-grid sampling density per axis (≥ 2).  Default 2 (corners).
         floor : float
             Density floor to avoid division by zero.
         """
+        self.refine_uniform(level_min)
         self.refine(
             self._make_dens_criterion(gasDen_fn, threshold, floor, nprobe),
             level_max
         )
 
     def refine_by_velocity(self, vel_fn, gasDen_fn=None, threshold=0.1,
-                           level_max=6, nprobe=2, floor=1e-30):
+                           level_max=6, level_min=2, nprobe=2, floor=1e-30):
         """
         Refine cells where the velocity magnitude gradient exceeds ``threshold``.
 
@@ -492,11 +645,16 @@ class AMRGrid:
             Gradient threshold ∈ [0, 1).  Default 0.1.
         level_max : int
             Maximum refinement level.
+        level_min : int, optional (default 2)
+            Minimum refinement level.  All cells are unconditionally split to
+            this level before the gradient criterion is applied.
+            Set to 0 to disable uniform pre-refinement.
         nprobe : int
             Sub-grid sampling density per axis.  Default 2 (corners).
         floor : float
             Velocity floor to avoid division by zero.
         """
+        self.refine_uniform(level_min)
         self.refine(
             self._make_vel_criterion(vel_fn, gasDen_fn, threshold, floor, nprobe),
             level_max
@@ -504,7 +662,7 @@ class AMRGrid:
 
     def refine_by_physics(self, gasDen_fn, vel_fn=None,
                           dens_threshold=0.1, vel_threshold=0.1,
-                          level_max=6, nprobe=2, floor=1e-30):
+                          level_max=6, level_min=2, nprobe=2, floor=1e-30):
         """
         Refine cells satisfying either the density or velocity gradient criterion.
 
@@ -527,11 +685,16 @@ class AMRGrid:
             ``vel_fn`` is None).
         level_max : int
             Maximum refinement level.
+        level_min : int, optional (default 2)
+            Minimum refinement level.  All cells are unconditionally split to
+            this level before the gradient criterion is applied.
+            Set to 0 to disable uniform pre-refinement.
         nprobe : int
             Sub-grid sampling density per axis.  Default 2.
         floor : float
             Floor for division.
         """
+        self.refine_uniform(level_min)
         criteria = []
         if dens_threshold is not None:
             criteria.append(self._make_dens_criterion(gasDen_fn, dens_threshold, floor, nprobe))
@@ -560,50 +723,130 @@ class AMRGrid:
 
     def refine_sphere_by_physics(self, cx, cy, cz, radius, gasDen_fn, vel_fn=None,
                                  dens_threshold=0.1, vel_threshold=0.1,
-                                 level_max=6, nprobe=2, floor=1e-30):
+                                 level_max=6, level_min=2, nprobe=2, floor=1e-30,
+                                 refine_boundary=False):
         """
-        Sphere refinement with boundary cells forced to ``level_max``.
+        Refine inside (or around) a sphere using physics-based gradient criteria.
 
-        A leaf cell fully inside the sphere is refined only when the density
-        and/or velocity gradient criterion is satisfied.  Any cell that
-        intersects the sphere but is not fully contained in it is refined all
-        the way to ``level_max`` so that the geometric boundary is resolved.
+        Parameters
+        ----------
+        cx, cy, cz : float
+            Centre of the sphere.
+        radius : float
+            Sphere radius (same unit as boxlen).
+        gasDen_fn : callable
+            ``gasDen_fn(x, y, z) -> gasDen [cm^-3]``.
+        vel_fn : callable or None
+            ``vel_fn(x, y, z) -> (vx, vy, vz) [km/s]``.
+        dens_threshold : float or None
+            Density gradient threshold.  Pass ``None`` to skip.
+        vel_threshold : float or None
+            Velocity gradient threshold.  Pass ``None`` to skip.
+        level_max : int
+            Maximum refinement level.
+        level_min : int, optional (default 2)
+            Minimum refinement level.  All cells are unconditionally split to
+            this level before the physics/geometry criterion is applied.
+            Set to 0 to disable uniform pre-refinement.
+        nprobe : int
+            Sub-grid sampling density per axis.  Default 2.
+        floor : float
+            Floor for gradient denominator.
+        refine_boundary : bool, optional (default False)
+            If False (default), refine using only the density/velocity
+            gradient criterion — no special treatment of the sphere surface.
+            This is sufficient when the density field itself captures the
+            boundary (e.g. density drops sharply at the sphere edge).
+            If True, additionally force every cell that intersects the sphere
+            surface to ``level_max``, ensuring sharp geometric resolution of
+            the boundary regardless of the local gradient.
         """
+        self.refine_uniform(level_min)
         criterion = self._make_physics_criterion(
             gasDen_fn, vel_fn, dens_threshold, vel_threshold, nprobe, floor
         )
-        self.refine_sphere_adaptive(cx, cy, cz, radius, level_max, criterion)
+        self.refine_sphere_adaptive(cx, cy, cz, radius, level_max, criterion,
+                                    refine_boundary=refine_boundary)
 
     def refine_slab_by_physics(self, axis, lo, hi, gasDen_fn, vel_fn=None,
                                dens_threshold=0.1, vel_threshold=0.1,
-                               level_max=6, nprobe=2, floor=1e-30):
+                               level_max=6, level_min=2, nprobe=2, floor=1e-30,
+                               refine_boundary=False):
         """
-        Slab refinement with boundary cells forced to ``level_max``.
+        Refine inside (or around) a slab using physics-based gradient criteria.
 
-        A leaf cell fully inside the slab is refined only when the density
-        and/or velocity gradient criterion is satisfied.  Any cell that
-        overlaps the slab boundary is refined all the way to ``level_max``.
+        Parameters
+        ----------
+        axis : {'x', 'y', 'z'}
+            Normal axis of the slab.
+        lo, hi : float
+            Slab extent along ``axis``.
+        gasDen_fn : callable
+            ``gasDen_fn(x, y, z) -> gasDen [cm^-3]``.
+        vel_fn : callable or None
+            ``vel_fn(x, y, z) -> (vx, vy, vz) [km/s]``.
+        dens_threshold, vel_threshold : float or None
+            Gradient thresholds.
+        level_max : int
+            Maximum refinement level.
+        level_min : int, optional (default 2)
+            Minimum refinement level.  All cells are unconditionally split to
+            this level before the physics/geometry criterion is applied.
+            Set to 0 to disable uniform pre-refinement.
+        nprobe : int
+            Sub-grid sampling density per axis.  Default 2.
+        floor : float
+            Floor for gradient denominator.
+        refine_boundary : bool, optional (default False)
+            If False (default), use only the physics criterion.
+            If True, also force cells that overlap the slab boundary to
+            ``level_max``.
         """
+        self.refine_uniform(level_min)
         criterion = self._make_physics_criterion(
             gasDen_fn, vel_fn, dens_threshold, vel_threshold, nprobe, floor
         )
-        self.refine_slab_adaptive(axis, lo, hi, level_max, criterion)
+        self.refine_slab_adaptive(axis, lo, hi, level_max, criterion,
+                                  refine_boundary=refine_boundary)
 
     def refine_box_by_physics(self, xlo, xhi, ylo, yhi, zlo, zhi, gasDen_fn,
                               vel_fn=None, dens_threshold=0.1,
-                              vel_threshold=0.1, level_max=6, nprobe=2,
-                              floor=1e-30):
+                              vel_threshold=0.1, level_max=6, level_min=2,
+                              nprobe=2, floor=1e-30, refine_boundary=False):
         """
-        Box refinement with boundary cells forced to ``level_max``.
+        Refine inside (or around) a box using physics-based gradient criteria.
 
-        A leaf cell fully inside the box is refined only when the density
-        and/or velocity gradient criterion is satisfied.  Any cell that
-        overlaps the box boundary is refined all the way to ``level_max``.
+        Parameters
+        ----------
+        xlo, xhi, ylo, yhi, zlo, zhi : float
+            Box extents.
+        gasDen_fn : callable
+            ``gasDen_fn(x, y, z) -> gasDen [cm^-3]``.
+        vel_fn : callable or None
+            ``vel_fn(x, y, z) -> (vx, vy, vz) [km/s]``.
+        dens_threshold, vel_threshold : float or None
+            Gradient thresholds.
+        level_max : int
+            Maximum refinement level.
+        level_min : int, optional (default 2)
+            Minimum refinement level.  All cells are unconditionally split to
+            this level before the physics/geometry criterion is applied.
+            Set to 0 to disable uniform pre-refinement.
+        nprobe : int
+            Sub-grid sampling density per axis.  Default 2.
+        floor : float
+            Floor for gradient denominator.
+        refine_boundary : bool, optional (default False)
+            If False (default), use only the physics criterion.
+            If True, also force cells that overlap the box boundary to
+            ``level_max``.
         """
+        self.refine_uniform(level_min)
         criterion = self._make_physics_criterion(
             gasDen_fn, vel_fn, dens_threshold, vel_threshold, nprobe, floor
         )
-        self.refine_box_adaptive(xlo, xhi, ylo, yhi, zlo, zhi, level_max, criterion)
+        self.refine_box_adaptive(xlo, xhi, ylo, yhi, zlo, zhi, level_max,
+                                 criterion, refine_boundary=refine_boundary)
 
     # ------------------------------------------------------------------ #
     # Private gradient criterion builders
@@ -1103,6 +1346,7 @@ class AMRGrid:
 
     def slice_plot(self, axis='z', value=None, quantity='gasDen',
                    ax=None, log=False, cmap='viridis',
+                   background_color='white',
                    show_leaf_boundaries=False,
                    boundary_color='k', boundary_lw=0.3,
                    boundary_alpha=0.7,
@@ -1128,6 +1372,12 @@ class AMRGrid:
         log : bool
             Plot log10 of the quantity if True.
         cmap : str
+        background_color : str or None, optional (default 'white')
+            Colour of the axes background — the region outside (or between)
+            the cell polygons.  Any matplotlib colour string is accepted
+            (e.g. ``'white'``, ``'black'``, ``'lightgray'``, ``'#eeeeee'``).
+            Pass ``None`` to leave the axes background unchanged (inherits
+            from the current matplotlib style).
         show_leaf_boundaries : bool
             If True, overlay boundaries of the leaf cells that intersect
             the slice plane.
@@ -1162,6 +1412,9 @@ class AMRGrid:
 
         if ax is None:
             _, ax = plt.subplots()
+
+        if background_color is not None:
+            ax.set_facecolor(background_color)
 
         axis = axis.lower()
         if value is None:
