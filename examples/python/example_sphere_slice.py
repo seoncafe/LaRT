@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 from make_amr_grid import AMRGrid
 
 
-def make_uniform_sphere_grid(level_min=1, level_max=3, refine_boundary=False):
+def make_sphere_grid(level_min=1, level_max=3, refine_boundary=False):
     boxlen = 100.0
     cx0 = cy0 = cz0 = boxlen / 2.0
     r_sphere = boxlen/2.0
@@ -15,7 +15,8 @@ def make_uniform_sphere_grid(level_min=1, level_max=3, refine_boundary=False):
     # uniform-density sphere
     def gasDen_fn(x, y, z):
         r2 = (x - cx0)**2 + (y - cy0)**2 + (z - cz0)**2
-        return 1.0 if r2 <= r_sphere**2 else 0.0
+        return np.exp(-r2/2.0/(r_sphere)**2) if r2 <= r_sphere**2 else 0.0
+        #return 1.0 if r2 <= r_sphere**2 else 0.0
 
     # static velocity
     def vel_fn(x, y, z):
@@ -54,7 +55,7 @@ def make_uniform_sphere_grid(level_min=1, level_max=3, refine_boundary=False):
 
 
 # ---- level 3 -----------------------------------------------------------
-grid3 = make_uniform_sphere_grid(level_max=3)
+grid3 = make_sphere_grid(level_max=3)
 print("level=3:", grid3.level_counts())
 
 fig, ax = plt.subplots(figsize=(6.5, 6))
@@ -66,7 +67,7 @@ plt.close(fig)
 
 
 # ---- level 4 -----------------------------------------------------------
-grid4 = make_uniform_sphere_grid(level_max=4)
+grid4 = make_sphere_grid(level_max=4)
 print("level=4:", grid4.level_counts())
 
 fig, ax = plt.subplots(figsize=(6.5, 6))
@@ -77,6 +78,6 @@ plt.savefig("uniform_sphere_slice_l4.pdf", dpi=600)
 plt.close(fig)
 
 # ---- level 7  -----------------------------------------------------------
-grid = make_uniform_sphere_grid(level_max=6,level_min=3,refine_boundary=True)
+grid = make_sphere_grid(level_min=3,level_max=7,refine_boundary=True)
 outfile = 'uniform_100kpc.fits.gz'
 grid.write(outfile)
