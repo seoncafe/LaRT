@@ -65,6 +65,6 @@ plt.savefig("uniform_sphere_slice_l4.pdf", dpi=600)
 plt.close(fig)
 
 # ---- level 7  -----------------------------------------------------------
-grid = make_uniform_sphere_grid(level_fine=6)
+grid = make_uniform_sphere_grid(level_fine=7)
 outfile = 'uniform_100kpc.fits.gz'
 grid.write(outfile)
