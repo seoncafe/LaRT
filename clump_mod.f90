@@ -133,10 +133,19 @@ contains
   call create_shared_mem(cl_vy, [int(N_clumps)])
   call create_shared_mem(cl_vz, [int(N_clumps)])
 
-  !--- h_rank=0 generates positions and assigns velocities; barrier before CSR build
+  !--- p_rank=0 generates positions; broadcast to all h_rank=0 (one per node)
+  !--- so every node has an identical clump layout in its shared memory.
   if (mpar%h_rank == 0) then
-     call generate_clumps()
-     if (len_trim(par%velocity_type) > 0) call assign_clump_velocities_from_type()
+     if (mpar%p_rank == 0) then
+        call generate_clumps()
+        if (len_trim(par%velocity_type) > 0) call assign_clump_velocities_from_type()
+     end if
+     call MPI_BCAST(cl_x,  int(N_clumps), MPI_DOUBLE_PRECISION, 0, mpar%SAME_HRANK_COMM, ierr)
+     call MPI_BCAST(cl_y,  int(N_clumps), MPI_DOUBLE_PRECISION, 0, mpar%SAME_HRANK_COMM, ierr)
+     call MPI_BCAST(cl_z,  int(N_clumps), MPI_DOUBLE_PRECISION, 0, mpar%SAME_HRANK_COMM, ierr)
+     call MPI_BCAST(cl_vx, int(N_clumps), MPI_DOUBLE_PRECISION, 0, mpar%SAME_HRANK_COMM, ierr)
+     call MPI_BCAST(cl_vy, int(N_clumps), MPI_DOUBLE_PRECISION, 0, mpar%SAME_HRANK_COMM, ierr)
+     call MPI_BCAST(cl_vz, int(N_clumps), MPI_DOUBLE_PRECISION, 0, mpar%SAME_HRANK_COMM, ierr)
   end if
   call MPI_BARRIER(mpar%hostcomm, ierr)
 

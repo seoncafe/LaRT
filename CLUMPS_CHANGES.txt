@@ -127,6 +127,20 @@ ALGORITHMS
 
 BUGS FIXED
 ----------
+  2026-04-24  generate_clumps called independently on each node (multi-node bug)
+    - init_clumps guarded clump generation with h_rank==0.  h_rank is the
+      rank within a node (hostcomm), so each node had its own h_rank=0 running
+      an independent RSA pass with different random numbers.  On a multi-node
+      run (e.g. lart1 + lart2 + lart3) this produced a different clump layout
+      per node, corrupting photon transport.
+    - Fix: only p_rank==0 (the single global rank 0) generates clumps.
+      The resulting cl_x/y/z and cl_vx/vy/vz arrays are then broadcast from
+      rank 0 of SAME_HRANK_COMM (= p_rank==0) to all other h_rank=0 processes
+      (one per node) via six MPI_BCAST calls on mpar%SAME_HRANK_COMM.
+      The subsequent CSR build is deterministic from positions, so every node
+      constructs the same acceleration grid without any additional broadcast.
+    - File: clump_mod.f90
+
   2026-04-24  Jout accumulation missing in raytrace_to_tau_clump
     - raytrace_to_tau_car accumulates grid%Jout(ix) += photon%wgt when the
       photon exits the grid boundary.  The clump version lacked this.
