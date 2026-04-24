@@ -152,7 +152,7 @@ contains
  if (ipix1 .le. ncap) then ! North Polar cap -------------
     hip   = ipix1/2.0
     fihip = aint ( hip )
-    iring = int( sqrt( hip - sqrt(fihip) ) ) + 1 ! counted from North pole
+    iring = int( sqrt( max(0.0_wp, hip - sqrt(fihip)) ) ) + 1 ! counted from North pole
     iphi  = ipix1 - 2*iring*(iring - 1)
 
     z     =  1.0 - iring**2 / fact2
@@ -170,7 +170,7 @@ contains
     ip    = npix - ipix1 + 1
     hip   = ip/2.0
     fihip = aint ( hip )
-    iring = int( sqrt( hip - sqrt(fihip) ) ) + 1  ! counted from South pole
+    iring = int( sqrt( max(0.0_wp, hip - sqrt(fihip)) ) ) + 1  ! counted from South pole
     iphi  = 4*iring + 1 - (ip - 2*iring*(iring-1))
 
     z     = -1.0 + iring**2 / fact2

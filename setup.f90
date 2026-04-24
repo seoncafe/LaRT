@@ -90,6 +90,14 @@ contains
   !--- bturb is the turbulence b parameter in units of km/s (added, 2023.06.08).
   if (par%bturb > 0.0_wp)         par%temperature  = (par%bturb/line%vtherm1)**2
   if (par%temperature0 <= 0.0_wp) par%temperature0 = par%temperature
+  if (par%temperature <= 0.0_wp) then
+     write(*,'(a)') 'ERROR: par%temperature must be > 0 K'
+     call MPI_ABORT(MPI_COMM_WORLD, 1, ierr)
+  end if
+  if (par%temperature0 <= 0.0_wp) then
+     write(*,'(a)') 'ERROR: par%temperature0 must be > 0 K'
+     call MPI_ABORT(MPI_COMM_WORLD, 1, ierr)
+  end if
   vtherm0       = line%vtherm1*sqrt(par%temperature0)
   par%Dfreq0    = vtherm0/(line%wavelength0*um2km)
   par%voigt_a0  = (line%damping/fourpi)/par%Dfreq0

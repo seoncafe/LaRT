@@ -113,7 +113,8 @@ contains
   disp_unit   = real64_size
   num_windows = num_windows + 1
   if (num_windows > MAX_NUM_WINDOWS) then
-     stop 'Please increase MAX_NUM_WINDOWS'
+     write(*,'(a)') 'ERROR: Please increase MAX_NUM_WINDOWS in memory_mod_mpi.f90'
+     call MPI_ABORT(MPI_COMM_WORLD, 1, ierr)
   endif
   call MPI_WIN_ALLOCATE_SHARED(wsize, disp_unit, MPI_INFO_NULL, hostcomm, ptr, windows(num_windows), ierr)
   if (h_rank /= 0) then
@@ -148,7 +149,8 @@ contains
   disp_unit   = real64_size
   num_windows = num_windows + 1
   if (num_windows > MAX_NUM_WINDOWS) then
-     stop 'Please increase MAX_NUM_WINDOWS'
+     write(*,'(a)') 'ERROR: Please increase MAX_NUM_WINDOWS in memory_mod_mpi.f90'
+     call MPI_ABORT(MPI_COMM_WORLD, 1, ierr)
   endif
   call MPI_WIN_ALLOCATE_SHARED(wsize, disp_unit, MPI_INFO_NULL, hostcomm, ptr, windows(num_windows), ierr)
   if (h_rank /= 0) then
@@ -183,7 +185,8 @@ contains
   disp_unit   = real64_size
   num_windows = num_windows + 1
   if (num_windows > MAX_NUM_WINDOWS) then
-     stop 'Please increase MAX_NUM_WINDOWS'
+     write(*,'(a)') 'ERROR: Please increase MAX_NUM_WINDOWS in memory_mod_mpi.f90'
+     call MPI_ABORT(MPI_COMM_WORLD, 1, ierr)
   endif
   call MPI_WIN_ALLOCATE_SHARED(wsize, disp_unit, MPI_INFO_NULL, hostcomm, ptr, windows(num_windows), ierr)
   if (h_rank /= 0) then
@@ -218,7 +221,8 @@ contains
   disp_unit   = real64_size
   num_windows = num_windows + 1
   if (num_windows > MAX_NUM_WINDOWS) then
-     stop 'Please increase MAX_NUM_WINDOWS'
+     write(*,'(a)') 'ERROR: Please increase MAX_NUM_WINDOWS in memory_mod_mpi.f90'
+     call MPI_ABORT(MPI_COMM_WORLD, 1, ierr)
   endif
   call MPI_WIN_ALLOCATE_SHARED(wsize, disp_unit, MPI_INFO_NULL, hostcomm, ptr, windows(num_windows), ierr)
   if (h_rank /= 0) then
@@ -253,7 +257,8 @@ contains
   disp_unit   = real64_size
   num_windows = num_windows + 1
   if (num_windows > MAX_NUM_WINDOWS) then
-     stop 'Please increase MAX_NUM_WINDOWS'
+     write(*,'(a)') 'ERROR: Please increase MAX_NUM_WINDOWS in memory_mod_mpi.f90'
+     call MPI_ABORT(MPI_COMM_WORLD, 1, ierr)
   endif
   call MPI_WIN_ALLOCATE_SHARED(wsize, disp_unit, MPI_INFO_NULL, hostcomm, ptr, windows(num_windows), ierr)
   if (h_rank /= 0) then
@@ -728,7 +733,8 @@ contains
   disp_unit   = real32_size
   num_windows = num_windows + 1
   if (num_windows > MAX_NUM_WINDOWS) then
-     stop 'Please increase MAX_NUM_WINDOWS'
+     write(*,'(a)') 'ERROR: Please increase MAX_NUM_WINDOWS in memory_mod_mpi.f90'
+     call MPI_ABORT(MPI_COMM_WORLD, 1, ierr)
   endif
   call MPI_WIN_ALLOCATE_SHARED(wsize, disp_unit, MPI_INFO_NULL, hostcomm, ptr, windows(num_windows), ierr)
   if (h_rank /= 0) then
@@ -763,7 +769,8 @@ contains
   disp_unit   = real32_size
   num_windows = num_windows + 1
   if (num_windows > MAX_NUM_WINDOWS) then
-     stop 'Please increase MAX_NUM_WINDOWS'
+     write(*,'(a)') 'ERROR: Please increase MAX_NUM_WINDOWS in memory_mod_mpi.f90'
+     call MPI_ABORT(MPI_COMM_WORLD, 1, ierr)
   endif
   call MPI_WIN_ALLOCATE_SHARED(wsize, disp_unit, MPI_INFO_NULL, hostcomm, ptr, windows(num_windows), ierr)
   if (h_rank /= 0) then
@@ -798,7 +805,8 @@ contains
   disp_unit   = real32_size
   num_windows = num_windows + 1
   if (num_windows > MAX_NUM_WINDOWS) then
-     stop 'Please increase MAX_NUM_WINDOWS'
+     write(*,'(a)') 'ERROR: Please increase MAX_NUM_WINDOWS in memory_mod_mpi.f90'
+     call MPI_ABORT(MPI_COMM_WORLD, 1, ierr)
   endif
   call MPI_WIN_ALLOCATE_SHARED(wsize, disp_unit, MPI_INFO_NULL, hostcomm, ptr, windows(num_windows), ierr)
   if (h_rank /= 0) then
@@ -833,7 +841,8 @@ contains
   disp_unit   = real32_size
   num_windows = num_windows + 1
   if (num_windows > MAX_NUM_WINDOWS) then
-     stop 'Please increase MAX_NUM_WINDOWS'
+     write(*,'(a)') 'ERROR: Please increase MAX_NUM_WINDOWS in memory_mod_mpi.f90'
+     call MPI_ABORT(MPI_COMM_WORLD, 1, ierr)
   endif
   call MPI_WIN_ALLOCATE_SHARED(wsize, disp_unit, MPI_INFO_NULL, hostcomm, ptr, windows(num_windows), ierr)
   if (h_rank /= 0) then
@@ -868,7 +877,8 @@ contains
   disp_unit   = real32_size
   num_windows = num_windows + 1
   if (num_windows > MAX_NUM_WINDOWS) then
-     stop 'Please increase MAX_NUM_WINDOWS'
+     write(*,'(a)') 'ERROR: Please increase MAX_NUM_WINDOWS in memory_mod_mpi.f90'
+     call MPI_ABORT(MPI_COMM_WORLD, 1, ierr)
   endif
   call MPI_WIN_ALLOCATE_SHARED(wsize, disp_unit, MPI_INFO_NULL, hostcomm, ptr, windows(num_windows), ierr)
   if (h_rank /= 0) then
@@ -1343,7 +1353,8 @@ contains
   disp_unit   = int64_size
   num_windows = num_windows + 1
   if (num_windows > MAX_NUM_WINDOWS) then
-     stop 'Please increase MAX_NUM_WINDOWS'
+     write(*,'(a)') 'ERROR: Please increase MAX_NUM_WINDOWS in memory_mod_mpi.f90'
+     call MPI_ABORT(MPI_COMM_WORLD, 1, ierr)
   endif
   call MPI_WIN_ALLOCATE_SHARED(wsize, disp_unit, MPI_INFO_NULL, hostcomm, ptr, windows(num_windows), ierr)
   if (h_rank /= 0) then
@@ -1378,7 +1389,8 @@ contains
   disp_unit   = int64_size
   num_windows = num_windows + 1
   if (num_windows > MAX_NUM_WINDOWS) then
-     stop 'Please increase MAX_NUM_WINDOWS'
+     write(*,'(a)') 'ERROR: Please increase MAX_NUM_WINDOWS in memory_mod_mpi.f90'
+     call MPI_ABORT(MPI_COMM_WORLD, 1, ierr)
   endif
   call MPI_WIN_ALLOCATE_SHARED(wsize, disp_unit, MPI_INFO_NULL, hostcomm, ptr, windows(num_windows), ierr)
   if (h_rank /= 0) then
@@ -1413,7 +1425,8 @@ contains
   disp_unit   = int64_size
   num_windows = num_windows + 1
   if (num_windows > MAX_NUM_WINDOWS) then
-     stop 'Please increase MAX_NUM_WINDOWS'
+     write(*,'(a)') 'ERROR: Please increase MAX_NUM_WINDOWS in memory_mod_mpi.f90'
+     call MPI_ABORT(MPI_COMM_WORLD, 1, ierr)
   endif
   call MPI_WIN_ALLOCATE_SHARED(wsize, disp_unit, MPI_INFO_NULL, hostcomm, ptr, windows(num_windows), ierr)
   if (h_rank /= 0) then
@@ -1701,7 +1714,8 @@ contains
   disp_unit   = int32_size
   num_windows = num_windows + 1
   if (num_windows > MAX_NUM_WINDOWS) then
-     stop 'Please increase MAX_NUM_WINDOWS'
+     write(*,'(a)') 'ERROR: Please increase MAX_NUM_WINDOWS in memory_mod_mpi.f90'
+     call MPI_ABORT(MPI_COMM_WORLD, 1, ierr)
   endif
   call MPI_WIN_ALLOCATE_SHARED(wsize, disp_unit, MPI_INFO_NULL, hostcomm, ptr, windows(num_windows), ierr)
   if (h_rank /= 0) then
@@ -1736,7 +1750,8 @@ contains
   disp_unit   = int32_size
   num_windows = num_windows + 1
   if (num_windows > MAX_NUM_WINDOWS) then
-     stop 'Please increase MAX_NUM_WINDOWS'
+     write(*,'(a)') 'ERROR: Please increase MAX_NUM_WINDOWS in memory_mod_mpi.f90'
+     call MPI_ABORT(MPI_COMM_WORLD, 1, ierr)
   endif
   call MPI_WIN_ALLOCATE_SHARED(wsize, disp_unit, MPI_INFO_NULL, hostcomm, ptr, windows(num_windows), ierr)
   if (h_rank /= 0) then
@@ -1771,7 +1786,8 @@ contains
   disp_unit   = int32_size
   num_windows = num_windows + 1
   if (num_windows > MAX_NUM_WINDOWS) then
-     stop 'Please increase MAX_NUM_WINDOWS'
+     write(*,'(a)') 'ERROR: Please increase MAX_NUM_WINDOWS in memory_mod_mpi.f90'
+     call MPI_ABORT(MPI_COMM_WORLD, 1, ierr)
   endif
   call MPI_WIN_ALLOCATE_SHARED(wsize, disp_unit, MPI_INFO_NULL, hostcomm, ptr, windows(num_windows), ierr)
   if (h_rank /= 0) then
@@ -2059,7 +2075,8 @@ contains
   disp_unit   = int16_size
   num_windows = num_windows + 1
   if (num_windows > MAX_NUM_WINDOWS) then
-     stop 'Please increase MAX_NUM_WINDOWS'
+     write(*,'(a)') 'ERROR: Please increase MAX_NUM_WINDOWS in memory_mod_mpi.f90'
+     call MPI_ABORT(MPI_COMM_WORLD, 1, ierr)
   endif
   call MPI_WIN_ALLOCATE_SHARED(wsize, disp_unit, MPI_INFO_NULL, hostcomm, ptr, windows(num_windows), ierr)
   if (h_rank /= 0) then
@@ -2094,7 +2111,8 @@ contains
   disp_unit   = int16_size
   num_windows = num_windows + 1
   if (num_windows > MAX_NUM_WINDOWS) then
-     stop 'Please increase MAX_NUM_WINDOWS'
+     write(*,'(a)') 'ERROR: Please increase MAX_NUM_WINDOWS in memory_mod_mpi.f90'
+     call MPI_ABORT(MPI_COMM_WORLD, 1, ierr)
   endif
   call MPI_WIN_ALLOCATE_SHARED(wsize, disp_unit, MPI_INFO_NULL, hostcomm, ptr, windows(num_windows), ierr)
   if (h_rank /= 0) then
@@ -2129,7 +2147,8 @@ contains
   disp_unit   = int16_size
   num_windows = num_windows + 1
   if (num_windows > MAX_NUM_WINDOWS) then
-     stop 'Please increase MAX_NUM_WINDOWS'
+     write(*,'(a)') 'ERROR: Please increase MAX_NUM_WINDOWS in memory_mod_mpi.f90'
+     call MPI_ABORT(MPI_COMM_WORLD, 1, ierr)
   endif
   call MPI_WIN_ALLOCATE_SHARED(wsize, disp_unit, MPI_INFO_NULL, hostcomm, ptr, windows(num_windows), ierr)
   if (h_rank /= 0) then
@@ -2415,7 +2434,8 @@ contains
   disp_unit   = int8_size
   num_windows = num_windows + 1
   if (num_windows > MAX_NUM_WINDOWS) then
-     stop 'Please increase MAX_NUM_WINDOWS'
+     write(*,'(a)') 'ERROR: Please increase MAX_NUM_WINDOWS in memory_mod_mpi.f90'
+     call MPI_ABORT(MPI_COMM_WORLD, 1, ierr)
   endif
   call MPI_WIN_ALLOCATE_SHARED(wsize, disp_unit, MPI_INFO_NULL, hostcomm, ptr, windows(num_windows), ierr)
   if (h_rank /= 0) then
@@ -2450,7 +2470,8 @@ contains
   disp_unit   = int8_size
   num_windows = num_windows + 1
   if (num_windows > MAX_NUM_WINDOWS) then
-     stop 'Please increase MAX_NUM_WINDOWS'
+     write(*,'(a)') 'ERROR: Please increase MAX_NUM_WINDOWS in memory_mod_mpi.f90'
+     call MPI_ABORT(MPI_COMM_WORLD, 1, ierr)
   endif
   call MPI_WIN_ALLOCATE_SHARED(wsize, disp_unit, MPI_INFO_NULL, hostcomm, ptr, windows(num_windows), ierr)
   if (h_rank /= 0) then
@@ -2485,7 +2506,8 @@ contains
   disp_unit   = int8_size
   num_windows = num_windows + 1
   if (num_windows > MAX_NUM_WINDOWS) then
-     stop 'Please increase MAX_NUM_WINDOWS'
+     write(*,'(a)') 'ERROR: Please increase MAX_NUM_WINDOWS in memory_mod_mpi.f90'
+     call MPI_ABORT(MPI_COMM_WORLD, 1, ierr)
   endif
   call MPI_WIN_ALLOCATE_SHARED(wsize, disp_unit, MPI_INFO_NULL, hostcomm, ptr, windows(num_windows), ierr)
   if (h_rank /= 0) then

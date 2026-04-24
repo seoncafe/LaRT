@@ -241,7 +241,7 @@ contains
               !--- this condition can occur because we are implementing a sphere in a rectangular coordinate system.
               dist = 0.0_wp
            else
-              dist = -rk + sqrt(det)
+              dist = -rk + sqrt(max(0.0_wp, det))
            endif
         else
            dist = 0.0_wp
@@ -283,7 +283,7 @@ contains
            !--- this condition can occur because we are implementing a sphere in a rectangular coordinate system.
            dist = 0.0_wp
         else
-           dist = -rk + sqrt(det)
+           dist = -rk + sqrt(max(0.0_wp, det))
         endif
      else
         dist = 0.0_wp

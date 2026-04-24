@@ -248,7 +248,7 @@ contains
      det     = r_dot_k**2 - (rr**2 - par%rmax**2)
 
      if (r_dot_k < 0.0_wp .and. det > 0.0_wp) then
-        dist         = -r_dot_k - sqrt(det)
+        dist         = -r_dot_k - sqrt(max(0.0_wp, det))
         photon%x     = x + photon%kx * dist
         photon%y     = y + photon%ky * dist
         photon%z     = z + photon%kz * dist
@@ -410,7 +410,7 @@ contains
      cos_ang = x0*photon%kx + y0*photon%ky + z0*photon%kz
 
      if (cos_ang >= 0.0_wp .and. det >= 0.0_wp) then
-        dist         = -r_dot_k - sqrt(det)
+        dist         = -r_dot_k - sqrt(max(0.0_wp, det))
         photon%x     = x + photon%kx * dist
         photon%y     = y + photon%ky * dist
         photon%z     = z + photon%kz * dist
@@ -693,7 +693,7 @@ contains
   cos_ang = x0*photon%kx + y0*photon%ky + z0*photon%kz
 
   if (cos_ang >= 0.0_wp .and. det >= 0.0_wp) then
-     dist         = -r_dot_k - sqrt(det)
+     dist         = -r_dot_k - sqrt(max(0.0_wp, det))
      photon%x     = x + photon%kx * dist
      photon%y     = y + photon%ky * dist
      photon%z     = z + photon%kz * dist
@@ -888,7 +888,7 @@ contains
      det     = r_dot_k**2 - (rr**2 - par%rmax**2)
 
      if (det >= 0.0_wp) then
-        dist         = -r_dot_k - sqrt(det)
+        dist         = -r_dot_k - sqrt(max(0.0_wp, det))
         photon%x     = x + photon%kx * dist
         photon%y     = y + photon%ky * dist
         photon%z     = z + photon%kz * dist
@@ -1091,7 +1091,7 @@ contains
 
        !-- bug-fixed (2021.09.29).
        if (r_dot_k < 0.0_wp .and. det >= 0.0_wp) then
-          dist       = -r_dot_k - sqrt(det)
+          dist       = -r_dot_k - sqrt(max(0.0_wp, det))
           pobs%x     = xx + pobs%kx * dist
           pobs%y     = yy + pobs%ky * dist
           pobs%z     = zz + pobs%kz * dist

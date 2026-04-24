@@ -186,9 +186,9 @@ contains
        !--- Calculate azimuthal scattering angle toward the observer.
        if (sint == 0.0_wp) then
           cosp  = 1.0_wp
-          sinp  = 1.0_wp
+          sinp  = 0.0_wp
           cos2p = 1.0_wp
-          sin2p = 1.0_wp
+          sin2p = 0.0_wp
        else
           cosp  = (pobs%kx * photon%mx + pobs%ky * photon%my + pobs%kz * photon%mz)/sint
           sinp  = (pobs%kx * photon%nx + pobs%ky * photon%ny + pobs%kz * photon%nz)/sint
@@ -342,9 +342,9 @@ contains
        !--- Calculate azimuthal scattering angle toward the observer.
        if (sint == 0.0_wp) then
           cosp  = 1.0_wp
-          sinp  = 1.0_wp
+          sinp  = 0.0_wp
           cos2p = 1.0_wp
-          sin2p = 1.0_wp
+          sin2p = 0.0_wp
        else
           cosp  = (pobs%kx * photon%mx + pobs%ky * photon%my + pobs%kz * photon%mz)/sint
           sinp  = (pobs%kx * photon%nx + pobs%ky * photon%ny + pobs%kz * photon%nz)/sint

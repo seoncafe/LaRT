@@ -282,8 +282,8 @@ contains
        sint = sqrt(1.0_wp - cost*cost)
 
        if (sint == 0.0_wp) then
-          cosp  = 1.0_wp;  sinp  = 1.0_wp
-          cos2p = 1.0_wp;  sin2p = 1.0_wp
+          cosp  = 1.0_wp;  sinp  = 0.0_wp
+          cos2p = 1.0_wp;  sin2p = 0.0_wp
        else
           cosp  = (pobs%kx*photon%mx + pobs%ky*photon%my + pobs%kz*photon%mz) / sint
           sinp  = (pobs%kx*photon%nx + pobs%ky*photon%ny + pobs%kz*photon%nz) / sint
@@ -399,8 +399,8 @@ contains
        sint  = sqrt(1.0_wp - cost2)
 
        if (sint == 0.0_wp) then
-          cosp  = 1.0_wp;  sinp  = 1.0_wp
-          cos2p = 1.0_wp;  sin2p = 1.0_wp
+          cosp  = 1.0_wp;  sinp  = 0.0_wp
+          cos2p = 1.0_wp;  sin2p = 0.0_wp
        else
           cosp  = (pobs%kx*photon%mx + pobs%ky*photon%my + pobs%kz*photon%mz) / sint
           sinp  = (pobs%kx*photon%nx + pobs%ky*photon%ny + pobs%kz*photon%nz) / sint
