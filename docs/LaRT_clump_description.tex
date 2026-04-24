@@ -187,81 +187,271 @@ and a flat curve ($v_\phi = V_\mathrm{rot}$) outside.
 \section{Clump Placement: Random Sequential Addition (RSA)}
 %=============================================================================
 
-\subsection{Algorithm}
+\subsection{Concept}
 
-Clumps are placed one at a time.  Each candidate position is drawn uniformly
-inside the sphere (box-rejection sampling) and accepted only if it does not
-overlap any previously placed clump (centre separation $\ge 2r_c$).
+Random Sequential Addition (RSA) is a simple stochastic algorithm for
+generating configurations of non-overlapping hard spheres.  Candidate
+positions are drawn at random one at a time; each is tested against all
+previously accepted clumps and either accepted (no overlap) or discarded
+irreversibly (overlap detected).  Because accepted positions are never moved,
+RSA requires no iterative relaxation.
 
-Overlap checking is accelerated by a linked-list hash grid of cell size
-$\ell_\mathrm{RSA} \approx 2R/N_g$ where $N_g = \min(512, \lfloor N^{1/3}
-\rfloor + 1)$.  Only the $3^3 = 27$ neighbouring cells of the candidate are
-checked, reducing the expected check count to $O(1)$ per attempt (for
-$f_\mathrm{vol} < 35\%$).
+The non-overlap condition enforces a minimum centre-to-centre distance of
+$2r_c$.  RSA reliably converges for volume filling factors $f_\mathrm{vol}
+\lesssim 35\%$; above this threshold, the fraction of unblocked placement
+space decreases so steeply that placing the last few clumps may require
+enormous numbers of attempts.  The theoretical 3-D jamming limit for RSA is
+$f_\mathrm{vol} \approx 38\%$.
+
+\subsection{Uniform Sampling Inside the Sphere}
+
+Candidate positions must be distributed \emph{uniformly} inside the outer
+sphere of radius $R$.  This is achieved by box-rejection:
+\begin{enumerate}
+  \item Draw $x_c$, $y_c$, $z_c$ each uniformly from $[-R,\, R]$.
+  \item Accept if $x_c^2 + y_c^2 + z_c^2 \le R^2$; otherwise draw again.
+\end{enumerate}
+The acceptance probability equals the sphere-to-cube volume ratio
+$\pi/6 \approx 52\%$, so on average only $6/\pi \approx 1.91$ draws are
+needed per accepted point.  Box-rejection avoids trigonometric functions and
+yields an exactly uniform distribution in 3-D Cartesian space.
+
+\subsection{Placement Algorithm}
 
 \begin{lstlisting}
 do while (icl < N_clumps)
-   !--- draw uniform point inside sphere
-   do
-      xc = (2*rand - 1)*R; yc = ...; zc = ...
-      if (xc^2+yc^2+zc^2 <= R^2) exit
-   enddo
-   !--- check 27 neighbours for overlap (min_sep = 2*r_c)
-   overlap = .false.
-   outer: do kg2=...; do jg2=...; do ig2=...
-      jnb = head(cell)
-      do while (jnb > 0)
-         if (dist2(xc,yc,zc, cl_x(jnb),...) < (2*r_c)^2) then
-            overlap=.true.; exit outer
-         endif
-         jnb = nxt(jnb)
-      enddo
-   enddo; enddo; enddo outer
-   if (overlap) cycle
-   icl = icl+1
-   cl_x(icl)=xc; cl_y(icl)=yc; cl_z(icl)=zc
-   ! assign velocity if sigma_v > 0
-   ! insert into linked list
+
+  !--- Step 1: draw candidate inside sphere (box rejection)
+  do
+    xc = (2.0*rand() - 1.0) * R
+    yc = (2.0*rand() - 1.0) * R
+    zc = (2.0*rand() - 1.0) * R
+    if (xc**2 + yc**2 + zc**2 <= R**2) exit
+  enddo
+
+  !--- Step 2: locate candidate in hash-grid cell (ig, jg, kg)
+  ig = int((xc - xmin) / cell_size)
+  jg = int((yc - ymin) / cell_size)
+  kg = int((zc - zmin) / cell_size)
+
+  !--- Step 3: check 27 neighbouring cells for overlap
+  overlap = .false.
+  outer: do kg2 = kg-1, kg+1
+         do jg2 = jg-1, jg+1
+         do ig2 = ig-1, ig+1
+    if (out of bounds) cycle
+    jnb = head(ig2, jg2, kg2)       ! first clump in this hash cell
+    do while (jnb > 0)
+      if (dist2(xc,yc,zc, cl_x(jnb),cl_y(jnb),cl_z(jnb)) < (2*rc)**2) then
+        overlap = .true.; exit outer ! reject immediately on first overlap
+      endif
+      jnb = nxt(jnb)                ! follow linked list to next clump
+    enddo
+  enddo; enddo; enddo outer
+
+  if (overlap) cycle                ! reject: draw new candidate
+
+  !--- Step 4: accept -- record position and random velocity
+  icl = icl + 1
+  cl_x(icl) = xc;  cl_y(icl) = yc;  cl_z(icl) = zc
+  if (sigma_v > 0.0) then
+    cl_vx(icl) = sigma_v * gauss_random()  ! one independent draw per component
+    cl_vy(icl) = sigma_v * gauss_random()
+    cl_vz(icl) = sigma_v * gauss_random()
+  endif
+
+  !--- Step 5: prepend clump to the linked list for cell (ig, jg, kg)
+  nxt(icl)         = head(ig, jg, kg)
+  head(ig, jg, kg) = icl
+
 enddo
 \end{lstlisting}
 
-\subsection{Acceptance Rate}
+\subsection{Linked-List Hash Grid and the 27-Cell Rule}
+\label{sec:rsa_hash}
 
-For the test case ($N_\mathrm{cov}=5$, $r_c/R=0.01$, $N=66667$,
-$f_\mathrm{vol}=0.067$) the RSA acceptance rate is approximately 74\%.
+Naively, checking candidate $n$ against all $n-1$ accepted clumps costs
+$O(n)$, giving $O(N^2)$ total work.  The linked-list hash grid reduces each
+overlap check to $O(1)$ expected cost by spatially indexing accepted clumps.
+
+The domain $[-R, R]^3$ is partitioned into $N_g^3$ uniform cells with
+\begin{equation}
+  N_g = \min\!\bigl(512,\; \lfloor N^{1/3} \rfloor + 1\bigr),
+  \qquad
+  \ell_\mathrm{RSA} = \frac{2R}{N_g}.
+  \label{eq:ng}
+\end{equation}
+Two integer arrays encode the linked lists: \texttt{head(i,j,k)} is the index
+of the first clump in cell $(i,j,k)$ (0 if empty), and \texttt{nxt(icl)} is
+the next clump in the same cell list (0 = end of list).  When a new clump is
+accepted (Step~5 above), it is prepended to the head of its cell's list in
+$O(1)$.
+
+\paragraph{Why 27 cells are sufficient.}
+Two clumps overlap iff their centre separation is $< 2r_c$.  If the
+candidate lies in cell $(i,j,k)$, any overlapping clump must satisfy
+$|x_\mathrm{cl} - x_c| < 2r_c$.  Since $\ell_\mathrm{RSA} \ge 2r_c$ by
+construction (eq.~\ref{eq:ng}), the overlapping clump's cell index $i'$
+satisfies $i' \in \{i-1, i, i+1\}$, and likewise for $j'$ and $k'$.
+Checking all $3^3 = 27$ cells centred on $(i,j,k)$ is therefore both
+sufficient and complete --- no overlapping clump can lie outside this
+neighbourhood.
+
+\paragraph{Cell-size constraint.}
+The 27-cell rule requires $\ell_\mathrm{RSA} \ge 2r_c$, i.e.\
+$N_g \le R/r_c$.  For the reference case ($R = 1$, $r_c = 0.01$):
+$R/r_c = 100$, $N_g = \lfloor 66667^{1/3}\rfloor + 1 = 42$,
+$\ell_\mathrm{RSA} = 2/42 \approx 0.048 \gg 2r_c = 0.02$. \checkmark
+
+\subsection{Acceptance Rate and Jamming Limit}
+
+As more clumps are placed, their exclusion zones (spheres of radius $2r_c$
+around each accepted clump) collectively block an increasing fraction of the
+placement domain.  The per-candidate acceptance probability
+$p_\mathrm{acc}$ decreases monotonically with $f_\mathrm{vol}$ and
+approaches zero at the jamming limit.
+
+For the reference case ($N_\mathrm{cov}=5$, $r_c/R=0.01$, $N=66667$,
+$f_\mathrm{vol}=0.067$), the overall acceptance rate is $\approx 74\%$:
+roughly 90\,000 candidates are drawn to place 66\,667 clumps.  The algorithm
+remains practical for $f_\mathrm{vol} \lesssim 35\%$.
 
 %=============================================================================
 \section{CSR Acceleration Grid}
 %=============================================================================
 
-After RSA placement, a compressed-sparse-row (CSR) grid is built to
-accelerate ray--clump intersection queries during radiative transfer.
+\subsection{Motivation}
 
-\subsection{Structure}
+During radiative transfer, a photon in vacuum must find the nearest clump
+along its current flight direction at every propagation step.  Checking all
+$N$ clumps per step would cost $O(N)$ per query and become prohibitive for
+large populations ($N \sim 10^4$--$10^5$).  The CSR acceleration grid
+pre-sorts clumps into spatial cells; the DDA traversal (\S\ref{sec:dda})
+then visits only the cells the ray crosses, and within each cell tests only
+the few registered clumps.  Together, DDA+CSR achieves $O(1)$ amortised cost
+per nearest-clump query, independent of $N$.
 
-A 3-D Cartesian grid of $M_x \times M_y \times M_z$ cells ($M = N_g$ from above)
-covers the domain $[-R-r_c, R+r_c]^3$.  Each clump is registered in every CSR
-cell whose bounding box overlaps the clump sphere.  The CSR layout uses two
-arrays:
+\subsection{Data Structure: Compressed Sparse Row}
+
+Instead of a list-of-lists (which requires many small dynamic allocations),
+all per-cell clump lists are packed into two flat integer arrays in
+\emph{Compressed Sparse Row} (CSR) format --- the same layout used for
+sparse matrices:
 \begin{itemize}
-  \item \texttt{cg\_start(icell)} -- index into \texttt{cg\_list} of the first
-        entry for cell \texttt{icell};
-  \item \texttt{cg\_list(j)} -- clump index stored at position $j$.
+  \item \texttt{cg\_start(0:Ncell)}: \texttt{cg\_start(icell)} is the
+        1-based index of the first entry for cell \texttt{icell} in
+        \texttt{cg\_list}.  The entries for cell \texttt{icell} occupy
+        positions \texttt{cg\_start(icell) \ldots{} cg\_start(icell+1)-1};
+        their count is \texttt{cg\_start(icell+1) - cg\_start(icell)}.
+  \item \texttt{cg\_list(1:Ntot)}: flat concatenation of all per-cell
+        clump-index lists.
 \end{itemize}
 
-\subsection{Construction (Two-Pass)}
+Retrieving the clump list for any cell is an $O(1)$ array slice with no
+pointer chasing.  To illustrate: suppose four cells contain the clumps
+$\{2,5\}$, $\{\}$, $\{1,3\}$, $\{4\}$ respectively:
+\begin{align*}
+  \texttt{cg\_start} &= [1,\;3,\;3,\;5,\;6], \\
+  \texttt{cg\_list}  &= [2,\;5,\;1,\;3,\;4].
+\end{align*}
+The clumps in cell~2 are \texttt{cg\_list(3:4)} $= \{1,3\}$.
+Both arrays reside in MPI-3 shared memory (one copy per compute node).
 
-Pass 1: count registrations per cell $\to$ prefix-sum to fill
-\texttt{cg\_start}.\\
-Pass 2: fill \texttt{cg\_list}.
+\subsection{Cell Grid and Domain}
+\label{sec:csr_grid}
 
-A clump is registered in cell $(i,j,k)$ if the cell's AABB intersects the
-clump sphere, i.e.\ the cell range in each dimension is
-$[\lfloor(c_x-r_c-x_\mathrm{min})/\delta\rfloor,
-  \lfloor(c_x+r_c-x_\mathrm{min})/\delta\rfloor]$.
+The CSR grid reuses the same cell count $M = N_g$ as the RSA hash grid
+(\S\ref{sec:rsa_hash}), but covers a slightly larger domain
+$[-R - r_c,\; R + r_c]^3$ with uniform cell size
+\begin{equation}
+  \delta = \frac{2(R + r_c)}{M}.
+\end{equation}
+Expanding the domain by $r_c$ in each direction ensures two properties:
+\begin{enumerate}
+  \item A clump centred exactly on the outer sphere surface
+        ($|\mathbf{c}| = R$) fits entirely inside the grid.
+  \item A photon entering from outside the outer sphere starts inside a
+        valid grid cell, so the DDA traversal can begin immediately.
+\end{enumerate}
 
-Both \texttt{cg\_start} and \texttt{cg\_list} are allocated as MPI-3
-shared-memory windows (one copy per node).
+\subsection{Clump Registration: AABB Overlap Test}
+\label{sec:aabb}
+
+A clump of radius $r_c$ centred at $(c_x, c_y, c_z)$ is registered in every
+cell whose axis-aligned bounding box (AABB) overlaps the clump sphere.
+Cell $(i,j,k)$ spans $[x_\mathrm{min}+i\,\delta,\; x_\mathrm{min}+(i+1)\,\delta]$
+along $x$.  The range of cell indices that overlap $[c_x - r_c,\; c_x + r_c]$ is
+\begin{equation}
+  i \;\in\; \left[
+    \left\lfloor\frac{c_x - r_c - x_\mathrm{min}}{\delta}\right\rfloor,\;
+    \left\lfloor\frac{c_x + r_c - x_\mathrm{min}}{\delta}\right\rfloor
+  \right],
+  \label{eq:aabb_range}
+\end{equation}
+and likewise for $j$ and $k$.  The clump is registered in every cell in the
+Cartesian product of these three index ranges.
+
+For the reference case ($r_c = 0.01$, $\delta \approx 0.048$, so
+$r_c/\delta \approx 0.21 < 1$), each clump's index range spans at most 2
+values per dimension, so a clump touches at most $2^3 = 8$ cells.  The total
+registration count satisfies $N \le N_\mathrm{tot} \le 8N$.
+
+\subsection{Two-Pass Construction}
+
+The CSR arrays are built in two sequential passes over all $N$ clumps,
+avoiding any intermediate list storage (the standard technique for CSR
+sparse-matrix assembly):
+
+\begin{description}
+  \item[Pass 1 (count):] Compute the cell ranges (eq.~\ref{eq:aabb_range})
+  for each clump and increment a counter \texttt{cnt(icell)} for every
+  touched cell.  Then compute the exclusive prefix sum:
+  \[
+    \texttt{cg\_start(0)} = 1, \qquad
+    \texttt{cg\_start(icell+1)} = \texttt{cg\_start(icell)} + \texttt{cnt(icell)}.
+  \]
+  Allocate \texttt{cg\_list} of length
+  $N_\mathrm{tot} = \texttt{cg\_start(Ncell)} - 1$ as an MPI-3
+  shared-memory window.
+
+  \item[Pass 2 (fill):] Repeat the same cell-range loop.  For each touched
+  cell, write the clump index at write pointer \texttt{ptr(icell)}, then
+  advance the pointer by one.  Initialise
+  \texttt{ptr(icell) = cg\_start(icell)} before this pass.
+\end{description}
+
+\begin{lstlisting}
+!--- Pass 1: count registrations per cell
+cnt(:) = 0
+do icl = 1, N_clumps
+  i0 = max(0,   floor((cl_x(icl) - rc - xmin) / delta))
+  i1 = min(M-1, floor((cl_x(icl) + rc - xmin) / delta))
+  j0 = ...; j1 = ...                    ! analogous for y
+  k0 = ...; k1 = ...                    ! analogous for z
+  do k = k0,k1;  do j = j0,j1;  do i = i0,i1
+    cnt(cell_idx(i,j,k)) = cnt(cell_idx(i,j,k)) + 1
+  enddo;  enddo;  enddo
+enddo
+! exclusive prefix sum -> cg_start
+cg_start(0) = 1
+do icell = 0, Ncell-1
+  cg_start(icell+1) = cg_start(icell) + cnt(icell)
+enddo
+Ntot = cg_start(Ncell) - 1
+! allocate cg_list(Ntot) as MPI-3 shared-memory window
+
+!--- Pass 2: fill cg_list
+ptr(0:Ncell-1) = cg_start(0:Ncell-1)   ! one write pointer per cell
+do icl = 1, N_clumps
+  ... (same i0,i1,j0,j1,k0,k1 as Pass 1)
+  do k = k0,k1;  do j = j0,j1;  do i = i0,i1
+    ic = cell_idx(i,j,k)
+    cg_list(ptr(ic)) = icl
+    ptr(ic) = ptr(ic) + 1
+  enddo;  enddo;  enddo
+enddo
+! invariant: ptr(icell) == cg_start(icell+1) for all cells after Pass 2
+\end{lstlisting}
 
 %=============================================================================
 \section{Raytrace Through the Clump Medium}
