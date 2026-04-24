@@ -1,0 +1,17 @@
+&parameters
+ par%use_clump_medium = .true.
+ par%rmax             = 1.0
+ par%clump_radius     = 0.01
+ par%clump_N_cov      = 20.0
+ par%clump_tau0       = 1.0e3
+ par%temperature      = 1.0e4
+ par%clump_sigma_v    = 0.0
+ par%no_photons       = 1e6
+ par%spectral_type    = 'voigt'
+ par%nxfreq           = 301
+ par%velocity_min     = -200.0
+ par%velocity_max     =  200.0
+ par%nx = 11, par%ny = 11, par%nz = 11
+ par%save_clump_info  = .true.
+ par%out_file         = 'clump_tau3_ncov20.fits.gz'
+/

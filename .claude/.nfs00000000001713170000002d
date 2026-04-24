@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 *)",
+      "Bash(make F90=mpif90)",
+      "Bash(mpif90 *)",
+      "Skill(update-config)",
+      "Bash(pdflatex -interaction=nonstopmode LaRT_clump_description.tex)"
+    ]
+  }
+}

@@ -514,22 +514,50 @@ individual \texttt{destroy\_mem} is not used because
 differs from the local pointer on non-root ranks.
 
 %=============================================================================
-\section{Validation}
+\section{Validation and Examples}
 %=============================================================================
 
-The test case \texttt{examples/clump\_sphere/clump\_test.in} sets
-$R=1$, $r_c=0.01$, $N_\mathrm{cov}=5$, $\tau_0=1000$, $T=10^4\,\mathrm{K}$,
-$10^5$ photons, 10 MPI ranks.  Typical results:
+The directory \texttt{examples/clump\_sphere/} contains a suite of six
+reference runs (plus the legacy \texttt{clump\_test.in}) covering the
+main parameter space.  All named cases use $R=1$, $r_c=0.01$, $10^6$
+photons, and \texttt{par\%use\_clump\_medium = .true.}:
+
+\begin{center}
+\begin{tabular}{lll}
+\hline
+Input file & $\tau_0$ & Notes \\
+\hline
+\texttt{clump\_tau3\_ncov5.in}        & $10^3$ & $N_\mathrm{cov}=5$, static (reference) \\
+\texttt{clump\_tau4\_ncov5.in}        & $10^4$ & $N_\mathrm{cov}=5$, static \\
+\texttt{clump\_tau3\_ncov20.in}       & $10^3$ & $N_\mathrm{cov}=20$, dense covering \\
+\texttt{clump\_tau3\_ncov5\_hubble.in}& $10^3$ & $N_\mathrm{cov}=5$, Hubble $V_\mathrm{exp}=200$ km/s \\
+\texttt{clump\_tau3\_ncov5\_sigv.in}  & $10^3$ & $N_\mathrm{cov}=5$, $\sigma_v=50$ km/s \\
+\texttt{clump\_tau3\_ncov5\_peel.in}  & $10^3$ & $N_\mathrm{cov}=5$, peel-off $129\times129$ \\
+\hline
+\end{tabular}
+\end{center}
+
+Run with \texttt{bash run.sh} (uses 4 MPI ranks by default) or individually:
+\begin{verbatim}
+mpirun -np 4 ../../LaRT.x clump_tau3_ncov5.in
+\end{verbatim}
+Python post-processing:
+\begin{verbatim}
+python plot_clump.py          # all runs
+python plot_clump.py clump_tau3_ncov5   # single run
+\end{verbatim}
+
+For the reference case ($N_\mathrm{cov}=5$, $\tau_0=10^3$):
 \begin{itemize}
   \item Realised $N_\mathrm{cov} \approx 5.00$, $f_\mathrm{vol} \approx 0.067$;
   \item RSA acceptance rate $\sim 74\%$, $N=66667$ clumps placed;
   \item Mean scattering count $\approx 6400$ per photon;
-  \item Wall time $\approx 3.75$ min (10 ranks).
+  \item Wall time $\approx 3.75$ min (10 ranks, $10^5$ photons).
 \end{itemize}
 
 The escaped spectrum $J_\mathrm{out}(x)$ shows the characteristic double-peak
-expected for a clumpy Lyman-$\alpha$ source.  The observer peel-off
-(\texttt{\_obs.fits.gz}) contains both \texttt{Scattered} (HDU~0) and
+expected for a clumpy Lyman-$\alpha$ source.  The peel-off output
+(\texttt{\_obs.fits.gz}) contains \texttt{Scattered} (HDU~0) and
 \texttt{Direct} (HDU~1) spectral image cubes of shape $(301, 129, 129)$.
 
 \end{document}
