@@ -102,10 +102,11 @@ contains
         xl, yl, zl, lvl, nH, Tgas, vel_x, vel_y, vel_z, &
         nleaf_total)
 
-    ! Convert positions from code units (fraction of boxlen) to physical [cm]
-    xl = xl * boxlen_cm
-    yl = yl * boxlen_cm
-    zl = zl * boxlen_cm
+    ! Convert positions from code units (fraction of boxlen) to physical [cm],
+    ! then centre at the box origin so coordinates lie in [-boxlen/2, +boxlen/2].
+    xl = (xl - 0.5_wp) * boxlen_cm
+    yl = (yl - 0.5_wp) * boxlen_cm
+    zl = (zl - 0.5_wp) * boxlen_cm
 
     nleaf       = nleaf_total
     xleaf       = xl
@@ -652,9 +653,8 @@ contains
 
     call fits_close(unit, status)
 
-    xleaf(:) = xleaf(:) - origin_x
-    yleaf(:) = yleaf(:) - origin_y
-    zleaf(:) = zleaf(:) - origin_z
+    ! Coordinates are already in [-boxlen/2, +boxlen/2] (AMRGrid convention).
+    ! ORIGINX/Y/Z headers are informational only; do not shift.
     leaf_level(:) = int(leaf_level_i4(:))
 
     deallocate(leaf_level_i4)

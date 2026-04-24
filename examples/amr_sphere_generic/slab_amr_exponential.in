@@ -2,18 +2,17 @@
  par%use_amr_grid  = .true.
  par%amr_type      = 'generic'
  par%amr_file      = 'slab_amr_exponential.dat'
- par%distance_unit = 'kpc'
  par%no_photons    = 1e+06
  par%taumax        = 1.0e+04
  par%DGR           = 0.0
  par%spectral_type = 'voigt'
  par%source_geometry = 'point'
- par%xs_point      = 50.0
- par%ys_point      = 50.0
- par%zs_point      = 50.0
+ par%xs_point      = 0.0
+ par%ys_point      = 0.0
+ par%zs_point      = 0.0
  par%nxfreq  = 121
- par%nxim    = 64
- par%nyim    = 64
+ par%nxim    = 100
+ par%nyim    = 100
  par%nprint  = 100000
  par%out_merge = .false.
 /

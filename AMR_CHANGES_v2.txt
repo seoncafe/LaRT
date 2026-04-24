@@ -630,6 +630,45 @@ Modified Existing Files
    unsupported AMR emissivity source.
 
 --------------------------------------------------------------------------------
+Bugs Fixed (Coordinate System / Physics)                     [2026-04-25]
+--------------------------------------------------------------------------------
+
+4. read_ramses_amr.f90 -- generic FITS reader incorrectly shifted leaf coordinates
+   Problem:  generic_amr_read_fits applied
+               xleaf(:) = xleaf(:) - origin_x   (and y, z)
+             where ORIGINX = -boxlen/2 (written by Python AMRGrid).
+             This shifted coordinates from [-boxlen/2, +boxlen/2] to [0, boxlen],
+             moving the grid centre from (0,0,0) to (boxlen/2, boxlen/2, boxlen/2).
+             LaRT assumes (0,0,0) as the grid centre for peel-off geometry and
+             the default point-source position (xs_point = ys_point = zs_point = 0).
+             A point source at (0,0,0) was therefore placed at the corner of the
+             sphere rather than at its centre, producing ~3x fewer scatterings
+             and incorrect spectra.
+   Fix:      Removed the three coordinate-shift lines in generic_amr_read_fits.
+             Added a comment explaining that ORIGINX/Y/Z headers are informational
+             only and must not be used to shift the already-centred coordinates.
+
+5. read_ramses_amr.f90 -- RAMSES reader produced coordinates in [0, boxlen_cm]
+   Problem:  ramses_read_leaf_cells converted fractional RAMSES positions
+             (range [0,1]) to physical cm via   xl = xl * boxlen_cm,
+             producing positions in [0, boxlen_cm]. This is inconsistent with
+             the LaRT convention that the box is centred at the origin, and
+             placed the RAMSES box corner at (0,0,0) instead of (-boxlen/2,...).
+   Fix:      Changed to   xl = (xl - 0.5_wp) * boxlen_cm   so that RAMSES
+             positions are mapped to [-boxlen_cm/2, +boxlen_cm/2].
+
+6. grid_mod_amr.f90 -- amr_build_tree called with wrong box bounds
+   Problem:  amr_build_tree was called with bounds [0, boxlen_code] on all
+             three axes, so the octree root centre was at
+             (boxlen/2, boxlen/2, boxlen/2) instead of (0,0,0). Even with
+             correctly centred leaf coordinates the tree-descent would
+             misidentify which child octant a photon belongs to for positions
+             near the origin.
+   Fix:      Changed the bounds to [-boxlen_code/2, +boxlen_code/2] on all
+             three axes, matching the centred coordinate convention used by
+             both the generic FITS reader and the RAMSES reader.
+
+--------------------------------------------------------------------------------
 Bugs Fixed During Compilation
 --------------------------------------------------------------------------------
 

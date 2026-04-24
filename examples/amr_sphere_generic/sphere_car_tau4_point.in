@@ -6,12 +6,15 @@
  par%spectral_type   = 'voigt'
  par%source_geometry = 'point'
  par%rmax   = 1.0
- par%nx = 101
- par%ny = 101
- par%nz = 101
+ par%nx = 128
+ par%ny = 128
+ par%nz = 128
  par%nxfreq = 121
- par%nxim   = 64
- par%nyim   = 64
+ par%nxim   = 100
+ par%nyim   = 100
+ par%save_peeloff      = .true.
+ par%save_peeloff_2D   = .true.
+ par%save_Jin          = .true.
  par%nprint = 100000
  par%out_merge = .false.
 /

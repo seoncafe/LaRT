@@ -9,7 +9,7 @@ Two refinement levels are used:
     the refinement sphere, plus any fully contained cells that satisfy the
     density/velocity refinement criterion.
 
-Density profile  : Gaussian   gasDen(r) = gasDen0 * exp(-r^2 / (2*r_s^2))
+Density profile  : Gaussian   dens(r) = dens0 * exp(-r^2 / (2*r_s^2))
 Temperature      : uniform    T = 1e4 K
 Velocity options : static  |  Hubble-like expansion  |  solid-body rotation
 
@@ -30,15 +30,15 @@ sys.path.insert(0, os.path.dirname(__file__))
 from make_amr_grid import AMRGrid
 
 
-def make_sphere(boxlen=100.0,
-                r_refine=40.0,
-                r_sigma=30.0,
-                gasDen0=3.2e-4,
+def make_sphere(boxlen=2.0,
+                r_refine=1.0,
+                r_sigma=1.0,
+                dens0=1.0,
                 T=1e4,
                 level_coarse=2,
                 level_fine=3,
                 velocity='static',
-                v_amp=20.0,
+                v_amp=1.0,
                 dens_threshold=0.1,
                 vel_threshold=0.1,
                 nprobe=2,
@@ -49,16 +49,16 @@ def make_sphere(boxlen=100.0,
     Parameters
     ----------
     boxlen : float
-        Box side length [kpc].  Box occupies [0, boxlen]^3.
+        Box side length [code unit].  Box occupies [-boxlen/2, boxlen/2]^3.
     r_refine : float
-        Refinement sphere radius [kpc] from box centre.
+        Refinement sphere radius [code unit] from box centre.
         Cells not fully contained in the sphere are always refined to
         ``level_fine``. Cells fully contained in the sphere are refined
         toward ``level_fine`` only when the physics criterion is satisfied.
     r_sigma : float
-        Gaussian density scale radius [kpc].
-    gasDen0 : float
-        Peak hydrogen number density at r=0 [cm^-3].
+        Gaussian density scale radius [code unit].
+    dens0 : float
+        Peak gas density (including hydrogen) at r=0 [cm^-3].
     T : float
         Gas temperature [K] (uniform).
     level_coarse : int
@@ -83,12 +83,11 @@ def make_sphere(boxlen=100.0,
     outfile : str
         Output filename.
     """
-    cx0 = cy0 = cz0 = boxlen / 2.0
+    cx0 = cy0 = cz0 = 0.0
 
-    def gasDen_fn(x, y, z):
-        r2 = (x-cx0)**2 + (y-cy0)**2 + (z-cz0)**2
-        return gasDen0 * np.exp(-r2 / (2.0 * r_sigma**2))
-        return gasDen0
+    def dens_fn(x, y, z):
+        r2 = x**2 + y**2 + z**2
+        return dens0 * np.exp(-r2 / (2.0 * r_sigma**2)) if r2 < boxlen**2 and r_sigma > 0.0 else 0.0
 
     vel_fn = None
     if velocity == 'static':
@@ -120,7 +119,7 @@ def make_sphere(boxlen=100.0,
     grid.refine(lambda c: True, level_max=level_coarse)
     grid.refine_sphere_by_physics(
         cx0, cy0, cz0, r_refine,
-        gasDen_fn=gasDen_fn,
+        dens_fn=dens_fn,
         vel_fn=vel_fn,
         dens_threshold=dens_threshold,
         vel_threshold=vel_threshold,
@@ -128,7 +127,7 @@ def make_sphere(boxlen=100.0,
         nprobe=nprobe,
     )
 
-    grid.set_density(gasDen_fn)
+    grid.set_density(dens_fn)
     grid.set_temperature(T)
     if vel_fn is not None:
         grid.set_velocity(vel_fn)
@@ -143,25 +142,23 @@ def make_laRT_input(outfile_dat, tau=1e4, nphotons=1e6, outfile_in=None):
     if outfile_in is None:
         base = os.path.splitext(outfile_dat)[0]
         outfile_in = base + '.in'
-    boxlen = 100.0
-    center = boxlen / 2.0
     content = (
         f"&parameters\n"
         f" par%use_amr_grid  = .true.\n"
         f" par%amr_type      = 'generic'\n"
         f" par%amr_file      = '{outfile_dat}'\n"
-        f" par%distance_unit = 'kpc'\n"
+        f" par%distance_unit = 1.0\n"
         f" par%no_photons    = {nphotons:.0e}\n"
         f" par%taumax        = {tau:.1e}\n"
         f" par%DGR           = 0.0\n"
         f" par%spectral_type = 'voigt'\n"
         f" par%source_geometry = 'point'\n"
-        f" par%xs_point      = {center:.1f}\n"
-        f" par%ys_point      = {center:.1f}\n"
-        f" par%zs_point      = {center:.1f}\n"
+        f" par%xs_point      = 0.0\n"
+        f" par%ys_point      = 0.0\n"
+        f" par%zs_point      = 0.0\n"
         f" par%nxfreq  = 121\n"
-        f" par%nxim    = 64\n"
-        f" par%nyim    = 64\n"
+        f" par%nxim    = 100\n"
+        f" par%nyim    = 100\n"
         f" par%nprint  = 100000\n"
         f" par%out_merge = .false.\n"
         f"/\n"
@@ -174,14 +171,14 @@ def make_laRT_input(outfile_dat, tau=1e4, nphotons=1e6, outfile_in=None):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(
         description='Create an AMR sphere data file for LaRT v2.00.')
-    parser.add_argument('--boxlen',   type=float, default=100.0,
-                        help='Box side length [kpc] (default: 100)')
-    parser.add_argument('--r-refine', type=float, default=40.0,
-                        help='Refinement sphere radius [kpc] (default: 40)')
-    parser.add_argument('--r-sigma',  type=float, default=30.0,
-                        help='Gaussian density scale radius [kpc] (default: 30)')
-    parser.add_argument('--gasDen0',      type=float, default=1.0,
-                        help='Peak HI density [cm^-3] (default: 1.0)')
+    parser.add_argument('--boxlen',   type=float, default=2.0,
+                        help='Box side length (default: 2.0)')
+    parser.add_argument('--r-refine', type=float, default=1.0,
+                        help='Refinement sphere radius (default: 1.0)')
+    parser.add_argument('--r-sigma',  type=float, default=1.0,
+                        help='Gaussian density scale radius (default: 1.0)')
+    parser.add_argument('--dens0',        type=float, default=1.0,
+                        help='Peak gas density [cm^-3] (default: 1.0)')
     parser.add_argument('--temperature', type=float, default=1e4,
                         help='Gas temperature [K] (default: 1e4)')
     parser.add_argument('--level-coarse', type=int, default=2,
@@ -191,8 +188,8 @@ if __name__ == '__main__':
     parser.add_argument('--velocity', choices=['static', 'hubble', 'rotate'],
                         default='static',
                         help='Velocity field type (default: static)')
-    parser.add_argument('--v-amp',    type=float, default=20.0,
-                        help='Velocity amplitude [km/s] (default: 20)')
+    parser.add_argument('--v-amp',    type=float, default=1.0,
+                        help='Velocity amplitude [km/s] (default: 1.0)')
     parser.add_argument('--dens-threshold', type=float, default=0.1,
                         help='Density-gradient refinement threshold (default: 0.1)')
     parser.add_argument('--vel-threshold',  type=float, default=0.1,
@@ -213,7 +210,7 @@ if __name__ == '__main__':
         boxlen      = args.boxlen,
         r_refine    = args.r_refine,
         r_sigma     = args.r_sigma,
-        gasDen0     = args.gasDen0,
+        dens0       = args.dens0,
         T           = args.temperature,
         level_coarse= args.level_coarse,
         level_fine  = args.level_fine,

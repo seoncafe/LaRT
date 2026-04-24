@@ -101,10 +101,11 @@ contains
     ! Cartesian grid.  Raytrace path lengths are in code units; rhokap is
     ! scaled to per-code-unit via *= distance2cm (same as Cartesian).
     ! (RAMSES reader returns cm, so for RAMSES distance2cm = 1 → no change.)
+    ! Coordinates are in [-boxlen/2, +boxlen/2] (box centred at origin).
     call amr_build_tree(xleaf, yleaf, zleaf, leaf_level, nleaf, &
-        0.0_wp, boxlen_code, &
-        0.0_wp, boxlen_code, &
-        0.0_wp, boxlen_code)
+        -0.5_wp*boxlen_code, 0.5_wp*boxlen_code, &
+        -0.5_wp*boxlen_code, 0.5_wp*boxlen_code, &
+        -0.5_wp*boxlen_code, 0.5_wp*boxlen_code)
 
     ! Precompute face-neighbor table for O(1) cell-boundary crossings.
     call amr_build_neighbors

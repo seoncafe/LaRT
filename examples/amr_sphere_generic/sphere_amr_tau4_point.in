@@ -1,18 +1,28 @@
 &parameters
+!----------------------------------------------------------------------
+! AMR example: Lya sphere in a 2-level octree grid (generic text format)
+! Same as sphere_amr_tau4.in but with peel-off and multiple observers.
+!----------------------------------------------------------------------
+
  par%use_amr_grid  = .true.
  par%amr_type      = 'generic'
- par%amr_file      = 'sphere_amr.dat'
+ par%amr_file      = 'uniform_amr_sphere.fits.gz'
+
  par%no_photons   = 1e6
  par%taumax       = 1.0e4
  par%DGR          = 0.0
+
  par%source_geometry = 'point'
- par%xs_point     = 50.0
- par%ys_point     = 50.0
- par%zs_point     = 50.0
  par%spectral_type = 'voigt'
+
  par%nxfreq  = 121
- par%nxim    = 64
- par%nyim    = 64
+ par%nxim    = 100
+ par%nyim    = 100
+
+ par%save_peeloff      = .true.
+ par%save_peeloff_2D   = .true.
+ par%save_Jin          = .true.
+
  par%nprint  = 100000
  par%out_merge = .false.
 /

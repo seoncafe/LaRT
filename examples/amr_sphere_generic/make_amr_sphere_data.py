@@ -1,8 +1,10 @@
+import sys
 import numpy as np
 import matplotlib.pyplot as plt
 
-from make_amr_grid import AMRGrid
+sys.path.append('../python')
 
+from make_amr_grid import AMRGrid
 
 def make_sphere_grid(r_scale = 1.0, level_min=1, level_max=3, refine_boundary=False):
     boxlen = 2.0
@@ -57,29 +59,19 @@ def make_sphere_grid(r_scale = 1.0, level_min=1, level_max=3, refine_boundary=Fa
 
 r_scale = 0.0
 # ---- level 3 -----------------------------------------------------------
-grid = make_sphere_grid(r_scale=r_scale, level_max=3)
-print("level=3:", grid.level_counts())
-
-fig, ax = plt.subplots(figsize=(6.5, 6))
-grid.slice_plot(axis="z", value=0.0, quantity="dens", ax=ax, log=False, show_leaf_boundaries=True, show_leaf_centers=True)
-ax.set_title("Uniform sphere slice (level_max=3)")
-#plt.tight_layout()
-plt.savefig("uniform_sphere_slice_l3.pdf", dpi=600)
-plt.close(fig)
-
+#grid = make_sphere_grid(r_scale=r_scale, level_max=3)
+#print("level=3:", grid.level_counts())
+#outfile = 'uniform_amr_sphere.fits.gz'
+#grid.write(outfile)
 
 # ---- level 4 -----------------------------------------------------------
-grid = make_sphere_grid(r_scale=r_scale, level_max=4)
-print("level=4:", grid.level_counts())
-
-fig, ax = plt.subplots(figsize=(6.5, 6))
-grid.slice_plot(axis="z", value=0.0, quantity="dens", ax=ax, log=False, show_leaf_boundaries=True, show_leaf_centers=True)
-ax.set_title("Uniform sphere slice (level_max=4)")
-#plt.tight_layout()
-plt.savefig("uniform_sphere_slice_l4.pdf", dpi=600)
-plt.close(fig)
+#grid = make_sphere_grid(r_scale=r_scale, level_max=4)
+#print("level=4:", grid.level_counts())
+#outfile = 'uniform_amr_sphere.fits.gz'
+#grid.write(outfile)
 
 # ---- level 7  -----------------------------------------------------------
 grid = make_sphere_grid(r_scale=r_scale, level_min=3,level_max=7,refine_boundary=True)
+print("level=7:", grid.level_counts())
 outfile = 'uniform_amr_sphere.fits.gz'
 grid.write(outfile)

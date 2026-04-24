@@ -138,6 +138,14 @@ where $d_\mathrm{cm}$ is the number of centimetres per code unit.  After that,
 all quantities are dimensionless with respect to code units, exactly mirroring
 the Cartesian convention.
 
+The box is always \textbf{centred at the origin}: all leaf coordinates lie in
+$[-L_\mathrm{box}/2,\,+L_\mathrm{box}/2]$ on each axis, and the octree root
+spans the same range.  This is required because the peel-off geometry and the
+default point-source position (\texttt{xs\_point = ys\_point = zs\_point = 0})
+both assume $(0,0,0)$ to be the box centre.  Input readers are responsible for
+mapping raw data to this centred convention before passing coordinates to
+\texttt{amr\_build\_tree}.
+
 %=============================================================================
 \section{Building the Octree}
 %=============================================================================
@@ -308,7 +316,13 @@ Two readers are provided.
 Reads the standard RAMSES AMR and hydro binary output files from
 \texttt{output\_XXXXX/}.  Unit scales ($\texttt{unit\_l}$, $\texttt{unit\_d}$,
 $\texttt{unit\_t}$) are taken from \texttt{info\_XXXXX.txt}.  The routine
-returns leaf positions in cm and $n_H$ in cm$^{-3}$.
+returns leaf positions in physical units (cm).  RAMSES stores fractional
+positions in $[0, 1]$ (fraction of \texttt{boxlen}); the reader maps these to
+the centred convention as
+\begin{equation}
+  x_\mathrm{leaf} = \bigl(x_\mathrm{RAMSES} - \tfrac{1}{2}\bigr)\,L_\mathrm{box},
+\end{equation}
+so that the output positions lie in $[-L_\mathrm{box}/2,\,+L_\mathrm{box}/2]$.
 
 \paragraph{Generic text format (\texttt{amr\_type = 'generic'}).}
 A plain-text file with a header followed by one line per leaf cell:
@@ -321,6 +335,12 @@ NLEAF   <number_of_leaf_cells>
 ...
 \end{lstlisting}
 The code unit is set by \texttt{par\%distance\_unit} (e.g., \texttt{'kpc'}).
+Leaf coordinates must be centred at the origin,
+i.e., in $[-L_\mathrm{box}/2,\,+L_\mathrm{box}/2]$ on each axis.
+The Python \texttt{AMRGrid} class writes coordinates in this convention.
+When reading a FITS binary table, the \texttt{ORIGINX}/\texttt{ORIGINY}/\texttt{ORIGINZ}
+header keywords (written by \texttt{AMRGrid} as $-L_\mathrm{box}/2$) are
+\emph{informational only} and are \textbf{not} used to shift the coordinates.
 
 \subsection{Tau Normalisation by Pole Traversal}
 \label{sec:taunorm}
