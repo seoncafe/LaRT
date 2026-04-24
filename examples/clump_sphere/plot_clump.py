@@ -40,16 +40,16 @@ def load_clumps(fname):
 
 
 def load_peeloff(fname):
-    """Return peel-off image cube (nxfreq, nxim, nyim) from _obs.fits.gz."""
+    """Return peel-off image cube (nyim, nxim, nxfreq) from _obs.fits.gz."""
     with fits.open(fname) as hdul:
-        return hdul[0].data   # shape: (nxfreq, nxim, nyim) or (nxim, nyim)
+        return hdul[0].data   # shape: (nyim, nxim, nxfreq) or (nyim, nxim)
 
 
 # -----------------------------------------------------------------------
 # Per-run plots
 # -----------------------------------------------------------------------
 
-def plot_run(base):
+def plot_run(base, save_pdf=False):
     spec_file   = base + '.fits.gz'
     clump_file  = base + '_clumps.fits.gz'
     obs_file    = base + '_obs.fits.gz'
@@ -78,7 +78,8 @@ def plot_run(base):
     if os.path.exists(obs_file):
         cube = load_peeloff(obs_file)
         if cube.ndim == 3:
-            im = cube.sum(axis=0)   # collapse frequency axis
+            #im = cube.sum(axis=0)   # collapse frequency axis
+            im = cube.sum(axis=2)   # collapse frequency axis
         else:
             im = cube
         masked = np.ma.masked_where(im == 0, im)
@@ -86,7 +87,7 @@ def plot_run(base):
         cmap.set_bad('white')
         img = ax.imshow(masked, origin='lower', cmap=cmap)
         plt.colorbar(img, ax=ax, fraction=0.046)
-        ax.set_title('Peel-off image (Σ over frequency)')
+        ax.set_title('Peel-off image (sum over frequency)')
     else:
         ax.text(0.5, 0.5, 'No peel-off file', ha='center', va='center',
                 transform=ax.transAxes)
@@ -114,17 +115,18 @@ def plot_run(base):
                      f'N={n_cl}, f_vol={f_vol:.3f}, N_cov={n_cov:.2f}')
 
     plt.tight_layout()
-    out_pdf = base + '_plot.pdf'
-    plt.savefig(out_pdf, dpi=150)
-    print(f'  saved  {out_pdf}')
-    plt.close()
+    if save_pdf:
+       out_pdf = base + '_plot.pdf'
+       plt.savefig(out_pdf, dpi=150)
+       print(f'  saved  {out_pdf}')
+       plt.close()
 
 
 # -----------------------------------------------------------------------
 # Comparison plot: spectra from multiple runs
 # -----------------------------------------------------------------------
 
-def plot_spectra_comparison(bases, title='Clumpy sphere spectra'):
+def plot_spectra_comparison(bases, title='Clumpy sphere spectra', save_pdf=False):
     fig, ax = plt.subplots(figsize=(8, 5))
     ax.set_title(title)
     for base in bases:
@@ -137,10 +139,11 @@ def plot_spectra_comparison(bases, title='Clumpy sphere spectra'):
     ax.set_ylabel('J  [arbitrary]')
     ax.legend(fontsize=8)
     plt.tight_layout()
-    out_pdf = 'clump_spectra_comparison.pdf'
-    plt.savefig(out_pdf, dpi=150)
-    print(f'  saved  {out_pdf}')
-    plt.close()
+    if save_pdf:
+       out_pdf = 'clump_spectra_comparison.pdf'
+       plt.savefig(out_pdf, dpi=150)
+       print(f'  saved  {out_pdf}')
+       plt.close()
 
 
 # -----------------------------------------------------------------------

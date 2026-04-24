@@ -15,8 +15,6 @@
  par%save_peeloff     = .true.
  par%nxim             = 129
  par%nyim             = 129
- par%dxim             = 0.5
- par%dyim             = 0.5
  par%save_clump_info  = .true.
  par%out_file         = 'clump_tau3_ncov5_peel.fits.gz'
 /
