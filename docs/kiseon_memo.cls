@@ -34,6 +34,9 @@
 \RequirePackage{kotex}
 \RequirePackage[hyperfootnotes=false]{hyperref}
 \RequirePackage[fontsize=10pt]{scrextend}
+\RequirePackage[table]{xcolor}
+
+\definecolor{titleblue}{RGB}{173,216,230}
 
 %% ---- Page geometry --------------------------------------------------------
 \linespread{1.5}
@@ -68,17 +71,20 @@
 \renewcommand{\headrulewidth}{0.4pt}
 \renewcommand{\footrulewidth}{0.4pt}
 
-%% Plain style used on the title page (no header/footer rules)
+%% Plain style used on the title page (no header rule, but keep footer rule)
 \fancypagestyle{plain}{%
-  \lhead{}\chead{}\cfoot{}\rhead{}%
+  \fancyhf{}%
+  \lfoot{\bfseries\thepage~/ \pageref{LastPage}}%
+  \rfoot{\bfseries\TheAuthor~/ \TheDate}%
   \renewcommand{\headrulewidth}{0pt}%
-  \renewcommand{\footrulewidth}{0pt}}
+  \renewcommand{\footrulewidth}{0.4pt}}
 
 %% ---- Boxed title ----------------------------------------------------------
 \renewcommand{\maketitle}{%
   \thispagestyle{plain}%
   \vspace*{-40pt}%
   \begin{tabular}{|c|}\hline
+    \rowcolor{titleblue}%
     \parbox{15.46cm}{\vspace*{10pt}\centering\LARGE{\bfseries\TheTitle}\par\vspace{10pt}}%
   \\ \hline
   \end{tabular}%
