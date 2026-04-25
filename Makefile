@@ -142,7 +142,7 @@ OBJSB	= \
 	peelingoff_heal.o \
 	point_illumination.o \
 	stellar_illumination.o \
-	gen_photon_car.o \
+	generate_photon.o \
 	scattering_car.o \
 	run_simulation_mod.o \
 	sightline_tau_rect.o \

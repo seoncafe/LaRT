@@ -291,9 +291,9 @@ contains
     grid%ymax   = amr_grid%ymax
     grid%zmin   = amr_grid%zmin
     grid%zmax   = amr_grid%zmax
-    grid%xrange = amr_grid%xmax - amr_grid%xmin
-    grid%yrange = amr_grid%ymax - amr_grid%ymin
-    grid%zrange = amr_grid%zmax - amr_grid%zmin
+    grid%xrange = amr_grid%xrange
+    grid%yrange = amr_grid%yrange
+    grid%zrange = amr_grid%zrange
     ! par%rmax/xmax/ymax/zmax already set by geometry block in Step 2.
 
     call amr_setup_emissivity(grid)

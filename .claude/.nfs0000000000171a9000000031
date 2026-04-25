@@ -12,7 +12,9 @@
       "Bash(cp /nfs/lart4/kiseon/LaRT/combine/LaRT_v2.00/grid_mod_clump.f90 /nfs/lart4/kiseon/LaRT/combine/LaRT_v2.10/grid_mod_clump.f90)",
       "Bash(rm /nfs/lart4/kiseon/LaRT/combine/LaRT_v2.00/AMR_CHANGES_v2.txt)",
       "Bash(rm /nfs/lart4/kiseon/LaRT/combine/LaRT_v2.10/AMR_CHANGES_v2.txt)",
-      "Bash(rm /nfs/lart4/kiseon/LaRT/combine/LaRT_v2.10/AMR_CHANGES_v3.txt)"
+      "Bash(rm /nfs/lart4/kiseon/LaRT/combine/LaRT_v2.10/AMR_CHANGES_v3.txt)",
+      "Read(//nfs/lart4/kiseon/LaRT/combine/LaRT_v2.10/**)",
+      "Read(//nfs/lart4/kiseon/LaRT/**)"
     ]
   }
 }

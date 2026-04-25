@@ -18,10 +18,10 @@ module octree_mod
   type amr_grid_type
 
     ! ------ domain geometry ------
-    real(wp) :: xmin = 0.0_wp, xmax = 1.0_wp
-    real(wp) :: ymin = 0.0_wp, ymax = 1.0_wp
-    real(wp) :: zmin = 0.0_wp, zmax = 1.0_wp
-    real(wp) :: L_box = 1.0_wp    ! box length (same units as xmin..xmax)
+    real(wp) :: xmin = 0.0_wp, xmax = 1.0_wp, xrange = 1.0_wp
+    real(wp) :: ymin = 0.0_wp, ymax = 1.0_wp, yrange = 1.0_wp
+    real(wp) :: zmin = 0.0_wp, zmax = 1.0_wp, zrange = 1.0_wp
+    real(wp) :: L_box = 1.0_wp    ! box length (= xrange; kept for internal octree use)
 
     ! ------ octree structure ------
     integer  :: ncells   = 0      ! total cells (internal + leaf)
@@ -225,9 +225,9 @@ contains
     allocate(t_ch(ncells_max),   source=0.0_wp)
     allocate(t_icell_of_leaf(nleaf), source=0)
 
-    amr_grid%xmin  = box_xmin;  amr_grid%xmax  = box_xmax
-    amr_grid%ymin  = box_ymin;  amr_grid%ymax  = box_ymax
-    amr_grid%zmin  = box_zmin;  amr_grid%zmax  = box_zmax
+    amr_grid%xmin  = box_xmin;  amr_grid%xmax  = box_xmax;  amr_grid%xrange = box_xmax - box_xmin
+    amr_grid%ymin  = box_ymin;  amr_grid%ymax  = box_ymax;  amr_grid%yrange = box_ymax - box_ymin
+    amr_grid%zmin  = box_zmin;  amr_grid%zmax  = box_zmax;  amr_grid%zrange = box_zmax - box_zmin
     amr_grid%L_box = box_xmax - box_xmin
 
     ! Initialise root cell (index 1)

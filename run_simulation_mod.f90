@@ -1,7 +1,7 @@
 module run_simulation_mod
   use define
   use grid_mod
-  use photon_mod
+  use generate_photon_mod
   use random
   use scatter_mod
   use utility
@@ -65,7 +65,7 @@ contains
            !--- Main Part of the simulation
            !--- Release photon
            photon%id = ip
-           call gen_photon(grid,photon)
+           call generate_photon(grid,photon)
            if (par%save_all_photons) call make_all_initial_photons(photon)
 
            first = .true.
@@ -141,7 +141,7 @@ contains
      !--- Main Part of the simulation
      !--- Release photon
      photon%id = ip
-     call gen_photon(grid,photon)
+     call generate_photon(grid,photon)
      if (par%save_all_photons) call make_all_initial_photons(photon)
 
      first = .true.
