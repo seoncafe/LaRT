@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 *)",
+      "Bash(make F90=mpif90)",
+      "Bash(mpif90 *)",
+      "Skill(update-config)",
+      "Bash(pdflatex -interaction=nonstopmode LaRT_clump_description.tex)",
+      "Bash(xargs -n1 basename)",
+      "Bash(cp /nfs/lart4/kiseon/LaRT/combine/LaRT_v2.00/clump_mod.f90 /nfs/lart4/kiseon/LaRT/combine/LaRT_v2.10/clump_mod.f90)",
+      "Bash(cp /nfs/lart4/kiseon/LaRT/combine/LaRT_v2.00/raytrace_clump.f90 /nfs/lart4/kiseon/LaRT/combine/LaRT_v2.10/raytrace_clump.f90)",
+      "Bash(cp /nfs/lart4/kiseon/LaRT/combine/LaRT_v2.00/grid_mod_clump.f90 /nfs/lart4/kiseon/LaRT/combine/LaRT_v2.10/grid_mod_clump.f90)",
+      "Bash(rm /nfs/lart4/kiseon/LaRT/combine/LaRT_v2.00/AMR_CHANGES_v2.txt)",
+      "Bash(rm /nfs/lart4/kiseon/LaRT/combine/LaRT_v2.10/AMR_CHANGES_v2.txt)",
+      "Bash(rm /nfs/lart4/kiseon/LaRT/combine/LaRT_v2.10/AMR_CHANGES_v3.txt)"
+    ]
+  }
+}

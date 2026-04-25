@@ -292,7 +292,7 @@ public
      real(kind=wp) :: clump_radius      = -1.0_wp  ! clump radius [code units]
      real(kind=wp) :: clump_N_clumps    = -1.0_wp  ! number of clumps (specify one of three)
      real(kind=wp) :: clump_f_vol       = -1.0_wp  ! volume filling factor
-     real(kind=wp) :: clump_N_cov       = -1.0_wp  ! covering factor
+     real(kind=wp) :: clump_f_cov       = -1.0_wp  ! covering factor
      real(kind=wp) :: clump_tau0        = -1.0_wp  ! line-center tau: clump center to surface
      real(kind=wp) :: clump_nH          = -1.0_wp  ! clump HI density [cm^-3]
      real(kind=wp) :: clump_temperature = -1.0_wp  ! clump temperature [K] (default: par%temperature)

@@ -5,7 +5,7 @@ plot_clump.py  --  Quick analysis plots for the LaRT_v2.00 clumpy-sphere example
 Usage
 -----
   python plot_clump.py                  # plots all available output files
-  python plot_clump.py clump_tau3_ncov5 # plots a single run by base name
+  python plot_clump.py clump_tau3_fcov5 # plots a single run by base name
 
 Requires: astropy, matplotlib, numpy
 """
@@ -151,12 +151,12 @@ def plot_spectra_comparison(bases, title='Clumpy sphere spectra', save_pdf=False
 # -----------------------------------------------------------------------
 
 DEFAULT_BASES = [
-    'clump_tau3_ncov5',
-    'clump_tau4_ncov5',
-    'clump_tau3_ncov20',
-    'clump_tau3_ncov5_hubble',
-    'clump_tau3_ncov5_sigv',
-    'clump_tau3_ncov5_peel',
+    'clump_tau3_fcov5',
+    'clump_tau4_fcov5',
+    'clump_tau3_fcov20',
+    'clump_tau3_fcov5_hubble',
+    'clump_tau3_fcov5_sigv',
+    'clump_tau3_fcov5_peel',
 ]
 
 if __name__ == '__main__':

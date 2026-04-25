@@ -20,7 +20,7 @@ NEW FILES
 ---------
   clump_mod.f90
     - Module clump_mod: all clump physics and data.
-    - init_clumps(R_sphere): derives N_clumps from input (N_cov / f_vol /
+    - init_clumps(R_sphere): derives N_clumps from input (f_cov / f_vol /
       N_clumps direct), computes cl_Dfreq / cl_voigt_a / cl_rhokap, allocates
       MPI-3 shared memory, runs RSA placement, builds CSR grid.
     - generate_clumps(): RSA with linked-list hash grid (O(N) expected).
@@ -74,7 +74,7 @@ MODIFIED FILES
     - Added to params_type:
         logical :: use_clump_medium  = .false.
         real    :: clump_radius      = 0.0
-        real    :: clump_N_cov       = 0.0
+        real    :: clump_f_cov       = 0.0
         real    :: clump_f_vol       = 0.0
         real    :: clump_N_clumps    = 0.0
         real    :: clump_tau0        = 0.0
@@ -167,11 +167,11 @@ BUGS FIXED
       write keywords into that same HDU.
     - File: clump_mod.f90
 
-  2026-04-24  N_cov formula missing factor 3/4 in write_clumps_fits
-    - The correct formula is N_cov = (3/4) * N * (r_c/R)^2 (radial path from
-      center to surface).  The realised N_cov stored in the FITS header was
+  2026-04-24  f_cov formula missing factor 3/4 in write_clumps_fits
+    - The correct formula is f_cov = (3/4) * N * (r_c/R)^2 (radial path from
+      center to surface).  The realised f_cov stored in the FITS header was
       missing the 3/4 factor.
-    - Fix: N_cov_actual = 0.75 * real(ncl) * (cl_radius/sphere_R)**2.
+    - Fix: f_cov_actual = 0.75 * real(ncl) * (cl_radius/sphere_R)**2.
     - File: clump_mod.f90
 
   2026-04-24  Unnecessary fourpi_over3 variable in write_clumps_fits
@@ -197,14 +197,14 @@ EXAMPLES
     A suite of six reference runs covering the key parameter space.
     All use par%use_clump_medium = .true. with R=1, r_c=0.01, 1e6 photons.
 
-    clump_tau3_ncov5.in         tau0=1e3, N_cov=5,  static (reference)
-    clump_tau4_ncov5.in         tau0=1e4, N_cov=5,  static (high tau)
-    clump_tau3_ncov20.in        tau0=1e3, N_cov=20, static (dense covering)
-    clump_tau3_ncov5_hubble.in  tau0=1e3, N_cov=5,  Hubble flow Vexp=200 km/s
-    clump_tau3_ncov5_sigv.in    tau0=1e3, N_cov=5,  sigma_v=50 km/s
-    clump_tau3_ncov5_peel.in    tau0=1e3, N_cov=5,  peel-off 129x129 image
+    clump_tau3_ncov5.in         tau0=1e3, f_cov=5,  static (reference)
+    clump_tau4_ncov5.in         tau0=1e4, f_cov=5,  static (high tau)
+    clump_tau3_ncov20.in        tau0=1e3, f_cov=20, static (dense covering)
+    clump_tau3_ncov5_hubble.in  tau0=1e3, f_cov=5,  Hubble flow Vexp=200 km/s
+    clump_tau3_ncov5_sigv.in    tau0=1e3, f_cov=5,  sigma_v=50 km/s
+    clump_tau3_ncov5_peel.in    tau0=1e3, f_cov=5,  peel-off 129x129 image
 
-    clump_test.in               legacy single-test (1e5 photons, N_cov=5, tau0=1e3,
+    clump_test.in               legacy single-test (1e5 photons, f_cov=5, tau0=1e3,
                                 peel-off and clump info enabled)
 
     Support scripts:

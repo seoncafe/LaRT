@@ -82,11 +82,11 @@ contains
      N_clumps = int(par%clump_N_clumps, int64)
   else if (par%clump_f_vol > 0.0_wp) then
      N_clumps = nint(par%clump_f_vol * (R_sphere/cl_radius)**3, int64)
-  else if (par%clump_N_cov > 0.0_wp) then
-     N_clumps = nint((4.0_wp/3.0_wp)*par%clump_N_cov*(R_sphere/cl_radius)**2, int64)
+  else if (par%clump_f_cov > 0.0_wp) then
+     N_clumps = nint((4.0_wp/3.0_wp)*par%clump_f_cov*(R_sphere/cl_radius)**2, int64)
   else
      if (mpar%p_rank == 0) &
-        write(*,*) 'ERROR: specify clump_N_clumps, clump_f_vol, or clump_N_cov'
+        write(*,*) 'ERROR: specify clump_N_clumps, clump_f_vol, or clump_f_cov'
      call MPI_ABORT(MPI_COMM_WORLD, 1, ierr)
   end if
   if (N_clumps <= 0_int64) N_clumps = 1_int64
@@ -118,7 +118,7 @@ contains
      write(*,'(a,i14)')   ' Clumps: N_clumps  = ', N_clumps
      write(*,'(a,f12.6)') ' Clumps: f_vol     = ', &
            real(N_clumps,wp) * (cl_radius/R_sphere)**3
-     write(*,'(a,f12.5)') ' Clumps: N_cov     = ', &
+     write(*,'(a,f12.5)') ' Clumps: f_cov     = ', &
            0.75_wp * real(N_clumps,wp) * (cl_radius/R_sphere)**2
      write(*,'(a,es12.4)') ' Clumps: cl_rhokap = ', cl_rhokap
      write(*,'(a,f12.5)')  ' Clumps: voigt_a   = ', cl_voigt_a
@@ -645,15 +645,15 @@ contains
   integer :: unit, status, bitpix
   real(kind=real64), allocatable :: tmp(:)
   integer(int64) :: ncl
-  real(kind=wp)  :: f_vol_actual, N_cov_actual
+  real(kind=wp)  :: f_vol_actual, f_cov_actual
 
   status = 0
   ncl    = N_clumps
   bitpix = -32   ! save as float32 (sufficient precision for positions/velocities)
 
-  !--- Compute realized f_vol and N_cov from actual placed clumps
+  !--- Compute realized f_vol and f_cov from actual placed clumps
   f_vol_actual  = real(ncl,wp) * (cl_radius / sphere_R)**3
-  N_cov_actual  = 0.75_wp * real(ncl,wp) * (cl_radius / sphere_R)**2
+  f_cov_actual  = 0.75_wp * real(ncl,wp) * (cl_radius / sphere_R)**2
 
   call fits_open_new(unit, trim(fname), status)
   if (status /= 0) then
@@ -684,7 +684,7 @@ contains
   call fits_put_keyword(unit, 'SPHERE_R',  sphere_R,      'outer sphere radius [code units]',      status)
   call fits_put_keyword(unit, 'CL_RAD',    cl_radius,     'clump radius [code units]',             status)
   call fits_put_keyword(unit, 'F_VOL',     f_vol_actual,  'volume filling factor (realized)',       status)
-  call fits_put_keyword(unit, 'N_COV',     N_cov_actual,  'covering factor (realized)',             status)
+  call fits_put_keyword(unit, 'F_COV',     f_cov_actual,  'covering factor (realized)',             status)
   call fits_put_keyword(unit, 'TAU0',      par%clump_tau0,    'line-center tau (center to surface)',status)
   call fits_put_keyword(unit, 'SIGMA_V',   par%clump_sigma_v, 'bulk velocity sigma [km/s]',        status)
   call fits_put_keyword(unit, 'TEMP_CL',   cl_temperature,'clump temperature [K] (actual)',         status)
@@ -693,7 +693,7 @@ contains
   call fits_put_keyword(unit, 'VTHERM',    cl_vtherm,     'thermal velocity [km/s]',               status)
   call fits_put_keyword(unit, 'VOIGT_A',   cl_voigt_a,    'Voigt damping parameter',               status)
   call fits_put_keyword(unit, 'RMAX',      par%rmax,      'outer sphere radius input (par%rmax)',   status)
-  call fits_put_keyword(unit, 'IN_NCOV',   par%clump_N_cov,   'covering factor (input)',            status)
+  call fits_put_keyword(unit, 'IN_FCOV',   par%clump_f_cov,   'covering factor (input)',            status)
   call fits_put_keyword(unit, 'IN_FVOL',   par%clump_f_vol,   'volume filling factor (input)',      status)
   call fits_put_keyword(unit, 'IN_NCL',    par%clump_N_clumps,'N_clumps (input)',                   status)
   call fits_put_keyword(unit, 'IN_NH',     par%clump_nH,      'clump nH density input [cm^-3]',    status)

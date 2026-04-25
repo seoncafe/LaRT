@@ -22,22 +22,22 @@ The OOP interface par%grid_type = 'clump' is available in LaRT_v2.10 and later.
 
 Input files
 -----------
-  clump_tau3_ncov5.in         tau0=1e3, N_cov=5,  static (reference run)
-  clump_tau4_ncov5.in         tau0=1e4, N_cov=5,  static (high optical depth)
-  clump_tau3_ncov20.in        tau0=1e3, N_cov=20, static (dense covering)
-  clump_tau3_ncov5_hubble.in  tau0=1e3, N_cov=5,  Hubble expansion Vexp=200 km/s
-  clump_tau3_ncov5_sigv.in    tau0=1e3, N_cov=5,  clump sigma_v=50 km/s
-  clump_tau3_ncov5_peel.in    tau0=1e3, N_cov=5,  peel-off observer (129x129 image)
+  clump_tau3_fcov5.in         tau0=1e3, N_cov=5,  static (reference run)
+  clump_tau4_fcov5.in         tau0=1e4, N_cov=5,  static (high optical depth)
+  clump_tau3_fcov20.in        tau0=1e3, N_cov=20, static (dense covering)
+  clump_tau3_fcov5_hubble.in  tau0=1e3, N_cov=5,  Hubble expansion Vexp=200 km/s
+  clump_tau3_fcov5_sigv.in    tau0=1e3, N_cov=5,  clump sigma_v=50 km/s
+  clump_tau3_fcov5_peel.in    tau0=1e3, N_cov=5,  peel-off observer (129x129 image)
 
   clump_test.in               legacy single-test case (1e5 photons, same as
-                              clump_tau3_ncov5 but with peel-off enabled)
+                              clump_tau3_fcov5 but with peel-off enabled)
 
 How to run
 ----------
   cd LaRT_v2.00/examples/clump_sphere
   bash run.sh                            # runs all cases with NP=4
   # or individually:
-  mpirun -np 4 ../../LaRT.x clump_tau3_ncov5.in
+  mpirun -np 4 ../../LaRT.x clump_tau3_fcov5.in
 
 Output files
 ------------
@@ -52,7 +52,7 @@ Output files
 Analysis
 --------
   python plot_clump.py                   # all runs
-  python plot_clump.py clump_tau3_ncov5  # single run
+  python plot_clump.py clump_tau3_fcov5  # single run
 
   Produces per-run PDF with spectrum, peel-off image, and clump position
   scatter plot (z-slice), plus a multi-run comparison spectrum PDF.
