@@ -17,6 +17,7 @@ contains
   integer       :: nx,ny,nz
   real(kind=wp) :: xmax,ymax,zmax
   real(kind=wp) :: vtherm0
+  real(kind=wp) :: r0
   integer :: status
 
   !--- Read in parameters from params.par using namelist command
@@ -47,6 +48,21 @@ contains
   par%distance_unit   = strlowcase(par%distance_unit)
   par%spectral_type   = strlowcase(par%spectral_type)
 
+  !--- Normalise geometry string to a canonical value.
+  !    Default is 'sphere'.  RAMSES AMR defaults to 'rectangle' because
+  !    RAMSES grids are not necessarily spherical.
+  !    'box' is accepted as a synonym for 'rectangle'.
+  select case(trim(par%geometry))
+  case ('')
+     if (par%use_amr_grid .and. trim(par%amr_type) == 'ramses') then
+        par%geometry = 'rectangle'
+     else
+        par%geometry = 'sphere'
+     end if
+  case ('box')
+     par%geometry = 'rectangle'
+  end select
+
   !-- setup line data --------
   call setup_resonance_line()
   !---------------------------
@@ -55,14 +71,16 @@ contains
   par%nscatt_gas  = 0.0_wp
   par%nscatt_tot  = 0.0_wp
 
-  !--- for exoplanet atmosphere (2021.04.22)
+  !--- geometry-specific dimension pre-processing
   if (trim(par%geometry) == 'plane_atmosphere') then
+     !--- for exoplanet atmosphere (2021.04.22)
      par%xy_periodic  = .true.
      par%xyz_symmetry = .false.
      par%xmax         = par%zmax
      par%ymax         = par%zmax
      par%nx           = 1
      par%ny           = 1
+     par%rmax         = -1.0_wp
   else if (trim(par%geometry) == 'spherical_atmosphere') then
      !--- for now, xyz_symmetry is not allowed. (2021.05.10)
      par%xy_periodic  = .false.
@@ -189,26 +207,45 @@ contains
   if (par%DGR == 0.0_wp)       par%save_Jabs = .false.
   if (par%core_skip_global)    par%core_skip = .true.
 
-  ! if rmax > 0, then the system is regarded as a sphere or cylinder.
+  ! Propagate par%nr to grid resolution
   if (par%nr > 1) then
      par%nx = par%nr
      par%ny = par%nr
      if (trim(par%geometry) /= 'cylinder') par%nz = par%nr
   endif
-  ! bug-fix, 2023-06-25. This caused an error in models of par%gemoetry = 'spherical_atmosphere'
-  !if (trim(par%geometry) /= 'cylinder' .and. par%rmax > 0.0_wp) then
-  if ((trim(par%geometry) == '' .or. trim(par%geometry) == 'sphere') .and. par%rmax > 0.0_wp) then
-     par%geometry = 'sphere'
-     par%xmax = par%rmax
-     par%ymax = par%rmax
-     par%zmax = par%rmax
-     if (.not. par%xy_symmetry) then
-        par%nx   = maxval([par%nx,par%ny,par%nz])
-        par%ny   = par%nx
-        par%nz   = par%nx
-     endif
-     !if (par%source_rmax < 0.0_wp) par%source_rmax = par%rmax
-  endif
+
+  !--- Geometry dimension normalisation (Cartesian only; AMR overrides these in grid_create_amr).
+  !    sphere   : rmax = xmax = ymax = zmax = max of all positive size parameters.
+  !    cylinder : rmax = xmax = ymax = max of positive radial params; zmax unchanged.
+  !    rectangle: rmax = -1 (undefined).
+  select case(trim(par%geometry))
+  case ('sphere')
+     if (.not. par%use_amr_grid) then
+        r0 = maxval([par%rmax, par%xmax, par%ymax, par%zmax], &
+                    mask=[par%rmax, par%xmax, par%ymax, par%zmax] > 0.0_wp)
+        if (r0 > 0.0_wp) then
+           par%rmax = r0;  par%xmax = r0;  par%ymax = r0;  par%zmax = r0
+        end if
+        if (.not. par%xy_symmetry) then
+           par%nx = maxval([par%nx, par%ny, par%nz])
+           par%ny = par%nx;  par%nz = par%nx
+        end if
+     end if
+  case ('cylinder')
+     if (.not. par%use_amr_grid) then
+        r0 = maxval([par%rmax, par%xmax, par%ymax], &
+                    mask=[par%rmax, par%xmax, par%ymax] > 0.0_wp)
+        if (r0 > 0.0_wp) then
+           par%rmax = r0;  par%xmax = r0;  par%ymax = r0
+        end if
+        if (.not. par%xy_symmetry) then
+           par%nx = maxval([par%nx, par%ny])
+           par%ny = par%nx
+        end if
+     end if
+  case ('rectangle')
+     par%rmax = -1.0_wp
+  end select
   if (par%source_rmax < 0.0_wp) par%source_rmax = par%rmax
   if (trim(par%source_geometry) == 'sersic' .or. trim(par%source_geometry) == 'ssh') then
      if (par%source_rmax <= 0.0_wp) then

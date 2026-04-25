@@ -157,7 +157,7 @@ contains
   else
      ! sphere or box geometry
      ! luminosity is assumed to be 1 photons/whole volume.
-     if (par%rmax > 0.0_wp .and. (grid%nx==grid%ny .and. grid%nx==grid%nz)) then
+     if (trim(par%geometry) == 'sphere') then
         area = fourpi * grid%rmax**2 * (par%distance2cm)**2
      else
         area = (grid%xmax*grid%ymax + grid%ymax*grid%zmax + grid%zmax*grid%xmax)*8.0_wp * (par%distance2cm)**2

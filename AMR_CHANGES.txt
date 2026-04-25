@@ -1,8 +1,81 @@
 ================================================================================
 LaRT_v2.00 AMR (Adaptive Mesh Refinement) Extension
 ================================================================================
-Date: 2026-04-18
+Date: 2026-04-18  (initial)
+Last updated: 2026-04-25
 Author: Kwang-Il Seon
+
+Update note (2026-04-25):
+Three coordinate-system and physics bugs were found and fixed. The generic FITS
+reader incorrectly shifted leaf coordinates by the ORIGINX/Y/Z header values,
+displacing the grid centre from (0,0,0) to (boxlen/2,...). The RAMSES reader
+mapped fractional positions [0,1] to [0, boxlen_cm] instead of the LaRT
+convention [-boxlen_cm/2, +boxlen_cm/2]. And amr_build_tree was called with
+wrong box bounds [0, boxlen_code] instead of [-boxlen_code/2, +boxlen_code/2],
+misplacing the octree root. Full details are in "Bugs Fixed (Coordinate System
+/ Physics)" below.
+
+Update note (2026-04-23):
+This revision adds Stokes polarization support to AMR scattering and peel-off
+routines, bringing AMR mode to full parity with the Cartesian Stokes path.
+
+  scattering_amr.f90:
+    scatter_dust_stokes_amr(photon, grid)
+        Dust scattering with full Stokes vector update. Samples new polar angle
+        from the scattering phase function via rand_alias_linear (alias method),
+        selects azimuthal angle via a Stokes-weighted rejection method using
+        S12/S11. Updates I, Q, U, V and rotates the reference frame triad
+        (m, n, k) accordingly. Uses amr_grid%Jabs/Dfreq/vf* for cell data.
+
+    scatter_resonance_stokes_amr(photon, grid)
+        Resonance scattering with full Stokes vector update. Calls do_resonance
+        procedure pointer with optional S11,S22,S12,S33,S44 output. Selects
+        azimuthal angle by Stokes-weighted rejection. Supports core-skip
+        (amr_grid%xcrit/xcrit2) and recoil correction (amr_grid%Dfreq(il)).
+        Updates I, Q, U, V and triad vectors.
+
+  peelingoff_amr.f90:
+    peeling_dust_stokes_amr(photon, grid)
+        Dust peel-off with Stokes I/Q/U/V output. Computes scattering angles
+        (cost/sint) and azimuthal angle (cosp/sinp) toward the observer,
+        looks up the scattering matrix elements (S11/S12/S33/S34) via
+        interp_eq, applies the IAU frame rotation (cos2g/sin2g) to align
+        Stokes parameters with the detector plane, and accumulates I/Q/U/V
+        in both 2D and 3D observer arrays.
+
+    peeling_resonance_stokes_amr(photon, grid)
+        Resonance peel-off with Stokes I/Q/U/V output. Computes the resonance
+        scattering matrix (S11/S22/S12/S33/S44) from photon%E1/E2/E3 (set by
+        do_resonance). Applies Doppler frequency shift using amr_grid%Dfreq(il),
+        rotates Stokes to the detector frame, and accumulates I/Q/U/V.
+
+  setup.f90 (AMR block):
+    scatter_dust/resonance now dispatches to stokes_amr or nostokes_amr based
+    on par%use_stokes (previously always assigned nostokes_amr).
+    peeling_dust_stokes and peeling_resonance_stokes now point to the new
+    AMR-native routines instead of the Cartesian fallbacks.
+
+Update note (2026-04-20):
+This revision adds RAMSES RMHD layout support to the binary AMR reader.
+If `output_NNNNN/hydro_file_descriptor.txt` is present, the reader now
+detects whether hydro variables 2--4 are stored as momentum densities or
+velocities, and whether the thermodynamic variable is total energy density or
+thermal pressure. The AMR header skip count was also corrected to match the
+IDL `rd_amr.pro` reader (`headf`, `ordering`, Hilbert keys, coarse `son`,
+`flag1`, `cpu_map` -> six records after `ngridlevel` / boundary arrays).
+In addition, a standalone Fortran converter,
+`convert_ramses_to_generic_fits.f90`, was added to export RAMSES snapshots to
+generic AMR FITS or FITS.GZ tables.
+
+Update note (2026-04-19):
+This revision adds diffuse-emissivity source support in AMR mode and refactors
+the Cartesian diffuse-emissivity setup into a dedicated helper subroutine so
+that Cartesian and AMR injection paths now have matching high-level structure.
+It also extends the generic AMR reader so that if `par%amr_file` ends with
+`.fits` or `.fits.gz`, LaRT reads the file as an AMRGrid FITS binary table
+using the FITS I/O helper routines. For the FITS table, the generic reader
+uses the column order (x, y, z, level, gas density, T, vx, vy, vz) rather
+than matching specific column names.
 
 --------------------------------------------------------------------------------
 Overview
@@ -27,32 +100,35 @@ New Files
    Defines the AMR grid type (amr_grid_type) and the global variable amr_grid.
 
    amr_grid_type fields:
-     Tree structure:
+     Tree structure (MPI-3 shared memory, one copy per node):
        ncell              -- total number of cells in the octree
        nleaf              -- number of leaf cells
        parent(:)          -- parent cell index (1-based; 0 = root)
-       children(:,8)      -- eight child cell indices (0 = leaf/absent)
+       children(8,:)      -- eight child cell indices per cell (0 = absent)
        level(:)           -- refinement level of each cell
-       cx(:), cy(:), cz(:)-- cell centre coordinates (code units, 0--1)
-       ch(:)              -- octant index (1--8) of cell within its parent
-       ileaf(:)           -- leaf index for each cell (-1 if not a leaf)
+       cx(:), cy(:), cz(:)-- cell centre coordinates (code units)
+       ch(:)              -- cell half-width (code units)
+       ileaf(:)           -- leaf index per cell (>0 = leaf; 0 = internal)
        icell_of_leaf(:)   -- cell index for each leaf
 
-     Physical arrays (size nleaf):
+     Physical arrays (size nleaf, MPI-3 shared memory):
        rhokap(:)          -- HI line-centre opacity per unit length
        rhokapD(:)         -- dust opacity per unit length (if DGR > 0)
        Dfreq(:)           -- local Doppler frequency width (Hz)
        voigt_a(:)         -- Voigt damping parameter
        vfx(:), vfy(:), vfz(:) -- bulk velocity / v_thermal (dimensionless)
+       Pem(:)             -- diffuse-emissivity PDF (shared; only if emiss_file set)
+       Pwgt(:)            -- composite-bias sampling weight per leaf
+       alias(:)           -- alias table for leaf-based emissivity sampling
 
-     Frequency grid:
+     Frequency grid (MPI-3 shared memory):
        xfreq_min, xfreq_max, dxfreq, nxfreq
        Dfreq_ref          -- reference Doppler frequency
        xfreq(:)           -- frequency array (Doppler units)
        velocity(:)        -- velocity array (km/s)
        wavelength(:)      -- wavelength array (Angstrom)
 
-     Output accumulation arrays (size nxfreq):
+     Output accumulation arrays (size nxfreq, per-rank allocatable):
        Jout(:)            -- escaping photon spectrum
        Jin(:)             -- injected photon spectrum
        Jabs(:)            -- absorbed photon spectrum
@@ -83,13 +159,15 @@ New Files
      amr_build_tree(xleaf,yleaf,zleaf, leaf_level, nleaf, box_*min/max)
          Builds the full octree from a list of leaf cell positions and
          levels. Inserts each leaf by descending from the root and
-         creating intermediate nodes as needed. Uses grow_tree_arrays
-         for dynamic resizing.
+         creating intermediate nodes as needed. Uses grow_local_arrays
+         to resize local temporaries dynamically, then copies the
+         completed tree topology to MPI-3 shared memory.
 
-     amr_build_neighbors(amr_grid)
-         Builds a precomputed face-neighbor table (6 entries per leaf)
-         after the tree is fully constructed. Used by amr_next_leaf for
-         O(1) cell boundary crossings without tree re-descent.
+     amr_build_neighbors()
+         Builds a precomputed face-neighbor table (6 entries per cell,
+         size 6×ncells) stored as MPI-3 shared memory. Used by
+         amr_next_leaf for O(1) cell boundary crossings without tree
+         re-descent.
 
      amr_next_leaf(il, iface)
          Returns the neighbor leaf index across face iface of leaf il,
@@ -97,15 +175,18 @@ New Files
 
      amr_alloc_phys(use_dust)
          Allocates rhokap, rhokapD (if use_dust), Dfreq, voigt_a,
-         vfx, vfy, vfz arrays (size nleaf).
+         vfx, vfy, vfz as MPI-3 shared-memory arrays (size nleaf,
+         one copy per shared-memory node). Only h_rank==0 fills them.
 
      amr_alloc_output(save_jin, save_jabs, use_dust)
          Allocates Jout (always), Jin (if save_jin), Jabs (if save_jabs)
-         output arrays (size nxfreq).
+         as per-rank regular allocatables (NOT shared memory), size nxfreq.
 
-     grow_tree_arrays(new_max)
-         Doubles (or sets to new_max) the allocation size of all tree
-         structure arrays using Fortran move_alloc.
+     grow_local_arrays(new_max, old_max, ...)
+         Private helper used only inside amr_build_tree. Grows the local
+         allocatable temporaries (t_parent, t_children, t_level, etc.)
+         using Fortran move_alloc. These temporaries are discarded after
+         the tree topology is copied to shared memory.
 
 
 2. read_ramses_amr.f90
@@ -215,7 +296,7 @@ New Files
 4. scattering_amr.f90
    Module: scattering_amr_mod
 
-   AMR scattering routines (no Stokes polarisation) that read physical
+   AMR scattering routines (Stokes and no-Stokes) that read physical
    quantities from amr_grid instead of the Cartesian grid arrays.
    Mirrors scattering_car.f90 in structure.
 
@@ -225,7 +306,7 @@ New Files
        then calls scatter_dust or scatter_resonance via the procedure
        pointers (which have already been reassigned to the AMR variants).
 
-   scatter_dust_nostokes_amr(photon, grid)
+   scatter_dust_nostokes_amr(photon, grid)  [no Stokes]
        Dust scattering event:
          - Stochastic absorption test (or reduced-weight albedo weighting).
          - Records absorbed weight in amr_grid%Jabs(ix) if save_Jabs.
@@ -234,7 +315,10 @@ New Files
          - New direction sampled from Henyey-Greenstein phase function
            (isotropic if hgg = 0).
 
-   scatter_resonance_nostokes_amr(photon, grid)
+   scatter_dust_stokes_amr(photon, grid)  [Stokes, added 2026-04-23]
+       Dust scattering with full Stokes vector update. See Update note above.
+
+   scatter_resonance_nostokes_amr(photon, grid)  [no Stokes]
        Resonance (line) scattering event:
          - Calls do_resonance procedure pointer (reassigned to an AMR variant)
            to sample the scattering atom velocity uz and new direction
@@ -246,6 +330,9 @@ New Files
          - Core-skip acceleration using amr_grid%xcrit / xcrit2.
          - Recoil correction: xfreq -= g_recoil*(1-cost) if par%recoil.
          - Updates photon direction vector.
+
+   scatter_resonance_stokes_amr(photon, grid)  [Stokes, added 2026-04-23]
+       Resonance scattering with full Stokes vector update. See Update note above.
 
    do_resonance1_amr(photon, grid, uz, xfreq_atom, cost, sint [, Sij])
        Single-line resonance (Ly-alpha H I, Fe II, etc.).
@@ -288,7 +375,7 @@ New Files
    par%use_amr_grid = .true.
 
    grid_create_amr(grid)
-       Full AMR grid setup in ten steps:
+       Full AMR grid setup in nine steps:
          (1) Rank 0 reads leaf positions, levels, and physical data
              from disk (RAMSES or generic format, selected by par%amr_type).
          (2) Broadcasts all raw arrays to every MPI rank via MPI_BCAST.
@@ -311,8 +398,17 @@ New Files
          (8) Sets core-skip threshold:
                xcrit  = (amr_grid%voigt_amean / pi)^(1/3)
                xcrit2 = xcrit^2
-         (9) Calls amr_setup_freq_grid to set up the output frequency axis.
-         (10) Allocates output arrays via amr_alloc_output.
+         (9) Calls amr_setup_emissivity when par%emiss_file is set.
+             Supported AMR diffuse-emissivity inputs:
+               - txt/dat  : 1D plane/spherical emissivity profiles
+               - density1 : emissivity proportional to rhokap
+               - density2 : emissivity proportional to rhokap^2
+             For leaf-based 3D sampling, the probability is weighted by the
+             leaf cell volume so that photons are sampled from emissivity per
+             unit volume rather than per cell. Composite-bias weights are
+             built consistently with the nonuniform AMR leaf volumes.
+         (10) Calls amr_setup_freq_grid to set up the output frequency axis.
+         (11) Allocates output arrays via amr_alloc_output.
 
    grid_destroy_amr()
        Deallocates all AMR arrays (tree structure, physical fields, output).
@@ -334,17 +430,23 @@ New Files
    AMR peel-off observer calculation. Called by setup.f90 when
    par%use_amr_grid = .true. and par%save_peeloff = .true.
 
-   peeling_dust_nostokes_amr(photon, grid)
+   peeling_dust_nostokes_amr(photon, grid)  [no Stokes]
        Peel-off contribution for dust scattering: computes the Henyey-
        Greenstein phase function weight for the observer direction, then
        calls raytrace_to_edge_amr to compute the optical depth to the box
        boundary, and records the attenuated contribution in the observer map.
 
-   peeling_resonance_nostokes_amr(photon, grid)
+   peeling_dust_stokes_amr(photon, grid)  [Stokes, added 2026-04-23]
+       Peel-off with full Stokes I/Q/U/V output. See Update note above.
+
+   peeling_resonance_nostokes_amr(photon, grid)  [no Stokes]
        Peel-off contribution for resonance scattering: computes the
        resonance phase function weight for the observer direction, applies
        the Doppler frequency shift for the observer geometry, calls
        raytrace_to_edge_amr, and records in the observer map.
+
+   peeling_resonance_stokes_amr(photon, grid, xfreq_atom, vel_atom)  [Stokes, added 2026-04-23]
+       Peel-off with full Stokes I/Q/U/V output. See Update note above.
 
 --------------------------------------------------------------------------------
 Modified Existing Files
@@ -374,7 +476,7 @@ Modified Existing Files
      Added an early AMR dispatch branch before the Cartesian code:
        if (par%use_amr_grid) then
           i1 = photon%icell_amr
-          if (par%DGR > 0.0_wp .and. allocated(amr_grid%rhokapD)) then
+          if (par%DGR > 0.0_wp .and. associated(amr_grid%rhokapD)) then
              p_dust = amr_grid%rhokapD(i1) / &
                  (amr_grid%rhokap(i1)*voigt(photon%xfreq,amr_grid%voigt_a(i1)) &
                   + amr_grid%rhokapD(i1))
@@ -405,14 +507,24 @@ Modified Existing Files
           raytrace_to_dist         => raytrace_to_dist_amr
           raytrace_to_dist_tau_gas => raytrace_to_dist_tau_gas_amr
           raytrace_to_dist_column  => raytrace_to_dist_column_amr
-          scatter_dust             => scatter_dust_nostokes_amr
-          scatter_resonance        => scatter_resonance_nostokes_amr
+          if (par%use_stokes) then               ! updated 2026-04-23
+             scatter_dust      => scatter_dust_stokes_amr
+             scatter_resonance => scatter_resonance_stokes_amr
+          else
+             scatter_dust      => scatter_dust_nostokes_amr
+             scatter_resonance => scatter_resonance_nostokes_amr
+          end if
           select case(line%line_type)
           case (1);     do_resonance => do_resonance1_amr
           case (2);     do_resonance => do_resonance2_amr
           case (4);     do_resonance => do_resonance4_amr
           case default; do_resonance => do_resonance1_amr
           end select
+          peeling_dust_stokes        => peeling_dust_stokes_amr        ! updated 2026-04-23
+          peeling_dust_nostokes      => peeling_dust_nostokes_amr
+          peeling_resonance_stokes   => peeling_resonance_stokes_amr   ! updated 2026-04-23
+          peeling_resonance_nostokes => peeling_resonance_nostokes_amr
+          ...
           return
        end if
 
@@ -449,18 +561,27 @@ Modified Existing Files
        'uniform'         : uniform random sampling within the AMR box
        'uniform_sphere'  : uniform random sampling within a sphere of
                            radius par%source_rmax centred on the box centre
+       'diffuse_emissivity'
+                         : supports the same high-level cases as Cartesian:
+                           plane_atmosphere, spherical_atmosphere/sphere,
+                           and generic 3D emissivity sampling.
+                           The generic 3D AMR path uses:
+                             sampling_method = 0 : leaf alias sampling
+                             sampling_method = 1 : leaf alias + composite bias
+                             sampling_method = 2 : naive rejection sampling
+                             sampling_method = 3 : composite rejection sampling
 
      After setting position, calls setup_isotropic_injection_amr(), which
      draws an isotropic direction (kx,ky,kz) and sets photon%icell_amr via
      amr_find_leaf(x,y,z).
 
      Spectral injection per line_type (using per-cell Dfreq(il)):
-       line_type 2 : two-line — randomly selects H or K component
-       line_type 3 : two upward transitions — selects by oscillator strength
-       line_type 4 : one upward, multiple downward — selects downward branch
+       line_type 2 : two-line -- randomly selects H or K component
+       line_type 3 : two upward transitions -- selects by oscillator strength
+       line_type 4 : one upward, multiple downward -- selects downward branch
                      via rand_alias_choise, applies Elow_Hz frequency offset
-       line_type 5 : two upward, multiple downward — selects iup then idown
-       line_type 6 : three upward, one downward each — selects iup by
+       line_type 5 : two upward, multiple downward -- selects iup then idown
+       line_type 6 : three upward, one downward each -- selects iup by
                      cumulative oscillator strength, applies delE_Hz offset
 
      Spectral type:
@@ -470,6 +591,12 @@ Modified Existing Files
        'voigt0'    : inject at line centre plus rand_voigt(voigt_a0) scaled
                      by Dfreq0/Dfreq(il)
        'gaussian'  : inject at line centre plus Gaussian width
+
+   The Cartesian diffuse-emissivity branch in gen_photon() was also
+   refactored into:
+     setup_diffuse_emissivity_cartesian(grid, photon)
+   so that Cartesian and AMR paths now both use dedicated setup helpers
+   rather than embedding all diffuse-emission logic directly in gen_photon().
 
 6. main.f90
    Added:
@@ -488,6 +615,74 @@ Modified Existing Files
      else
         call grid_destroy(grid)
      end if
+
+7. octree_mod.f90
+   Extended amr_grid_type with diffuse-emissivity sampling arrays:
+     Pem(:), Pwgt(:), alias(:)
+   These are allocated only when AMR diffuse emissivity is requested and are
+   destroyed in grid_destroy_amr() together with the other AMR shared arrays.
+
+8. grid_mod_amr.f90
+   Added:
+     use read_text_data
+     use random
+
+   Added new helper:
+     amr_setup_emissivity(grid)
+   which prepares AMR diffuse-emissivity sampling data after the AMR physical
+   fields and opacity normalization are available.
+
+   For txt/dat emissivity files, amr_setup_emissivity reuses the existing
+   setup_plane_emissivity / setup_spherical_emissivity routines so that the
+   AMR and Cartesian 1D profile workflows stay identical.
+
+   For density1 / density2 inputs, it constructs leaf-based PDFs using:
+     Pem(il) = emissivity(il) * leaf_volume(il)
+   then normalizes Pem and builds alias / composite-bias weights.
+
+   Unsupported in AMR mode:
+     emiss_file with extension 'fits'
+   The code now stops with an explicit message instead of silently using an
+   unsupported AMR emissivity source.
+
+--------------------------------------------------------------------------------
+Bugs Fixed (Coordinate System / Physics)                     [2026-04-25]
+--------------------------------------------------------------------------------
+
+4. read_ramses_amr.f90 -- generic FITS reader incorrectly shifted leaf coordinates
+   Problem:  generic_amr_read_fits applied
+               xleaf(:) = xleaf(:) - origin_x   (and y, z)
+             where ORIGINX = -boxlen/2 (written by Python AMRGrid).
+             This shifted coordinates from [-boxlen/2, +boxlen/2] to [0, boxlen],
+             moving the grid centre from (0,0,0) to (boxlen/2, boxlen/2, boxlen/2).
+             LaRT assumes (0,0,0) as the grid centre for peel-off geometry and
+             the default point-source position (xs_point = ys_point = zs_point = 0).
+             A point source at (0,0,0) was therefore placed at the corner of the
+             sphere rather than at its centre, producing ~3x fewer scatterings
+             and incorrect spectra.
+   Fix:      Removed the three coordinate-shift lines in generic_amr_read_fits.
+             Added a comment explaining that ORIGINX/Y/Z headers are informational
+             only and must not be used to shift the already-centred coordinates.
+
+5. read_ramses_amr.f90 -- RAMSES reader produced coordinates in [0, boxlen_cm]
+   Problem:  ramses_read_leaf_cells converted fractional RAMSES positions
+             (range [0,1]) to physical cm via   xl = xl * boxlen_cm,
+             producing positions in [0, boxlen_cm]. This is inconsistent with
+             the LaRT convention that the box is centred at the origin, and
+             placed the RAMSES box corner at (0,0,0) instead of (-boxlen/2,...).
+   Fix:      Changed to   xl = (xl - 0.5_wp) * boxlen_cm   so that RAMSES
+             positions are mapped to [-boxlen_cm/2, +boxlen_cm/2].
+
+6. grid_mod_amr.f90 -- amr_build_tree called with wrong box bounds
+   Problem:  amr_build_tree was called with bounds [0, boxlen_code] on all
+             three axes, so the octree root centre was at
+             (boxlen/2, boxlen/2, boxlen/2) instead of (0,0,0). Even with
+             correctly centred leaf coordinates the tree-descent would
+             misidentify which child octant a photon belongs to for positions
+             near the origin.
+   Fix:      Changed the bounds to [-boxlen_code/2, +boxlen_code/2] on all
+             three axes, matching the centred coordinate convention used by
+             both the generic FITS reader and the RAMSES reader.
 
 --------------------------------------------------------------------------------
 Bugs Fixed During Compilation
@@ -545,6 +740,12 @@ Generic text file format (amr_type = 'generic'):
   The unit of x, y, z and boxlen is set by par%distance_unit (kpc, pc, au,
   or dimensionless). Velocities are always in km/s.
 
+Coordinate convention:
+  All leaf positions must be in [-boxlen/2, +boxlen/2] on each axis.
+  The box is centred at the origin (0,0,0).
+  Python AMRGrid writes coordinates in this convention automatically.
+  RAMSES fractional positions x in [0,1] are converted to (x - 0.5) * boxlen.
+
 Tau normalization convention:
   taumax = optical depth from box center to the +z boundary along the z-axis.
   This matches the Cartesian convention where taumax = tau from center to
@@ -586,10 +787,15 @@ Frequency shift at cell boundaries
 
 MPI distribution
   Rank 0 reads all leaf data from disk, then broadcasts the raw arrays to
-  all other ranks using MPI_BCAST. Every rank therefore holds a complete
-  copy of the AMR tree and physical data. This is simple but memory-
-  intensive for large simulations; shared-memory (MPI-3 windows) support
-  is deferred to future work.
+  all other ranks via MPI_BCAST. Every rank builds the same octree
+  independently from the broadcast data. The completed tree topology and
+  all physical arrays are then stored in MPI-3 shared-memory windows
+  (create_shared_mem / destroy_mem in memory_mod_mpi.f90), giving one
+  physical copy per shared-memory node. All ranks on a node map the same
+  pages, so per-node memory scales with data size rather than with the
+  number of ranks per node. Only the spectral output arrays (Jout, Jin,
+  Jabs) are per-rank regular allocatables, accumulated independently and
+  reduced at the end.
 
 Thread safety
   The AMR leaf arrays are read-only during the photon loop. Only the Jout
@@ -622,17 +828,17 @@ Not Yet Implemented / Future Work
 --------------------------------------------------------------------------------
 
 - Source geometries (gen_photon_car.f90): AMR mode handles only 'point'
-  (default), 'uniform', and 'uniform_sphere'/'sphere'. All other geometries
-  silently fall back to a point source at (xs_point, ys_point, zs_point):
-    - 'diffuse_emissivity'       (requires AMR leaf emissivity weights)
+  (default), 'uniform', 'uniform_sphere'/'sphere', and 'diffuse_emissivity'.
+  The following geometries still fall back to a point source at
+  (xs_point, ys_point, zs_point):
     - 'gaussian', 'exponential', 'exponential_sphere', 'exponential_cylinder'
     - 'sersic' / 'ssh'
     - 'star_file'
     - 'uniform_cylinder' / 'cylinder', 'uniform_xy'
     - 'plane_illumination', 'stellar_illumination', 'point_illumination'
 
-- Shared-memory MPI: Each rank currently holds a full copy of the AMR
-  tree. For large RAMSES simulations this may be prohibitive; MPI-3
-  shared-memory windows would reduce per-node memory to a single copy.
+- AMR diffuse-emissivity input formats: 1D txt/dat profiles and leaf-based
+  density1/density2 are supported, but 3D FITS emissivity input is not yet
+  implemented for AMR mode.
 
 ================================================================================

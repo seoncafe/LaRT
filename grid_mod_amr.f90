@@ -110,6 +110,25 @@ contains
     ! Precompute face-neighbor table for O(1) cell-boundary crossings.
     call amr_build_neighbors
 
+    !--- Set par box dimensions from AMR grid (overrides any user input).
+    !    sphere  : rmax = xmax = ymax = zmax = boxlen/2
+    !    cylinder: rmax = xmax = ymax = boxlen/2; zmax = boxlen/2 (cubic box)
+    !    rectangle: rmax = -1 (undefined); xmax/ymax/zmax = boxlen/2
+    select case(trim(par%geometry))
+    case ('sphere')
+       par%rmax = amr_grid%L_box * 0.5_wp
+       par%xmax = par%rmax;  par%ymax = par%rmax;  par%zmax = par%rmax
+    case ('cylinder')
+       par%rmax = amr_grid%L_box * 0.5_wp
+       par%xmax = par%rmax;  par%ymax = par%rmax
+       par%zmax = amr_grid%L_box * 0.5_wp
+    case default   ! 'rectangle'
+       par%rmax = -1.0_wp
+       par%xmax = amr_grid%xmax
+       par%ymax = amr_grid%ymax
+       par%zmax = amr_grid%zmax
+    end select
+
     !--- Step 3: Set reference Doppler frequency ----------------------
     amr_grid%Dfreq_ref  = line%vtherm1 * sqrt(par%temperature) / (line%wavelength0 * um2km)
     amr_grid%voigt_amean = (line%damping / fourpi) / amr_grid%Dfreq_ref
@@ -163,7 +182,9 @@ contains
     ! optical depth from center to z+ boundary (matches Cartesian taumax convention).
     opacity_sum = sum(amr_grid%rhokap * voigt_array(amr_grid%voigt_a, 0.0_wp))
     nopac       = real(count(amr_grid%rhokap > 0.0_wp), wp)
-    opac_length = boxlen_code
+    ! Half-box = centre-to-boundary distance; matches Cartesian convention where
+    ! opac_length = par%rmax (centre to sphere surface) for a sphere model.
+    opac_length = boxlen_code / 2.0_wp
     if (nopac > 0.0_wp) then
       tauhomo = (opacity_sum / nopac) * opac_length
     else
@@ -273,6 +294,7 @@ contains
     grid%xrange = amr_grid%xmax - amr_grid%xmin
     grid%yrange = amr_grid%ymax - amr_grid%ymin
     grid%zrange = amr_grid%zmax - amr_grid%zmin
+    ! par%rmax/xmax/ymax/zmax already set by geometry block in Step 2.
 
     call amr_setup_emissivity(grid)
 

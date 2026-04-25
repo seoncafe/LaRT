@@ -238,7 +238,7 @@ contains
   !--- 2020.10.20, determine the image size that convers whole cloud's grid system.
   if (.not. (is_finite(par%dxim) .and. is_finite(par%dyim))) then
      !--- For a spherical geometry, the maximum angular size is always the radius, regardless of the observer direction.
-     if (par%rmax > 0.0_wp) then
+     if (trim(par%geometry) == 'sphere') then
         !--- arcsin is the correct formula (2021.07.17).
         par%dxim = asin(par%rmax/par%distance)/(par%nxim/2.0_wp) * rad2deg
         par%dyim = asin(par%rmax/par%distance)/(par%nyim/2.0_wp) * rad2deg

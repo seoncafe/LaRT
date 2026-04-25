@@ -10,5 +10,5 @@ NP=70
 mpirun -np ${NP} ${LART} sphere_car_tau2_point.in
 mpirun -np ${NP} ${LART} sphere_car_tau4_point.in
 
-#mpirun -np ${NP} ${LART} sphere_amr_tau2_point.in
-#mpirun -np ${NP} ${LART} sphere_amr_tau4_point.in
+mpirun -np ${NP} ${LART} sphere_amr_tau2_point.in
+mpirun -np ${NP} ${LART} sphere_amr_tau4_point.in
