@@ -9,6 +9,7 @@ for tex in *.tex; do
     echo "==> Compiling $tex ..."
     pdflatex -interaction=nonstopmode "$tex"
     pdflatex -interaction=nonstopmode "$tex"
+    pdflatex -interaction=nonstopmode "$tex"
 done
 
 echo "==> Cleaning byproducts ..."

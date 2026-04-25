@@ -30,9 +30,9 @@
 \RequirePackage{amssymb}
 \RequirePackage{graphicx}
 \RequirePackage{fancyhdr}
-\RequirePackage{lastpage}
 \RequirePackage{kotex}
 \RequirePackage[hyperfootnotes=false]{hyperref}
+\RequirePackage{lastpage}
 \RequirePackage[fontsize=10pt]{scrextend}
 \RequirePackage[table]{xcolor}
 
