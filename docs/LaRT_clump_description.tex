@@ -90,18 +90,18 @@ special-casing is needed inside those modules.
 The user specifies one of three equivalent parameters; the code derives $N$
 from whichever is set:
 
-\paragraph{From $N_\mathrm{cov}$ (covering factor):}
+\paragraph{From $f_\mathrm{cov}$ (covering factor):}
 The mean number of clumps intercepted by a radial ray from the centre to the
 sphere surface is
 \begin{equation}
-  N_\mathrm{cov} = N\,\frac{\pi r_c^2}{\pi R^2}\cdot\frac{R}{\frac{4}{3}\pi R^3/(4\pi R^2)}
+  f_\mathrm{cov} = N\,\frac{\pi r_c^2}{\pi R^2}\cdot\frac{R}{\frac{4}{3}\pi R^3/(4\pi R^2)}
   = \frac{3}{4}\,N\!\left(\frac{r_c}{R}\right)^2 ,
 \end{equation}
 hence
 \begin{equation}
-  N = \frac{4}{3}\,N_\mathrm{cov}\!\left(\frac{R}{r_c}\right)^2 .
+  N = \frac{4}{3}\,f_\mathrm{cov}\!\left(\frac{R}{r_c}\right)^2 .
 \end{equation}
-Input parameter: \texttt{par\%clump\_N\_cov}.
+Input parameter: \texttt{par\%clump\_f\_cov}.
 
 \paragraph{From $f_\mathrm{vol}$ (volume filling factor):}
 \begin{equation}
@@ -311,7 +311,7 @@ placement domain.  The per-candidate acceptance probability
 $p_\mathrm{acc}$ decreases monotonically with $f_\mathrm{vol}$ and
 approaches zero at the jamming limit.
 
-For the reference case ($N_\mathrm{cov}=5$, $r_c/R=0.01$, $N=66667$,
+For the reference case ($f_\mathrm{cov}=5$, $r_c/R=0.01$, $N=66667$,
 $f_\mathrm{vol}=0.067$), the overall acceptance rate is $\approx 74\%$:
 roughly 90\,000 candidates are drawn to place 66\,667 clumps.  The algorithm
 remains practical for $f_\mathrm{vol} \lesssim 35\%$.
@@ -610,7 +610,7 @@ Keyword & Value & Description \\
 \texttt{SPHERE\_R} & $R$ & outer sphere radius (code units) \\
 \texttt{CL\_RAD}   & $r_c$ & clump radius (code units) \\
 \texttt{F\_VOL}    & $f_\mathrm{vol}$ & volume filling factor (realised) \\
-\texttt{N\_COV}    & $N_\mathrm{cov}$ & covering factor (realised) \\
+\texttt{F\_COV}    & $f_\mathrm{cov}$ & covering factor (realised) \\
 \texttt{TAU0}      & $\tau_0$ & line-centre $\tau$ per clump \\
 \texttt{SIGMA\_V}  & $\sigma_v$ & bulk velocity dispersion (km/s) \\
 \texttt{TEMP\_CL}  & $T_c$ & clump temperature used (K) \\
@@ -619,7 +619,7 @@ Keyword & Value & Description \\
 \texttt{VTHERM}    & $v_\mathrm{th}$ & thermal velocity (km/s) \\
 \texttt{VOIGT\_A}  & $a_V$ & Voigt damping parameter \\
 \texttt{RMAX}      & $R$ & \texttt{par\%rmax} (input) \\
-\texttt{IN\_NCOV}  & \texttt{par\%clump\_N\_cov} & input covering factor \\
+\texttt{IN\_FCOV}  & \texttt{par\%clump\_f\_cov} & input covering factor \\
 \texttt{IN\_FVOL}  & \texttt{par\%clump\_f\_vol} & input filling factor \\
 \texttt{IN\_NCL}   & \texttt{par\%clump\_N\_clumps} & input $N$ \\
 \texttt{IN\_NH}    & \texttt{par\%clump\_nH} & input $n_H$ (cm$^{-3}$) \\
@@ -644,7 +644,7 @@ Parameter & Default & Description \\
 \texttt{par\%use\_clump\_medium} & \texttt{.false.} & enable clump mode \\
 \texttt{par\%rmax}              & ---  & outer sphere radius (code units) \\
 \texttt{par\%clump\_radius}     & ---  & clump radius $r_c$ (code units) \\
-\texttt{par\%clump\_N\_cov}     & 0    & covering factor (input) \\
+\texttt{par\%clump\_f\_cov}     & 0    & covering factor (input) \\
 \texttt{par\%clump\_f\_vol}     & 0    & volume filling factor (input) \\
 \texttt{par\%clump\_N\_clumps}  & 0    & number of clumps (input, direct) \\
 \texttt{par\%clump\_tau0}       & 0    & line-centre $\tau$ per clump \\
@@ -717,29 +717,29 @@ photons, and \texttt{par\%use\_clump\_medium = .true.}:
 \hline
 Input file & $\tau_0$ & Notes \\
 \hline
-\texttt{clump\_tau3\_ncov5.in}        & $10^3$ & $N_\mathrm{cov}=5$, static (reference) \\
-\texttt{clump\_tau4\_ncov5.in}        & $10^4$ & $N_\mathrm{cov}=5$, static \\
-\texttt{clump\_tau3\_ncov20.in}       & $10^3$ & $N_\mathrm{cov}=20$, dense covering \\
-\texttt{clump\_tau3\_ncov5\_hubble.in}& $10^3$ & $N_\mathrm{cov}=5$, Hubble $V_\mathrm{exp}=200$ km/s \\
-\texttt{clump\_tau3\_ncov5\_sigv.in}  & $10^3$ & $N_\mathrm{cov}=5$, $\sigma_v=50$ km/s \\
-\texttt{clump\_tau3\_ncov5\_peel.in}  & $10^3$ & $N_\mathrm{cov}=5$, peel-off $129\times129$ \\
+\texttt{clump\_tau3\_fcov5.in}        & $10^3$ & $f_\mathrm{cov}=5$, static (reference) \\
+\texttt{clump\_tau4\_fcov5.in}        & $10^4$ & $f_\mathrm{cov}=5$, static \\
+\texttt{clump\_tau3\_fcov20.in}       & $10^3$ & $f_\mathrm{cov}=20$, dense covering \\
+\texttt{clump\_tau3\_fcov5\_hubble.in}& $10^3$ & $f_\mathrm{cov}=5$, Hubble $V_\mathrm{exp}=200$ km/s \\
+\texttt{clump\_tau3\_fcov5\_sigv.in}  & $10^3$ & $f_\mathrm{cov}=5$, $\sigma_v=50$ km/s \\
+\texttt{clump\_tau3\_fcov5\_peel.in}  & $10^3$ & $f_\mathrm{cov}=5$, peel-off $129\times129$ \\
 \hline
 \end{tabular}
 \end{center}
 
 Run with \texttt{bash run.sh} (uses 4 MPI ranks by default) or individually:
 \begin{verbatim}
-mpirun -np 4 ../../LaRT.x clump_tau3_ncov5.in
+mpirun -np 4 ../../LaRT.x clump_tau3_fcov5.in
 \end{verbatim}
 Python post-processing:
 \begin{verbatim}
 python plot_clump.py          # all runs
-python plot_clump.py clump_tau3_ncov5   # single run
+python plot_clump.py clump_tau3_fcov5   # single run
 \end{verbatim}
 
-For the reference case ($N_\mathrm{cov}=5$, $\tau_0=10^3$):
+For the reference case ($f_\mathrm{cov}=5$, $\tau_0=10^3$):
 \begin{itemize}
-  \item Realised $N_\mathrm{cov} \approx 5.00$, $f_\mathrm{vol} \approx 0.067$;
+  \item Realised $f_\mathrm{cov} \approx 5.00$, $f_\mathrm{vol} \approx 0.067$;
   \item RSA acceptance rate $\sim 74\%$, $N=66667$ clumps placed;
   \item Mean scattering count $\approx 6400$ per photon;
   \item Wall time $\approx 3.75$ min (10 ranks, $10^5$ photons).
