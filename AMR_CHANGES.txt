@@ -5,6 +5,42 @@ Date: 2026-04-18  (initial)
 Last updated: 2026-04-25
 Author: Kwang-Il Seon
 
+Update note (2026-04-25b):
+Renamed photon generation module and subroutine; extended AMR source geometries.
+
+  generate_photon.f90  (was gen_photon_car.f90):
+    - File renamed: gen_photon_car.f90 → generate_photon.f90.
+    - Module renamed: photon_mod → generate_photon_mod.
+    - Subroutine renamed: gen_photon → generate_photon.
+    - Caller in run_simulation_mod.f90 updated accordingly.
+
+  octree_mod.f90 / amr_grid_type:
+    - Added xrange, yrange, zrange fields (= xmax-xmin etc.) alongside the
+      existing L_box field. These match the grid_type naming convention and
+      remove the implicit cubic-box assumption from AMR photon generation code.
+    - Set in amr_build_tree alongside the existing xmin/xmax/ymin/ymax/zmin/zmax
+      and L_box assignments.
+    - grid_mod_amr.f90: amr_sync_to_grid now copies amr_grid%xrange/yrange/zrange
+      directly instead of recomputing them.
+
+  generate_photon.f90 — AMR source geometry coverage:
+    Previously, AMR mode only supported 'point', 'uniform', 'uniform_sphere'/
+    'sphere', and 'diffuse_emissivity'. The following geometries are now also
+    handled in AMR mode (using amr%xrange/yrange/zrange and amr%cx(1)/cy(1)/cz(1)
+    for the box range and centre):
+      - 'uniform_cylinder' / 'cylinder'
+      - 'uniform_xy'
+      - 'gaussian'
+      - 'exponential'
+      - 'exponential_sphere'
+      - 'exponential_cylinder'
+      - 'sersic' / 'ssh'
+      - 'star_file'
+    'plane_illumination', 'stellar_illumination', and 'point_illumination' are
+    not yet supported in AMR mode; they fall back to a point source at
+    (par%xs_point, par%ys_point, par%zs_point). These require dedicated AMR
+    implementations of the underlying illumination routines.
+
 Update note (2026-04-25):
 Three coordinate-system and physics bugs were found and fixed. The generic FITS
 reader incorrectly shifted leaf coordinates by the ORIGINX/Y/Z header values,
@@ -827,15 +863,11 @@ sphere boundary (voxelization artifact), not a normalization error.
 Not Yet Implemented / Future Work
 --------------------------------------------------------------------------------
 
-- Source geometries (gen_photon_car.f90): AMR mode handles only 'point'
-  (default), 'uniform', 'uniform_sphere'/'sphere', and 'diffuse_emissivity'.
-  The following geometries still fall back to a point source at
-  (xs_point, ys_point, zs_point):
-    - 'gaussian', 'exponential', 'exponential_sphere', 'exponential_cylinder'
-    - 'sersic' / 'ssh'
-    - 'star_file'
-    - 'uniform_cylinder' / 'cylinder', 'uniform_xy'
-    - 'plane_illumination', 'stellar_illumination', 'point_illumination'
+- Source geometries (generate_photon.f90): 'plane_illumination',
+  'stellar_illumination', and 'point_illumination' are not yet supported in
+  AMR mode; they fall back to a point source at (xs_point, ys_point, zs_point).
+  These require dedicated AMR implementations of the underlying illumination
+  routines before they can be enabled.
 
 - AMR diffuse-emissivity input formats: 1D txt/dat profiles and leaf-based
   density1/density2 are supported, but 3D FITS emissivity input is not yet

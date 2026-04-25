@@ -108,11 +108,26 @@ contains
      call setup_isotropic_injection(grid,photon)
      if (par%sampling_method > 0) photon%wgt = star%wgt(idx)
   case ('plane_illumination')
-     call random_plane_illumination(grid,photon)
+     if (par%use_amr_grid) then
+        photon%x = par%xs_point; photon%y = par%ys_point; photon%z = par%zs_point
+        call setup_isotropic_injection(grid,photon)
+     else
+        call random_plane_illumination(grid,photon)
+     endif
   case ('stellar_illumination')
-     call random_stellar_illumination(grid,photon)
+     if (par%use_amr_grid) then
+        photon%x = par%xs_point; photon%y = par%ys_point; photon%z = par%zs_point
+        call setup_isotropic_injection(grid,photon)
+     else
+        call random_stellar_illumination(grid,photon)
+     endif
   case ('point_illumination')
-     call random_point_illumination(grid,photon)
+     if (par%use_amr_grid) then
+        photon%x = par%xs_point; photon%y = par%ys_point; photon%z = par%zs_point
+        call setup_isotropic_injection(grid,photon)
+     else
+        call random_point_illumination(grid,photon)
+     endif
   case ('diffuse_emissivity')
      call setup_diffuse_emissivity(grid,photon)
   case default

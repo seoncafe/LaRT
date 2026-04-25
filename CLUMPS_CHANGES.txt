@@ -197,15 +197,12 @@ EXAMPLES
     A suite of six reference runs covering the key parameter space.
     All use par%use_clump_medium = .true. with R=1, r_c=0.01, 1e6 photons.
 
-    clump_tau3_ncov5.in         tau0=1e3, f_cov=5,  static (reference)
-    clump_tau4_ncov5.in         tau0=1e4, f_cov=5,  static (high tau)
-    clump_tau3_ncov20.in        tau0=1e3, f_cov=20, static (dense covering)
-    clump_tau3_ncov5_hubble.in  tau0=1e3, f_cov=5,  Hubble flow Vexp=200 km/s
-    clump_tau3_ncov5_sigv.in    tau0=1e3, f_cov=5,  sigma_v=50 km/s
-    clump_tau3_ncov5_peel.in    tau0=1e3, f_cov=5,  peel-off 129x129 image
-
-    clump_test.in               legacy single-test (1e5 photons, f_cov=5, tau0=1e3,
-                                peel-off and clump info enabled)
+    clump_tau3_fcov5.in         tau0=1e3, f_cov=5,  static (reference)
+    clump_tau4_fcov5.in         tau0=1e4, f_cov=5,  static (high tau)
+    clump_tau3_fcov20.in        tau0=1e3, f_cov=20, static (dense covering)
+    clump_tau3_fcov5_hubble.in  tau0=1e3, f_cov=5,  Hubble flow Vexp=200 km/s
+    clump_tau3_fcov5_sigv.in    tau0=1e3, f_cov=5,  sigma_v=50 km/s
+    clump_tau3_fcov5_peel.in    tau0=1e3, f_cov=5,  peel-off 129x129 image
 
     Support scripts:
       run.sh          -- runs all six named cases with NP=4
