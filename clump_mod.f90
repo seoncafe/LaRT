@@ -100,9 +100,14 @@ contains
   cl_temperature = temp_cl                         ! actual temperature used [K]
   cl_voigt_a = (line%damping / fourpi) / cl_Dfreq
 
-  !--- clump opacity from tau0 or nH
+  !--- clump opacity from tau0, NHI (column density), or nH
   if (par%clump_tau0 > 0.0_wp) then
      cl_rhokap = par%clump_tau0 / (voigt(0.0_wp, cl_voigt_a) * cl_radius)
+  else if (par%clump_NHI > 0.0_wp) then
+     ! clump_NHI = per-clump column density [cm^-2] from individual clump center to its surface
+     ! (distinct from total system column density N_HImax along sightlines through the clumpy sphere)
+     ! relation: clump_NHI = nH * cl_radius * distance2cm  =>  cl_rhokap = clump_NHI * cross0 / cl_radius
+     cl_rhokap = par%clump_NHI * line%cross0 / cl_radius
   else if (par%clump_nH > 0.0_wp) then
      if (par%distance2cm <= 0.0_wp) then
         if (mpar%p_rank == 0) write(*,*) 'ERROR: clump_nH requires distance_unit'
@@ -110,7 +115,7 @@ contains
      end if
      cl_rhokap = par%clump_nH * line%cross0 * par%distance2cm
   else
-     if (mpar%p_rank == 0) write(*,*) 'ERROR: specify clump_tau0 or clump_nH'
+     if (mpar%p_rank == 0) write(*,*) 'ERROR: specify clump_tau0, clump_NHI, or clump_nH'
      call MPI_ABORT(MPI_COMM_WORLD, 1, ierr)
   end if
 
@@ -696,6 +701,7 @@ contains
   call fits_put_keyword(unit, 'IN_FCOV',   par%clump_f_cov,   'covering factor (input)',            status)
   call fits_put_keyword(unit, 'IN_FVOL',   par%clump_f_vol,   'volume filling factor (input)',      status)
   call fits_put_keyword(unit, 'IN_NCL',    par%clump_N_clumps,'N_clumps (input)',                   status)
+  call fits_put_keyword(unit, 'IN_NHI',    par%clump_NHI,     'per-clump NHI input [cm^-2] (clump center to surface)',status)
   call fits_put_keyword(unit, 'IN_NH',     par%clump_nH,      'clump nH density input [cm^-3]',    status)
   call fits_put_keyword(unit, 'IN_TEMP',   par%clump_temperature,'clump temperature input [K]',     status)
 

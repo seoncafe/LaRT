@@ -294,6 +294,7 @@ public
      real(kind=wp) :: clump_f_vol       = -1.0_wp  ! volume filling factor
      real(kind=wp) :: clump_f_cov       = -1.0_wp  ! covering factor
      real(kind=wp) :: clump_tau0        = -1.0_wp  ! line-center tau: clump center to surface
+     real(kind=wp) :: clump_NHI         = -1.0_wp  ! per-clump HI column density [cm^-2], individual clump center to its surface
      real(kind=wp) :: clump_nH          = -1.0_wp  ! clump HI density [cm^-3]
      real(kind=wp) :: clump_temperature = -1.0_wp  ! clump temperature [K] (default: par%temperature)
      real(kind=wp) :: clump_sigma_v     =  0.0_wp  ! Gaussian sigma of clump bulk velocity [km/s]

@@ -4,6 +4,36 @@ LaRT_v2.00
 Author: Kwang-Il Seon
 ================================================================================
 
+DATE: 2026-04-26
+--------------------------------------------------------------------------------
+
+NEW FEATURE: clump_NHI — per-clump HI column density input
+  - Added par%clump_NHI (real, default -1; units: cm^-2).
+
+    Specifies the HI column density of an INDIVIDUAL CLUMP from its centre to
+    its surface.  This quantity must be carefully distinguished from the total
+    SYSTEM column density (par%N_HImax), which is the average HI column density
+    along a radial sightline through the entire clumpy sphere (centre to outer
+    boundary, averaged over the random clump population).
+
+    The per-clump opacity is derived as:
+      cl_rhokap = clump_NHI * line%cross0 / cl_radius          [code_unit^-1]
+    which is equivalent to:
+      tau0 = clump_NHI * cross0 * phi(0, a_V^cl)
+    where cross0 is the reference line-centre cross-section [cm^2] and phi is
+    the Voigt profile value at x=0.
+
+    Unlike clump_nH (which requires par%distance_unit to convert number density
+    [cm^-3] to opacity per code unit), clump_NHI [cm^-2] is a physical column
+    density and does NOT require distance_unit.
+
+    Priority order when deriving cl_rhokap (first positive value wins):
+      clump_tau0  > clump_NHI  > clump_nH
+
+  - FITS keyword IN_NHI added to write_clumps_fits (BinTable HDU).
+
+  Files modified: define.f90, clump_mod.f90  (v2.00 and v2.10)
+
 DATE: 2026-04-24
 --------------------------------------------------------------------------------
 

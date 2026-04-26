@@ -25,7 +25,7 @@
 
 \title{Clumpy Medium Extension of LaRT: Algorithm Description}
 \author{Kwang-Il Seon}
-\date{2026-04-24}
+\date{2026-04-26}
 \maketitle
 
 \tableofcontents
@@ -125,15 +125,33 @@ The clump temperature $T_c$ defaults to $\texttt{par\%temperature}$ unless
 \end{align}
 where $\lambda_0$ is the Lyman-$\alpha$ rest wavelength.
 
-The line-centre optical depth of a clump (centre to surface) is
-\texttt{par\%clump\_tau0}; from this the uniform opacity is
+Three mutually exclusive parameters specify the opacity of each individual
+clump (the first positive value in the priority order wins):
+
+\paragraph{1.~\texttt{par\%clump\_tau0} — line-centre optical depth (dimensionless):}
+The line-centre $\tau$ of one clump from its centre to its surface.
 \begin{equation}
   \kappa_c = \frac{\tau_0}{\phi(0,a_V^{cl})\, r_c},
 \end{equation}
 where $\phi(x, a)$ is the Voigt profile at dimensionless frequency $x$.
-Alternatively, the hydrogen number density \texttt{par\%clump\_nH} may be
-given, in which case $\kappa_c = n_H\,\sigma_0\,d_\mathrm{cm}$ (requires
-\texttt{par\%distance\_unit}).
+
+\paragraph{2.~\texttt{par\%clump\_NHI} — per-clump HI column density [cm$^{-2}$]:}
+The HI column density of a \emph{single clump} from its centre to its surface.
+This must be clearly distinguished from the \emph{total system} column density
+(\texttt{par\%N\_HImax}), which is the average HI column density along a
+radial sightline through the entire clumpy sphere (centre to outer boundary,
+averaged over all sightlines through the random clump population).
+
+Given $N_{\rm HI}^{cl} = n_H\,r_c\,d_{\rm cm}$, the opacity follows as
+\begin{equation}
+  \kappa_c = \frac{N_{\rm HI}^{cl}\,\sigma_0}{r_c},
+\end{equation}
+which is equivalent to $\tau_0 = N_{\rm HI}^{cl}\,\sigma_0\,\phi(0,a_V^{cl})$.
+Unlike \texttt{clump\_nH}, this option does \emph{not} require
+\texttt{par\%distance\_unit}.
+
+\paragraph{3.~\texttt{par\%clump\_nH} — hydrogen number density [cm$^{-3}$]:}
+$\kappa_c = n_H\,\sigma_0\,d_\mathrm{cm}$ (requires \texttt{par\%distance\_unit}).
 
 \subsection{Clump Velocities}
 
@@ -623,6 +641,7 @@ Keyword & Value & Description \\
 \texttt{IN\_FCOV}  & \texttt{par\%clump\_f\_cov} & input covering factor \\
 \texttt{IN\_FVOL}  & \texttt{par\%clump\_f\_vol} & input filling factor \\
 \texttt{IN\_NCL}   & \texttt{par\%clump\_N\_clumps} & input $N$ \\
+\texttt{IN\_NHI}   & \texttt{par\%clump\_NHI} & per-clump $N_{\rm HI}$ (cm$^{-2}$, clump centre to surface) \\
 \texttt{IN\_NH}    & \texttt{par\%clump\_nH} & input $n_H$ (cm$^{-3}$) \\
 \texttt{IN\_TEMP}  & \texttt{par\%clump\_temperature} & input $T_c$ (K) \\
 \hline
@@ -648,8 +667,9 @@ Parameter & Default & Description \\
 \texttt{par\%clump\_f\_cov}     & 0    & covering factor (input) \\
 \texttt{par\%clump\_f\_vol}     & 0    & volume filling factor (input) \\
 \texttt{par\%clump\_N\_clumps}  & 0    & number of clumps (input, direct) \\
-\texttt{par\%clump\_tau0}       & 0    & line-centre $\tau$ per clump \\
-\texttt{par\%clump\_nH}         & 0    & clump $n_H$ (cm$^{-3}$; requires \texttt{distance\_unit}) \\
+\texttt{par\%clump\_tau0}       & $-1$ & line-centre $\tau$ of one clump (centre to surface) \\
+\texttt{par\%clump\_NHI}        & $-1$ & per-clump $N_{\rm HI}$ (cm$^{-2}$, clump centre to surface; no \texttt{distance\_unit} needed) \\
+\texttt{par\%clump\_nH}         & $-1$ & clump $n_H$ (cm$^{-3}$; requires \texttt{distance\_unit}) \\
 \texttt{par\%clump\_temperature}& $-1$ & clump $T$ (K); $<0$ $\Rightarrow$ \texttt{par\%temperature} \\
 \texttt{par\%clump\_sigma\_v}   & 0    & random velocity $\sigma$ per component (km/s) \\
 \texttt{par\%velocity\_type}    & \texttt{''} & systematic flow type (see \S2.4) \\
