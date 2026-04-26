@@ -106,14 +106,16 @@ contains
   else if (par%clump_NHI > 0.0_wp) then
      ! clump_NHI = per-clump column density [cm^-2] from individual clump center to its surface
      ! (distinct from total system column density N_HImax along sightlines through the clumpy sphere)
-     ! relation: clump_NHI = nH * cl_radius * distance2cm  =>  cl_rhokap = clump_NHI * cross0 / cl_radius
-     cl_rhokap = par%clump_NHI * line%cross0 / cl_radius
+     ! line%cross0 [cm^2*Hz]; divide by cl_Dfreq [Hz] to get actual cross-section [cm^2]
+     ! => cl_rhokap = clump_NHI * (cross0/cl_Dfreq) / cl_radius  [code_unit^-1]
+     cl_rhokap = par%clump_NHI * line%cross0 / (cl_Dfreq * cl_radius)
   else if (par%clump_nH > 0.0_wp) then
      if (par%distance2cm <= 0.0_wp) then
         if (mpar%p_rank == 0) write(*,*) 'ERROR: clump_nH requires distance_unit'
         call MPI_ABORT(MPI_COMM_WORLD, 1, ierr)
      end if
-     cl_rhokap = par%clump_nH * line%cross0 * par%distance2cm
+     ! line%cross0 [cm^2*Hz]; divide by cl_Dfreq [Hz] to get actual cross-section [cm^2]
+     cl_rhokap = par%clump_nH * line%cross0 * par%distance2cm / cl_Dfreq
   else
      if (mpar%p_rank == 0) write(*,*) 'ERROR: specify clump_tau0, clump_NHI, or clump_nH'
      call MPI_ABORT(MPI_COMM_WORLD, 1, ierr)

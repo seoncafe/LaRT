@@ -6,10 +6,16 @@ Physical setup
 A point source at the centre of a sphere of radius rmax emits Lyman-alpha
 photons (or another resonance line) at line centre.  The sphere contains N
 non-overlapping spherical clumps of radius clump_radius, placed by
-Random Sequential Adsorption (RSA).  Each clump has uniform opacity
-clump_tau0 (line-centre tau from centre to surface), temperature
-par%temperature, and optionally a bulk velocity set by clump_sigma_v or
-velocity_type.  Outside the clumps the medium is vacuum.
+Random Sequential Adsorption (RSA).  Each clump has uniform opacity,
+temperature par%temperature, and optionally a bulk velocity set by
+clump_sigma_v or velocity_type.  Outside the clumps the medium is vacuum.
+
+The per-clump opacity is set by exactly one of three mutually exclusive
+parameters (priority order: first positive value wins):
+  clump_tau0  -- line-centre tau from clump centre to surface (dimensionless)
+  clump_NHI   -- per-clump HI column density [cm^-2] from centre to surface
+                 (do NOT confuse with N_HImax, the system-level column density)
+  clump_nH    -- clump hydrogen number density [cm^-3] (requires distance_unit)
 
 The key dimensionless parameters are:
   N_cov  = (3/4) * N_clumps * (clump_radius / rmax)^2  -- line-of-sight
@@ -22,15 +28,19 @@ The OOP interface par%grid_type = 'clump' is available in LaRT_v2.10 and later.
 
 Input files
 -----------
-  clump_tau3_fcov5.in         tau0=1e3, N_cov=5,  static (reference run)
-  clump_tau4_fcov5.in         tau0=1e4, N_cov=5,  static (high optical depth)
-  clump_tau3_fcov20.in        tau0=1e3, N_cov=20, static (dense covering)
-  clump_tau3_fcov5_hubble.in  tau0=1e3, N_cov=5,  Hubble expansion Vexp=200 km/s
-  clump_tau3_fcov5_sigv.in    tau0=1e3, N_cov=5,  clump sigma_v=50 km/s
-  clump_tau3_fcov5_peel.in    tau0=1e3, N_cov=5,  peel-off observer (129x129 image)
+  clump_tau3_fcov5.in         tau0=1e3,        f_cov=5,  static (reference run)
+  clump_tau4_fcov5.in         tau0=1e4,        f_cov=5,  static (high optical depth)
+  clump_tau3_fcov20.in        tau0=1e3,        f_cov=20, static (dense covering)
+  clump_tau3_fcov5_hubble.in  tau0=1e3,        f_cov=5,  Hubble expansion Vexp=200 km/s
+  clump_tau3_fcov5_sigv.in    tau0=1e3,        f_cov=5,  clump sigma_v=50 km/s
+  clump_tau3_fcov5_peel.in    tau0=1e3,        f_cov=5,  peel-off observer (129x129 image)
 
-  clump_test.in               legacy single-test case (1e5 photons, same as
-                              clump_tau3_fcov5 but with peel-off enabled)
+  clump_NHI18_fcov1.in        NHI=7.5e17 cm-2, f_cov=1,  per-clump column density (tau0~4.4e4)
+  clump_NHI18_fcov5.in        NHI=7.5e17 cm-2, f_cov=5,  per-clump column density (tau0~4.4e4)
+  clump_NHI18_fcov20.in       NHI=7.5e17 cm-2, f_cov=20, per-clump column density (tau0~4.4e4)
+
+  The NHI cases use clump_radius=0.001 (10x smaller than the tau0 cases) and
+  spectral_type='monochromatic' (photons injected at line centre).
 
 How to run
 ----------
@@ -46,8 +56,9 @@ Output files
   <base>_clumps.fits.gz     clump positions/velocities (if save_clump_info = .true.)
 
   _clumps.fits.gz BinTable columns: X, Y, Z [code units], VX, VY, VZ [km/s]
-  Header keywords: N_CLUMPS, SPHERE_R, CL_RAD, F_VOL, N_COV, TAU0,
-                   SIGMA_V, TEMP_CL, RHOKAP, CL_DFREQ, VTHERM, VOIGT_A
+  Header keywords: N_CLUMPS, SPHERE_R, CL_RAD, F_VOL, F_COV, TAU0,
+                   SIGMA_V, TEMP_CL, RHOKAP, CL_DFREQ, VTHERM, VOIGT_A,
+                   RMAX, IN_FCOV, IN_FVOL, IN_NCL, IN_NHI, IN_NH, IN_TEMP
 
 Analysis
 --------
@@ -62,11 +73,12 @@ Key parameters (namelist)
   par%use_clump_medium = .true.   ! selects clump-medium mode (v2.00)
   par%rmax             = 1.0      ! outer sphere radius [code units]
   par%clump_radius     = 0.01     ! individual clump radius [code units]
-  par%clump_N_cov      = 5.0      ! line-of-sight covering factor  \
+  par%clump_f_cov      = 5.0      ! line-of-sight covering factor  \
   par%clump_f_vol      = ...      !  or volume filling factor        >  specify one
   par%clump_N_clumps   = ...      !  or number of clumps            /
-  par%clump_tau0       = 1.0e3    ! line-centre tau (clump centre -> surface)
-  par%clump_nH         = ...      !  or HI density [cm^-3] (needs distance_unit)
+  par%clump_tau0       = 1.0e3    ! per-clump line-centre tau (centre -> surface)  \
+  par%clump_NHI        = ...      !  or per-clump HI column density [cm^-2]         >  specify one
+  par%clump_nH         = ...      !  or HI number density [cm^-3] (needs distance_unit) /
   par%clump_temperature = -1.0    ! clump T [K]; -1 uses par%temperature
   par%clump_sigma_v    = 0.0      ! Gaussian sigma of clump bulk velocity [km/s]
   par%velocity_type    = ''       ! 'hubble', 'constant_radial', 'ssh', etc.
@@ -76,8 +88,16 @@ Notes
 -----
 * RSA placement may be slow for f_vol > ~30%.  Use clump_N_clumps instead of
   clump_f_vol in that regime.
-* N_cov = (3/4) * N_clumps * (clump_radius/rmax)^2; the effective optical
-  depth through the sphere is approximately N_cov * tau0.
+* f_cov = (3/4) * N_clumps * (clump_radius/rmax)^2; the effective optical
+  depth through the sphere is approximately f_cov * tau0.
+* clump_NHI is the column density of ONE individual clump (centre to surface).
+  It is NOT the same as N_HImax, which is the system-level average column
+  density along a sightline through the entire sphere.
+  The equivalent tau0 is: tau0 = clump_NHI * sigma0 * phi(0, a_V),
+  where sigma0 = line%cross0 / Dfreq [cm^2] is the line-centre cross-section.
+  For T=1e4 K and clump_NHI=7.5e17 cm^-2: tau0 ~ 4.4e4.
+* Opacity priority (first positive value wins): clump_tau0 > clump_NHI > clump_nH.
+  clump_NHI does not require distance_unit; clump_nH does.
 * The sightline-tau feature (par%save_sightline_tau) is not supported in clump
   mode (gives tau=0 everywhere because the Cartesian grid has rhokap=0).
 * Multi-node runs: clump positions are generated by global rank 0 and broadcast

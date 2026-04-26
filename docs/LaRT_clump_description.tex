@@ -6,6 +6,7 @@
 \usepackage{xcolor}
 \usepackage{amsmath}
 \usepackage{amssymb}
+\usepackage{microtype}
 
 \lstset{
   basicstyle=\ttfamily\small,
@@ -44,12 +45,14 @@ The mode is activated by
 \begin{lstlisting}
 par%use_clump_medium = .true.
 \end{lstlisting}
+\begin{sloppypar}
 in the input namelist.  All raytrace procedure pointers are redirected to
 clump-aware routines (\texttt{raytrace\_clump.f90}) while scatter and
 peel-off reuse the standard Cartesian routines from
 \texttt{scattering\_car.f90} and \texttt{peelingoff\_rect.f90}, since the
 uniform clump physical parameters ($T$, $v_\mathrm{bulk}$) are broadcast to
-the Cartesian grid arrays ($\texttt{grid\%Dfreq}$, $\texttt{grid\%voigt\_a}$).
+the Cartesian grid arrays (\texttt{grid\%Dfreq}, \texttt{grid\%voigt\_a}).
+\end{sloppypar}
 
 New source files introduced for this mode:
 \begin{center}
@@ -70,9 +73,11 @@ File & Role \\
 
 \subsection{Geometry}
 
+\begin{sloppypar}
 The outer domain is a sphere of radius $R = \texttt{par\%rmax}$ (code units).
 $N$ spherical clumps of radius $r_c = \texttt{par\%clump\_radius}$ are placed
 at random inside this sphere (non-overlapping).
+\end{sloppypar}
 
 A Cartesian grid of $N_x \times N_y \times N_z$ cells is created with the
 same bounding box $[-R, R]^3$.  Grid arrays ($\texttt{rhokap}$, $\texttt{Dfreq}$,
@@ -146,12 +151,18 @@ Given $N_{\rm HI}^{cl} = n_H\,r_c\,d_{\rm cm}$, the opacity follows as
 \begin{equation}
   \kappa_c = \frac{N_{\rm HI}^{cl}\,\sigma_0}{r_c},
 \end{equation}
-which is equivalent to $\tau_0 = N_{\rm HI}^{cl}\,\sigma_0\,\phi(0,a_V^{cl})$.
+where $\sigma_0 \equiv \texttt{line\%cross0}/\Delta\nu_D^{cl}$ [cm$^2$] is the
+line-centre cross-section.
+(\texttt{line\%cross0} $= \pi e^2 f/(m_e c\sqrt{\pi})$ has units [cm$^2$\,Hz];
+dividing by $\Delta\nu_D^{cl}$ [Hz] gives the physical cross-section [cm$^2$].)
+This is equivalent to $\tau_0 = N_{\rm HI}^{cl}\,\sigma_0\,\phi(0,a_V^{cl})$.
 Unlike \texttt{clump\_nH}, this option does \emph{not} require
 \texttt{par\%distance\_unit}.
 
 \paragraph{3.~\texttt{par\%clump\_nH} — hydrogen number density [cm$^{-3}$]:}
-$\kappa_c = n_H\,\sigma_0\,d_\mathrm{cm}$ (requires \texttt{par\%distance\_unit}).
+$\kappa_c = n_H\,\sigma_0\,d_\mathrm{cm}$,
+where $\sigma_0 \equiv \texttt{line\%cross0}/\Delta\nu_D^{cl}$ [cm$^2$]
+(requires \texttt{par\%distance\_unit}).
 
 \subsection{Clump Velocities}
 
@@ -169,10 +180,12 @@ If \texttt{par\%clump\_sigma\_v} $> 0$, each clump is assigned
 $\mathbf{v}_{\mathrm{rand},i} \sim \mathcal{N}(0,\sigma_v^2)$ per component
 (drawn in \texttt{generate\_clumps}).
 
+\begin{sloppypar}
 \paragraph{Systematic component (\texttt{par\%velocity\_type}):}
 After RSA placement, \texttt{assign\_clump\_velocities\_from\_type} evaluates
 the flow velocity at each clump centre and \emph{adds} it to the existing
 (possibly non-zero) velocity.  Supported types:
+\end{sloppypar}
 
 \begin{center}
 \begin{tabular}{lll}
@@ -356,6 +369,7 @@ Instead of a list-of-lists (which requires many small dynamic allocations),
 all per-cell clump lists are packed into two flat integer arrays in
 \emph{Compressed Sparse Row} (CSR) format --- the same layout used for
 sparse matrices:
+\begin{sloppypar}
 \begin{itemize}
   \item \texttt{cg\_start(0:Ncell)}: \texttt{cg\_start(icell)} is the
         1-based index of the first entry for cell \texttt{icell} in
@@ -365,6 +379,7 @@ sparse matrices:
   \item \texttt{cg\_list(1:Ntot)}: flat concatenation of all per-cell
         clump-index lists.
 \end{itemize}
+\end{sloppypar}
 
 Retrieving the clump list for any cell is an $O(1)$ array slice with no
 pointer chasing.  To illustrate: suppose four cells contain the clumps
@@ -593,10 +608,13 @@ initialisation in \texttt{run\_simulation\_mod}.
 \section{Peel-Off Observations}
 %=============================================================================
 
+\begin{sloppypar}
 Peel-off is handled by the standard \texttt{peelingoff\_rect} routines
-(\texttt{peeling\_direct\_outside}, \texttt{peeling\_resonance\_nostokes\_outside},
+(\texttt{peeling\_direct\_outside},
+\texttt{peeling\_resonance\_\allowbreak{}nostokes\_outside},
 etc.) with \texttt{raytrace\_to\_edge} pointing to
 \texttt{raytrace\_to\_edge\_clump}.
+\end{sloppypar}
 
 The observer distance defaults to $d = 100\,R$ and the image pixel size is
 set so that the full sphere subtends the image:
@@ -657,7 +675,7 @@ must not exceed 8 characters.
 %=============================================================================
 
 \begin{center}
-\begin{tabular}{lll}
+\begin{tabular}{llp{0.55\linewidth}}
 \hline
 Parameter & Default & Description \\
 \hline
@@ -711,27 +729,33 @@ Parameter & Default & Description \\
 \section{Memory Layout}
 %=============================================================================
 
+\begin{sloppypar}
 Clump positions, velocities, and CSR arrays are allocated as MPI-3
 shared-memory windows via \texttt{create\_shared\_mem} from
 \texttt{memory\_mod}, giving one copy per compute node rather than per MPI
 rank.  On systems with multiple ranks per node this significantly reduces
 memory usage for large clump populations.
+\end{sloppypar}
 
+\begin{sloppypar}
 Cleanup is performed by \texttt{destroy\_clumps} which calls
 \texttt{destroy\_shared\_mem\_all} (collective \texttt{MPI\_WIN\_FREE} across
 all ranks) followed by explicit \texttt{nullify} of all pointers.  The
 individual \texttt{destroy\_mem} is not used because
 \texttt{MPI\_WIN\_SHARED\_QUERY} returns the rank-0 base address, which
 differs from the local pointer on non-root ranks.
+\end{sloppypar}
 
 %=============================================================================
 \section{Validation and Examples}
 %=============================================================================
 
+\begin{sloppypar}
 The directory \texttt{examples/clump\_sphere/} contains a suite of six
 reference runs (plus the legacy \texttt{clump\_test.in}) covering the
 main parameter space.  All named cases use $R=1$, $r_c=0.01$, $10^6$
 photons, and \texttt{par\%use\_clump\_medium = .true.}:
+\end{sloppypar}
 
 \begin{center}
 \begin{tabular}{lll}

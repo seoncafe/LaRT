@@ -4,6 +4,38 @@ LaRT_v2.00
 Author: Kwang-Il Seon
 ================================================================================
 
+DATE: 2026-04-27
+--------------------------------------------------------------------------------
+
+BUG FIX: cl_rhokap wrong for clump_NHI and clump_nH paths (missing / cl_Dfreq)
+
+  In init_clumps(), the opacity derivation for the clump_NHI and clump_nH
+  input paths produced cl_rhokap with units of [Hz/code_unit] instead of the
+  required [code_unit^-1]:
+
+    line%cross0 = sigma_0 * f_osc / sqrt(pi)   [cm^2*Hz]   (NOT [cm^2])
+
+  The actual line-center cross-section [cm^2] is  line%cross0 / cl_Dfreq.
+  Both paths were missing a division by cl_Dfreq:
+
+  WRONG:
+    clump_NHI:  cl_rhokap = par%clump_NHI * line%cross0 / cl_radius
+    clump_nH:   cl_rhokap = par%clump_nH  * line%cross0 * par%distance2cm
+
+  CORRECT:
+    clump_NHI:  cl_rhokap = par%clump_NHI * line%cross0 / (cl_Dfreq * cl_radius)
+    clump_nH:   cl_rhokap = par%clump_nH  * line%cross0 * par%distance2cm / cl_Dfreq
+
+  Effect of the bug: cl_rhokap was ~cl_Dfreq (~10^11) times too large, making
+  the per-clump tau0 effectively infinite (e.g. ~4.7e15 instead of ~4.4e4 for
+  clump_NHI=7.5e17 cm^-2, r_c=0.001, T=1e4 K).  Photons could never escape
+  individual clumps, causing the simulation to stall indefinitely.
+
+  Note: the clump_tau0 path was unaffected (it derives cl_rhokap from a
+  dimensionless tau directly and uses no cross0).
+
+  Files modified: clump_mod.f90  (v2.00 and v2.10)
+
 DATE: 2026-04-26
 --------------------------------------------------------------------------------
 
@@ -17,11 +49,13 @@ NEW FEATURE: clump_NHI — per-clump HI column density input
     boundary, averaged over the random clump population).
 
     The per-clump opacity is derived as:
-      cl_rhokap = clump_NHI * line%cross0 / cl_radius          [code_unit^-1]
+      cl_rhokap = clump_NHI * (line%cross0/cl_Dfreq) / cl_radius   [code_unit^-1]
     which is equivalent to:
-      tau0 = clump_NHI * cross0 * phi(0, a_V^cl)
-    where cross0 is the reference line-centre cross-section [cm^2] and phi is
-    the Voigt profile value at x=0.
+      tau0 = clump_NHI * sigma0 * phi(0, a_V^cl)
+    where sigma0 = line%cross0/cl_Dfreq is the line-centre cross-section [cm^2]
+    and phi is the Voigt profile value at x=0.
+    (Note: line%cross0 has units [cm^2*Hz]; the physical cross-section [cm^2]
+     is line%cross0 / cl_Dfreq.)
 
     Unlike clump_nH (which requires par%distance_unit to convert number density
     [cm^-3] to opacity per code unit), clump_NHI [cm^-2] is a physical column

@@ -64,18 +64,28 @@ contains
   character(len=*),    intent(in) :: fname
   integer,          intent(inout) :: stat
   integer :: blocksize=1
-  !call unlink(trim(fname))
-  !stat = 0
-  !-- 2024.10.30
-  open(unit,iostat=stat,file=trim(fname),status='old')
-  if (stat==0) then
-    close(unit, status='delete')
-  else
-    stat = 0
-  endif
+  integer :: tmp_unit
+  ! Use newunit= to avoid passing uninitialized 'unit' to open()
+  open(newunit=tmp_unit,iostat=stat,file=trim(fname),status='old')
+  if (stat==0) close(tmp_unit, status='delete')
+  stat = 0
+  unit = -1
   call ftgiou(unit,stat)
+  if (stat /= 0) return
   call ftinit(unit,trim(fname),blocksize,stat)
-  call ftpdat(unit,stat)
+  if (stat /= 0) then
+    call ftfiou(unit,stat)
+    return
+  endif
+  ! NOTE: ftpdat is intentionally NOT called here.
+  !
+  ! Bug confirmed in CFITSIO 4.6.2 (libcfitsio.so.10.4.6.2, 2026-04):
+  ! ftpdat (and ftpkys) called immediately after ftinit corrupt the internal
+  ! unit state for file-based drivers (.fits, .fits.gz): the call returns
+  ! status=0, but the next ftghdt returns status=252 (BAD_HDU_NUM).
+  ! The mem:// in-memory driver is NOT affected.
+  ! Workaround: DATE is written inside fits_close(), after all data have been
+  ! written, where the bug does not trigger.
   end subroutine fits_open_new
 !--------------------
   subroutine fits_open_old(unit,fname,status,overwrite)
@@ -95,8 +105,25 @@ contains
   subroutine fits_close(unit,status)
   integer, intent(in)    :: unit
   integer, intent(inout) :: status
-  call ftclos(unit,status)
-  call ftfiou(unit,status)
+  integer :: tmp_status, hdutype, dvals(8)
+  character(len=10) :: date_str
+  ! Write DATE to primary HDU before closing.
+  ! Called here (after data is written) rather than in fits_open_new because
+  ! CFITSIO 4.6.x bug: ftpkys/ftpdat called immediately after ftinit corrupts
+  ! the unit state (ftghdt returns status=252 BAD_HDU_NUM on the next call).
+  ! Writing the keyword after data operations avoids the bug entirely.
+  ! For read-only files ftpkys will fail; we ignore that via a local status.
+  tmp_status = 0
+  call ftmahd(unit, 1, hdutype, tmp_status)
+  if (tmp_status == 0) then
+    call date_and_time(values=dvals)
+    write(date_str,'(i4,"-",i2.2,"-",i2.2)') dvals(1), dvals(2), dvals(3)
+    call ftpkys(unit, 'DATE', trim(date_str), 'file creation date', tmp_status)
+  end if
+  tmp_status = 0
+  call ftclos(unit,tmp_status)
+  call ftfiou(unit,tmp_status)
+  if (status == 0) status = tmp_status
   end subroutine fits_close
 !--------------------
   subroutine fits_hdu_copy(unit1,unit2,status)
@@ -995,7 +1022,7 @@ contains
   call ftghdt(unit,hdutype,status)
   if (hdutype /= 2) then
      ! create a new BinTable HDU and move to it.
-     call ftibin(unit,nrows,tfields,ttype,tform,tunit,extname,varidat,status)
+     call ftibin(unit,0,tfields,ttype,tform,tunit,extname,varidat,status)
      colnum = 1
   else
      call ftgncl(unit,colnum,status)
@@ -1025,7 +1052,7 @@ contains
   call ftghdt(unit,hdutype,status)
   if (hdutype /= 2) then
      ! create a new BinTable HDU and move to it.
-     call ftibin(unit,nrows,tfields,ttype,tform,tunit,extname,varidat,status)
+     call ftibin(unit,0,tfields,ttype,tform,tunit,extname,varidat,status)
      colnum = 1
   else
      call ftgncl(unit,colnum,status)
@@ -1075,7 +1102,7 @@ contains
   call ftghdt(unit,hdutype,status)
   if (hdutype /= 2) then
      ! create a new BinTable HDU and move to it.
-     call ftibin(unit,nrows,tfields,ttype,tform,tunit,extname,varidat,status)
+     call ftibin(unit,0,tfields,ttype,tform,tunit,extname,varidat,status)
      colnum = 1
   else
      call ftgncl(unit,colnum,status)
@@ -1123,7 +1150,7 @@ contains
   call ftghdt(unit,hdutype,status)
   if (hdutype /= 2) then
      ! create a new BinTable HDU and move to it.
-     call ftibin(unit,nrows,tfields,ttype,tform,tunit,extname,varidat,status)
+     call ftibin(unit,0,tfields,ttype,tform,tunit,extname,varidat,status)
      colnum = 1
   else
      call ftgncl(unit,colnum,status)

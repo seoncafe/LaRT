@@ -33,7 +33,8 @@ EXEC=../../LaRT.x
 #HOSTS=mocafe
 #HOSTS=mocafe,lart2
 #HOSTS=mocafe,lart1,lart2,lart3,lart4
-HOSTS=lart4,lart3,lart2,lart1
+#HOSTS=lart4,lart3,lart2,lart1
+HOSTS=lart4
 
 #====== Do not touch starting from here =========
 host_file=/tmp/host_file_$RANDOM
@@ -71,5 +72,9 @@ echo "   with the machinefile $host_file"
 #echo "=== Clumpy sphere: tau0=1e3, N_cov=5, clump sigma_v=50 km/s ==="
 #mpirun -machinefile ${host_file} ${EXEC} clump_tau3_fcov5_sigv.in
 
-echo "=== Clumpy sphere: tau0=1e3, N_cov=5, peel-off observer ==="
-mpirun -machinefile ${host_file} ${EXEC} clump_tau3_fcov5_peel.in
+#echo "=== Clumpy sphere: tau0=1e3, N_cov=5, peel-off observer ==="
+#mpirun -machinefile ${host_file} ${EXEC} clump_tau3_fcov5_peel.in
+
+mpirun -machinefile ${host_file} ${EXEC} clump_NHI18_fcov1.in
+mpirun -machinefile ${host_file} ${EXEC} clump_NHI18_fcov5.in
+mpirun -machinefile ${host_file} ${EXEC} clump_NHI18_fcov20.in
