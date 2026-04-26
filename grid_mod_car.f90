@@ -943,67 +943,7 @@ contains
   grid%voigt_amean = (line%damping/fourpi)/grid%Dfreq_ref
   grid%Dfreq_mean  = grid%Dfreq_ref
   atau0            = grid%voigt_amean * par%tauhomo
-  par%atau3        = (atau0)**(1.0_wp/3.0_wp)
-
-  ! set up frequency, wavelength, and velocity grid. (2021.07.16)
-  if (is_finite(par%wavelength_min) .and. is_finite(par%wavelength_max)) then
-     if (par%nwavelength == 0 .and. par%nxfreq > 0) par%nwavelength = par%nxfreq
-     if (par%nwavelength > 0) par%nxfreq = par%nwavelength
-     vtherm        = line%vtherm1*sqrt(par%temperature)
-     par%xfreq_min = -(par%wavelength_max - line%wavelength0*1e4)/(line%wavelength0*1e4)*(speedc/vtherm)
-     par%xfreq_max = -(par%wavelength_min - line%wavelength0*1e4)/(line%wavelength0*1e4)*(speedc/vtherm)
-  else if (is_finite(par%velocity_min) .and. is_finite(par%velocity_max)) then
-     if (par%nvelocity == 0 .and. par%nxfreq > 0) par%nvelocity = par%nxfreq
-     if (par%nvelocity > 0) par%nxfreq = par%nvelocity
-     vtherm        = line%vtherm1*sqrt(par%temperature)
-     par%xfreq_min = -par%velocity_max/vtherm
-     par%xfreq_max = -par%velocity_min/vtherm
-  endif
-
-  grid%nxfreq = par%nxfreq
-  if (.not.(is_finite(par%xfreq_max) .and. is_finite(par%xfreq_min))) then
-     if (par%taumax <= 5e1_wp) then
-        xscale = 25.0_wp
-     else if (par%taumax <= 5e2_wp) then
-        xscale = 14.0_wp
-     else if (par%taumax <= 5e3_wp) then
-        xscale = 10.0_wp
-     else
-        xscale = 5.0_wp
-     endif
-     if (par%Vexp == 0.0_wp) then
-        par%xfreq_max  = floor(xscale * par%atau3)+1
-        par%xfreq_min  = -(floor(xscale * par%atau3 + line%DnuHK_Hz/grid%Dfreq_ref)+1)
-     else if (par%Vexp > 0.0_wp) then    ! expanding
-        vtherm         = line%vtherm1*sqrt(par%temperature)
-        par%xfreq_max  = floor(xscale * par%atau3)+1
-        par%xfreq_min  = -(floor(xscale * par%atau3 + abs(par%Vexp)/vtherm + line%DnuHK_Hz/grid%Dfreq_ref)+1)
-     else if (par%Vexp < 0.0_wp) then    ! infalling
-        vtherm         = line%vtherm1*sqrt(par%temperature)
-        par%xfreq_max  = floor(xscale * par%atau3 + abs(par%Vexp)/vtherm)+1
-        par%xfreq_min  = -(floor(xscale * par%atau3 + line%DnuHK_Hz/grid%Dfreq_ref)+1)
-     endif
-     if (trim(par%spectral_type) == 'continuum') then
-        xscale         = 4.0_wp * xscale
-        par%xfreq_max  = floor(xscale * par%atau3 + abs(par%Vexp)/vtherm)+1
-        par%xfreq_min  = -(floor(xscale * par%atau3 + abs(par%Vexp)/vtherm + line%DnuHK_Hz/grid%Dfreq_ref)+1)
-     endif
-  endif
-
-  !--- allocate frequency, velocity, and wavelength arrays for spectral outputs.
-  call create_shared_mem(grid%xfreq,    [grid%nxfreq])
-  call create_shared_mem(grid%velocity, [grid%nxfreq])
-  call create_shared_mem(grid%wavelength, [grid%nxfreq])
-
-  grid%dxfreq    = (par%xfreq_max - par%xfreq_min)/par%nxfreq
-  grid%xfreq_max = par%xfreq_max
-  grid%xfreq_min = par%xfreq_min
-  if (mpar%h_rank == 0) then
-     grid%xfreq(:)    = [ ((i-0.5_wp)*grid%dxfreq + grid%xfreq_min, i=1, grid%nxfreq) ]
-     grid%velocity(:) = -line%vtherm1*sqrt(par%temperature) * grid%xfreq(:)
-     grid%dwave       =  line%vtherm1*sqrt(par%temperature) / speedc * (line%wavelength0 * 1e4_wp) * grid%dxfreq
-     grid%wavelength(:) = (grid%velocity(:)/speedc + 1.0_wp) * (line%wavelength0 * 1e4_wp)
-  endif
+  call car_setup_freq_grid(grid)
 
   !--- J(freq,x,y,z)  = mean intensity
   !--- Pa(x,y,z)      = number of scattering (P_alpha) per atom.
@@ -1262,6 +1202,82 @@ contains
   end subroutine create_JPa_mem
 #endif
 !++++++++++++++++++++++++++++++++++++++++++
+
+  !-----------------------------------------
+  ! Set up Cartesian frequency grid.
+  ! Mirrors amr_setup_freq_grid in grid_mod_amr.
+  !-----------------------------------------
+  subroutine car_setup_freq_grid(grid)
+  use define
+  use mpi
+  implicit none
+  type(grid_type), intent(inout) :: grid
+
+  real(kind=wp) :: vtherm, xscale, atau3
+  integer :: i, ierr
+
+  atau3     = (grid%voigt_amean * par%tauhomo)**(1.0_wp/3.0_wp)
+  par%atau3 = atau3
+
+  vtherm = line%vtherm1*sqrt(par%temperature)
+
+  ! Translate wavelength/velocity range inputs to x-frequency range
+  if (is_finite(par%wavelength_min) .and. is_finite(par%wavelength_max)) then
+     if (par%nwavelength == 0 .and. par%nxfreq > 0) par%nwavelength = par%nxfreq
+     if (par%nwavelength > 0) par%nxfreq = par%nwavelength
+     par%xfreq_min = -(par%wavelength_max - line%wavelength0*1e4)/(line%wavelength0*1e4)*(speedc/vtherm)
+     par%xfreq_max = -(par%wavelength_min - line%wavelength0*1e4)/(line%wavelength0*1e4)*(speedc/vtherm)
+  else if (is_finite(par%velocity_min) .and. is_finite(par%velocity_max)) then
+     if (par%nvelocity == 0 .and. par%nxfreq > 0) par%nvelocity = par%nxfreq
+     if (par%nvelocity > 0) par%nxfreq = par%nvelocity
+     par%xfreq_min = -par%velocity_max/vtherm
+     par%xfreq_max = -par%velocity_min/vtherm
+  endif
+
+  grid%nxfreq = par%nxfreq
+  if (.not.(is_finite(par%xfreq_max) .and. is_finite(par%xfreq_min))) then
+     if (par%taumax <= 5e1_wp) then
+        xscale = 25.0_wp
+     else if (par%taumax <= 5e2_wp) then
+        xscale = 14.0_wp
+     else if (par%taumax <= 5e3_wp) then
+        xscale = 10.0_wp
+     else
+        xscale = 5.0_wp
+     endif
+     if (par%Vexp == 0.0_wp) then
+        par%xfreq_max = floor(xscale * atau3)+1
+        par%xfreq_min = -(floor(xscale * atau3 + line%DnuHK_Hz/grid%Dfreq_ref)+1)
+     else if (par%Vexp > 0.0_wp) then    ! expanding
+        par%xfreq_max = floor(xscale * atau3)+1
+        par%xfreq_min = -(floor(xscale * atau3 + abs(par%Vexp)/vtherm + line%DnuHK_Hz/grid%Dfreq_ref)+1)
+     else if (par%Vexp < 0.0_wp) then    ! infalling
+        par%xfreq_max = floor(xscale * atau3 + abs(par%Vexp)/vtherm)+1
+        par%xfreq_min = -(floor(xscale * atau3 + line%DnuHK_Hz/grid%Dfreq_ref)+1)
+     endif
+     if (trim(par%spectral_type) == 'continuum') then
+        xscale        = 4.0_wp * xscale
+        par%xfreq_max = floor(xscale * atau3 + abs(par%Vexp)/vtherm)+1
+        par%xfreq_min = -(floor(xscale * atau3 + abs(par%Vexp)/vtherm + line%DnuHK_Hz/grid%Dfreq_ref)+1)
+     endif
+  endif
+
+  !--- allocate frequency, velocity, and wavelength arrays for spectral outputs.
+  call create_shared_mem(grid%xfreq,      [grid%nxfreq])
+  call create_shared_mem(grid%velocity,   [grid%nxfreq])
+  call create_shared_mem(grid%wavelength, [grid%nxfreq])
+
+  grid%dxfreq    = (par%xfreq_max - par%xfreq_min)/par%nxfreq
+  grid%xfreq_max = par%xfreq_max
+  grid%xfreq_min = par%xfreq_min
+  if (mpar%h_rank == 0) then
+     grid%xfreq(:)      = [ ((i-0.5_wp)*grid%dxfreq + grid%xfreq_min, i=1, grid%nxfreq) ]
+     grid%velocity(:)   = -line%vtherm1*sqrt(par%temperature) * grid%xfreq(:)
+     grid%dwave         =  line%vtherm1*sqrt(par%temperature) / speedc * (line%wavelength0 * 1e4_wp) * grid%dxfreq
+     grid%wavelength(:) = (grid%velocity(:)/speedc + 1.0_wp) * (line%wavelength0 * 1e4_wp)
+  endif
+  call MPI_BARRIER(mpar%hostcomm, ierr)
+  end subroutine car_setup_freq_grid
 
   !-----------------
   subroutine grid_destroy(grid)

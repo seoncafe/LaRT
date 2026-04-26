@@ -32,7 +32,7 @@ echo "Running $EXEC on $HOSTS with $NTHREADS threads."
 echo "   with the machinefile $host_file"
 #====== Do not touch up to here =========
 
-mpirun -machinefile $host_file $EXEC rin0.1_Vrot100_NHI18.in
-mpirun -machinefile $host_file $EXEC rin0.1_Vrot300_NHI18.in
-#mpirun -machinefile $host_file $EXEC rin0.1_Vrot100_NHI18_amr.in
-#mpirun -machinefile $host_file $EXEC rin0.1_Vrot300_NHI18_amr.in
+#mpirun -machinefile $host_file $EXEC rin0.1_Vrot100_NHI18.in
+#mpirun -machinefile $host_file $EXEC rin0.1_Vrot300_NHI18.in
+mpirun -machinefile $host_file $EXEC rin0.1_Vrot100_NHI18_amr.in
+mpirun -machinefile $host_file $EXEC rin0.1_Vrot300_NHI18_amr.in

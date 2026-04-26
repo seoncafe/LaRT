@@ -9,6 +9,10 @@ module random
 !    - gfortran random_number uses KISS algorithm while ifort uses Lecuyer algorithm.
 !    - the intrinsic random_number routines are not thread-safe when used together with openmp, so should not be used.
 !    - the intial seed in each thread should be different from thread to thread.
+!    - Arrays with runtime-dependent size are declared ALLOCATABLE throughout to prevent stack
+!      overflow. Automatic arrays of the form "type :: a(n)" where n is a runtime value are
+!      stack-allocated; Intel -ipo inlines them into the caller's frame, and for large inputs
+!      (e.g. nleaf ~ 6M elements) they easily exceed the 8 MB default Linux stack limit.
 !
 ! Usage:
 !    call random_seed()      to initialize random seed
@@ -258,28 +262,32 @@ contains
   subroutine random_kiss_vv32(harvest)
      implicit none
      real(sp), intent(out) :: harvest(:,:)
-     real(sp) :: vv(size(harvest))
+     real(sp), allocatable :: vv(:)
+     allocate(vv(size(harvest)))
      call random_kiss_v32(vv)
      harvest = reshape(vv, [size(harvest,1), size(harvest,2)])
   end subroutine random_kiss_vv32
   subroutine random_kiss_vv64(harvest)
      implicit none
      real(dp), intent(out) :: harvest(:,:)
-     real(dp) :: vv(size(harvest))
+     real(dp), allocatable :: vv(:)
+     allocate(vv(size(harvest)))
      call random_kiss_v64(vv)
      harvest = reshape(vv, [size(harvest,1), size(harvest,2)])
   end subroutine random_kiss_vv64
   subroutine random_kiss_vvv32(harvest)
      implicit none
      real(sp), intent(out) :: harvest(:,:,:)
-     real(sp) :: vv(size(harvest))
+     real(sp), allocatable :: vv(:)
+     allocate(vv(size(harvest)))
      call random_kiss_v32(vv)
      harvest = reshape(vv, [size(harvest,1), size(harvest,2), size(harvest,3)])
   end subroutine random_kiss_vvv32
   subroutine random_kiss_vvv64(harvest)
      implicit none
      real(dp), intent(out) :: harvest(:,:,:)
-     real(dp) :: vv(size(harvest))
+     real(dp), allocatable :: vv(:)
+     allocate(vv(size(harvest)))
      call random_kiss_v64(vv)
      harvest = reshape(vv, [size(harvest,1), size(harvest,2), size(harvest,3)])
   end subroutine random_kiss_vvv64
@@ -313,28 +321,32 @@ contains
   subroutine random_mt_vv32(harvest)
      implicit none
      real(sp), intent(out) :: harvest(:,:)
-     real(sp) :: vv(size(harvest))
+     real(sp), allocatable :: vv(:)
+     allocate(vv(size(harvest)))
      call random_mt_v32(vv)
      harvest = reshape(vv, [size(harvest,1), size(harvest,2)])
   end subroutine random_mt_vv32
   subroutine random_mt_vv64(harvest)
      implicit none
      real(dp), intent(out) :: harvest(:,:)
-     real(dp) :: vv(size(harvest))
+     real(dp), allocatable :: vv(:)
+     allocate(vv(size(harvest)))
      call random_mt_v64(vv)
      harvest = reshape(vv, [size(harvest,1), size(harvest,2)])
   end subroutine random_mt_vv64
   subroutine random_mt_vvv32(harvest)
      implicit none
      real(sp), intent(out) :: harvest(:,:,:)
-     real(sp) :: vv(size(harvest))
+     real(sp), allocatable :: vv(:)
+     allocate(vv(size(harvest)))
      call random_mt_v32(vv)
      harvest = reshape(vv, [size(harvest,1), size(harvest,2), size(harvest,3)])
   end subroutine random_mt_vvv32
   subroutine random_mt_vvv64(harvest)
      implicit none
      real(dp), intent(out) :: harvest(:,:,:)
-     real(dp) :: vv(size(harvest))
+     real(dp), allocatable :: vv(:)
+     allocate(vv(size(harvest)))
      call random_mt_v64(vv)
      harvest = reshape(vv, [size(harvest,1), size(harvest,2), size(harvest,3)])
   end subroutine random_mt_vvv64
@@ -901,12 +913,13 @@ contains
   subroutine random_gauss2(harvest)
     implicit none
     real(wp), dimension(:), intent(out) :: harvest
-    real(wp), dimension(size(harvest))  :: rsq,v1,v2
+    real(wp), allocatable :: rsq(:), v1(:), v2(:)
     real(wp), allocatable, dimension(:), save :: g
     integer :: n,ng,nn,m
     integer, save :: last_allocated=0
     logical, save :: gaus_stored=.false.
-    logical, dimension(size(harvest)) :: mask
+    logical, allocatable :: mask(:)
+    allocate(rsq(size(harvest)), v1(size(harvest)), v2(size(harvest)), mask(size(harvest)))
     !$OMP THREADPRIVATE(g,last_allocated,gaus_stored)
 
     n = size(harvest)
@@ -952,9 +965,10 @@ contains
   end subroutine random_gauss2
   subroutine random_gauss3(harvest)
     implicit none
-    real(wp), intent(out) :: harvest(:,:)
-    real(wp)              :: rand_g(size(harvest))
+    real(wp), intent(out)  :: harvest(:,:)
+    real(wp), allocatable  :: rand_g(:)
     integer :: n1,n2
+    allocate(rand_g(size(harvest)))
 
     call random_gauss2(rand_g)
     n1 = size(harvest,1)
@@ -1672,10 +1686,11 @@ contains
   ! (unbiased) random permutation
   ! The "inside-out" shuffle version of the Fisher-Yates shuffle (also known as the Knuth shffle)
      implicit none
-     integer, intent(in)   :: n
-     integer, dimension(n) :: perm
+     integer, intent(in)  :: n
+     integer, allocatable :: perm(:)
      integer  :: i, j
      real(wp) :: u
+     allocate(perm(n))
 
      perm(1) = 1
      do i=2,n
@@ -1689,11 +1704,12 @@ contains
   function rand_pick(nele,npick) result(pick)
   !-- written by Jong-Ho Shinn (2017-...)
      implicit none
-     integer, intent(in)   :: nele, npick
-     integer, dimension(nele) :: perm
-     integer, dimension(npick) :: pick
+     integer, intent(in)  :: nele, npick
+     integer, allocatable :: perm(:)
+     integer, allocatable :: pick(:)
      integer  :: i, j, temp
      real(wp) :: u
+     allocate(perm(nele), pick(npick))
 
      perm=(/(i,i=1,nele)/)
      do i=nele, nele-npick+1, -1
@@ -1711,10 +1727,11 @@ contains
   !         The condition "perm(i) /= i" (i = 1,...,n) is imposed.
   !         This is in fact a cyclic permutation. (Sattolo's algorithm)
      implicit none
-     integer, intent(in)   :: n
-     integer, dimension(n) :: perm
+     integer, intent(in)  :: n
+     integer, allocatable :: perm(:)
      integer  :: i, j
      real(wp) :: u
+     allocate(perm(n))
 
      perm(1) = 2
      if (n >= 2) perm(2) = 1
@@ -1816,12 +1833,13 @@ contains
     implicit none
     integer,  intent(in) :: ntrial
     real(wp), intent(in) :: p(:)
-    integer :: ix(size(p))
+    integer, allocatable :: ix(:)
 
     ! local variables
     integer  :: i, ntot, np
     real(wp) :: prob, ptot
     !integer :: rand_binomial
+    allocate(ix(size(p)))
 
     !  Initialize variables.
     np    = size(p)
@@ -1849,7 +1867,8 @@ contains
     real(wp), intent(in) :: p(:)
     integer :: ix
     integer :: i, np
-    integer :: ind(size(p))
+    integer, allocatable :: ind(:)
+    allocate(ind(size(p)))
 
     np = size(p)
     if (np == 1) then
@@ -1869,9 +1888,10 @@ contains
     implicit none
     integer,  intent(in) :: ntrial
     real(wp), intent(in) :: p(:)
-    integer :: ix(ntrial)
+    integer, allocatable :: ix(:)
     integer :: i,j,np
-    integer :: ind(size(p))
+    integer, allocatable :: ind(:)
+    allocate(ix(ntrial), ind(size(p)))
 
     np = size(p)
     if (np == 1) then

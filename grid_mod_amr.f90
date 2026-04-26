@@ -180,7 +180,10 @@ contains
     !--- Step 5: Normalise to input optical depth / column density -----
     ! tau_pole: traverse from box center in +z direction to compute actual
     ! optical depth from center to z+ boundary (matches Cartesian taumax convention).
-    opacity_sum = sum(amr_grid%rhokap * voigt_array(amr_grid%voigt_a, 0.0_wp))
+    opacity_sum = 0.0_wp
+    do il = 1, nleaf
+      opacity_sum = opacity_sum + amr_grid%rhokap(il) * voigt(0.0_wp, amr_grid%voigt_a(il))
+    end do
     nopac       = real(count(amr_grid%rhokap > 0.0_wp), wp)
     ! Half-box = centre-to-boundary distance; matches Cartesian convention where
     ! opac_length = par%rmax (centre to sphere surface) for a sphere model.
@@ -247,7 +250,10 @@ contains
     call MPI_BARRIER(mpar%hostcomm, ierr)
 
     ! Recompute tauhomo and taupole from normalized rhokap.
-    opacity_sum = sum(amr_grid%rhokap * voigt_array(amr_grid%voigt_a, 0.0_wp))
+    opacity_sum = 0.0_wp
+    do il = 1, nleaf
+      opacity_sum = opacity_sum + amr_grid%rhokap(il) * voigt(0.0_wp, amr_grid%voigt_a(il))
+    end do
     if (nopac > 0.0_wp) then
       tauhomo = (opacity_sum / nopac) * opac_length
     end if
@@ -393,19 +399,7 @@ contains
     call MPI_BARRIER(mpar%hostcomm, ierr)
   end subroutine amr_setup_freq_grid
 
-  !=========================================================================
-  ! Compute Voigt function for an array of voigt_a values at x = 0.
-  !=========================================================================
-  function voigt_array(va, x) result(v)
-    use define
-    implicit none
-    real(wp), intent(in) :: va(:), x
-    real(wp) :: v(size(va))
-    integer  :: i
-    do i = 1, size(va)
-      v(i) = voigt(x, va(i))
-    end do
-  end function voigt_array
+
 
   !=========================================================================
   ! Prepare diffuse-emissivity sampling data for AMR runs.
