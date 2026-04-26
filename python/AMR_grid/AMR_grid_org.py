@@ -194,6 +194,7 @@ applying a custom ``refine()`` criterion::
 """
 
 import numpy as np
+from datetime import datetime
 
 try:
     from astropy.io import fits
@@ -1186,16 +1187,42 @@ class AMRGrid:
         data['vz']     = [lf.vz     for lf in leaflist]
         return data
 
-    def _write_fits(self, filename):
+    @staticmethod
+    def _auto_bitpix_col(arr):
+        """Return -32 (float32) or -64 (float64) based on dynamic range of arr."""
+        a = np.asarray(arr, dtype=np.float64)
+        max_abs = float(np.max(np.abs(a)))
+        if max_abs == 0.0:
+            return -32
+        nz = np.abs(a[a != 0.0])
+        return -32 if max_abs / float(np.min(nz)) < 1.0e6 else -64
+
+    def _write_fits(self, filename, bitpix=0):
         self._require_fits()
         data = self._leaf_table_array()
+
+        cols = []
+        for name in data.dtype.names:
+            col_data = data[name]
+            if col_data.dtype.kind == 'f':
+                bp = self._auto_bitpix_col(col_data) if bitpix == 0 else bitpix
+                fmt = '1E' if bp == -32 else '1D'
+                arr = col_data.astype(np.float32 if bp == -32 else np.float64)
+            else:
+                fmt = '1J'
+                arr = col_data
+            cols.append(fits.Column(name=name, format=fmt, array=arr))
+
         primary = fits.PrimaryHDU()
-        table = fits.BinTableHDU(data=data, name='AMRGRID')
-        table.header['BOXLEN'] = (self.boxlen, 'Simulation box length')
+        table   = fits.BinTableHDU.from_columns(cols, name='AMRGRID')
+        table.header['CREATOR'] = ('AMR_grid_org.py', 'Created by')
+        table.header['DATE']    = (datetime.now().strftime('%Y-%m-%dT%H:%M'),
+                                   'Creation date-time (YYYY-MM-DDTHH:MM)')
+        table.header['BOXLEN']  = (self.boxlen,    'Simulation box length')
         table.header['ORIGINX'] = (self.origin[0], 'Box origin x')
         table.header['ORIGINY'] = (self.origin[1], 'Box origin y')
         table.header['ORIGINZ'] = (self.origin[2], 'Box origin z')
-        table.header['NLEAF'] = (len(data), 'Number of AMR leaf cells')
+        table.header['NLEAF']   = (len(data),      'Number of AMR leaf cells')
         fits.HDUList([primary, table]).writeto(filename, overwrite=True)
         print(f'Written {len(data)} leaf cells to {filename}')
 
@@ -1265,7 +1292,7 @@ class AMRGrid:
             )
         return grid
 
-    def write(self, filename):
+    def write(self, filename, bitpix=0):
         """
         Write the AMR grid to a LaRT generic file.
 
@@ -1276,9 +1303,13 @@ class AMRGrid:
         ----------
         filename : str
             Output file path.
+        bitpix : int, optional
+            FITS column data type: 0 = auto-detect per column (default),
+            -32 = force float32, -64 = force float64.
+            Ignored for plain-text output.
         """
         if self._is_fits_filename(filename):
-            self._write_fits(filename)
+            self._write_fits(filename, bitpix=bitpix)
             return
 
         leaflist = self.leaves()

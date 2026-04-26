@@ -307,7 +307,7 @@ public
      character(len=128) :: base_name       = ''
      character(len=128) :: out_file        = ''
      logical            :: out_merge       = .false.
-     integer            :: out_bitpix      = -32
+     integer            :: out_bitpix      = 0    ! 0=auto, -32=float32, -64=float64
      !--- master-slave mode, dust weighting method, stokes
      !integer       :: num_send_at_once     = 100
      integer(int64):: num_send_at_once     = 100

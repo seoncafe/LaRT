@@ -261,37 +261,37 @@ contains
    end function name_for_backup
    !------------------------------------------------
    subroutine copy_file(infile, outfile, ierr)
-   use, intrinsic :: iso_c_binding, only : C_CHAR, C_INT
    implicit none
    character(len=*),  intent(in)  :: infile
    character(len=*),  intent(in)  :: outfile
    integer, optional, intent(out) :: ierr
-   integer :: c_err
+   integer :: u_in, u_out, ios
+   integer(1), allocatable :: buf(:)
+   integer(8) :: fsize
 
-   interface
-      function c_copy_file(c_infile, c_outfile) bind(c, name="copy_file") result(c_err)
-      import C_CHAR, C_INT
-      character(kind=C_CHAR, len=1), intent(in) :: c_infile(*), c_outfile(*)
-      integer(C_INT) :: c_err
-      end function c_copy_file
-   end interface
-
-   c_err = c_copy_file(str2arr(trim(infile)), str2arr(trim(outfile)))
-   if (present(ierr)) ierr = c_err
+   open(newunit=u_in,  file=trim(infile),  access='stream', form='unformatted', &
+        status='old',     action='read',  iostat=ios)
+   if (ios /= 0) then
+      if (present(ierr)) ierr = ios
+      return
+   end if
+   open(newunit=u_out, file=trim(outfile), access='stream', form='unformatted', &
+        status='replace', action='write', iostat=ios)
+   if (ios /= 0) then
+      close(u_in)
+      if (present(ierr)) ierr = ios
+      return
+   end if
+   inquire(unit=u_in, size=fsize)
+   if (fsize > 0) then
+      allocate(buf(fsize))
+      read(u_in)  buf
+      write(u_out) buf
+   end if
+   close(u_in)
+   close(u_out)
+   if (present(ierr)) ierr = 0
    end subroutine copy_file
-   !------------------------------------------------
-   pure function str2arr(string) result (array)
-   use, intrinsic :: iso_c_binding, only : C_CHAR, C_NULL_CHAR
-   implicit none
-   character(len=*),intent(in)  :: string
-   character(len=1,kind=C_CHAR) :: array(len(string)+1)
-   integer                      :: i
-
-   do i = 1,len_trim(string)
-      array(i) = string(i:i)
-   enddo
-   array(i:i) = C_NULL_CHAR
-   end function str2arr
    !------------------------------------------------
    subroutine time_stamp(dtime, reset)
 #ifdef MPI

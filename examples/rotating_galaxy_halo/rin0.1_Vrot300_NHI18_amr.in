@@ -24,9 +24,9 @@
  !par%nz = 801
  par%nprint = 1000000
 
- par%velocity_min = -1400.0
- par%velocity_max =  1400.0
- par%nvelocity    = 480
+ par%velocity_min = -1768.0
+ par%velocity_max =  1768.0
+ par%nvelocity    = 680
 
  !par%save_input_grid = .true.
 

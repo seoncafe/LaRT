@@ -117,7 +117,6 @@ LDFLAGS = $(extra) $(FFLAGS) -lcfitsio -L/usr/local/lib
 
 OBJSB	= \
 	define.o \
-	utility_c.o \
 	utility.o \
 	mathlib.o \
 	healpix.o \

@@ -1,7 +1,7 @@
 &parameters
  par%no_photons  = 1e6
  par%temperature = 1.0e4
- par%N_HImax     = 1.0e18
+ par%N_HImax     = 1.0e21
  par%DGR         = 0.0
 
  par%use_amr_grid = .true.
@@ -10,7 +10,7 @@
 
  par%geometry      = 'sphere'
  par%velocity_type = 'rotating_galaxy_halo'
- par%Vrot          = 100.0
+ par%Vrot          = 300.0
  par%rinner        = 0.1
 
  par%rmax            = 1.0

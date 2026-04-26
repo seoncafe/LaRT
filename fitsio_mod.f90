@@ -1,5 +1,7 @@
 module fitsio_mod
 !
+!-- 2026-04-26, fits_write_image now identical to fits_append_image (int32 variants added)
+!-- 2026-04-26, fits_open_new now writes DATE keyword; auto bitpix (par%out_bitpix=0) added
 !-- 2024-10-30, use "close(unit,status='delete')" instead of "unlink"
 !-- 2020-11-10, added fits_append_table_column_int and fits_read_table_column_int
 !-- 2020-10.18, added fits_get_column_number
@@ -20,7 +22,8 @@ module fitsio_mod
   ! note that the default output bitpix is the same as that of input array.
   interface fits_write_image
      module procedure fits_append_1D_real32, fits_append_2D_real32, fits_append_3D_real32, fits_append_4D_real32, &
-                      fits_append_1D_real64, fits_append_2D_real64, fits_append_3D_real64, fits_append_4D_real64
+                      fits_append_1D_real64, fits_append_2D_real64, fits_append_3D_real64, fits_append_4D_real64, &
+                      fits_append_1D_int32,  fits_append_2D_int32,  fits_append_3D_int32,  fits_append_4D_int32
   end interface fits_write_image
   interface fits_append_image
      module procedure fits_append_1D_real32, fits_append_2D_real32, fits_append_3D_real32, fits_append_4D_real32, &
@@ -72,6 +75,7 @@ contains
   endif
   call ftgiou(unit,stat)
   call ftinit(unit,trim(fname),blocksize,stat)
+  call ftpdat(unit,stat)
   end subroutine fits_open_new
 !--------------------
   subroutine fits_open_old(unit,fname,status,overwrite)
@@ -561,8 +565,8 @@ contains
   integer :: group=1, felem=1, nelem
   real(real64), allocatable :: arr(:)
 
-  if (.not. present(bitpix)) then
-     bitpix_out = -32
+  if (.not. present(bitpix) .or. bitpix == 0) then
+     bitpix_out = -32   ! real32 input: float32 always sufficient
   else
      bitpix_out = bitpix
   endif
@@ -594,8 +598,8 @@ contains
   integer :: group=1, felem=1, nelem
   real(real64), allocatable :: arr(:,:)
 
-  if (.not. present(bitpix)) then
-     bitpix_out = -32
+  if (.not. present(bitpix) .or. bitpix == 0) then
+     bitpix_out = -32   ! real32 input: float32 always sufficient
   else
      bitpix_out = bitpix
   endif
@@ -628,8 +632,8 @@ contains
   integer :: group=1, felem=1, nelem
   real(real64), allocatable :: arr(:,:,:)
 
-  if (.not. present(bitpix)) then
-     bitpix_out = -32
+  if (.not. present(bitpix) .or. bitpix == 0) then
+     bitpix_out = -32   ! real32 input: float32 always sufficient
   else
      bitpix_out = bitpix
   endif
@@ -668,8 +672,8 @@ contains
   integer :: group=1, felem=1, nelem
   real(real64), allocatable :: arr(:,:,:,:)
 
-  if (.not. present(bitpix)) then
-     bitpix_out = -32
+  if (.not. present(bitpix) .or. bitpix == 0) then
+     bitpix_out = -32   ! real32 input: float32 always sufficient
   else
      bitpix_out = bitpix
   endif
@@ -708,9 +712,18 @@ contains
   integer(int64) :: naxes(1)
   integer :: group=1, felem=1, nelem
   real(real32), allocatable :: arr(:)
+  real(real64) :: max_abs, min_nz
 
   if (.not. present(bitpix)) then
      bitpix_out = -64
+  else if (bitpix == 0) then
+     max_abs = maxval(abs(array))
+     if (max_abs > 0.0_real64) then
+        min_nz = minval(abs(array), mask=abs(array) > 0.0_real64)
+        bitpix_out = merge(-32, -64, max_abs / min_nz < 1.0e6_real64)
+     else
+        bitpix_out = -32
+     end if
   else
      bitpix_out = bitpix
   endif
@@ -740,9 +753,18 @@ contains
   integer(int64) :: naxes(2)
   integer :: group=1, felem=1, nelem
   real(real32), allocatable :: arr(:,:)
+  real(real64) :: max_abs, min_nz
 
   if (.not. present(bitpix)) then
      bitpix_out = -64
+  else if (bitpix == 0) then
+     max_abs = maxval(abs(array))
+     if (max_abs > 0.0_real64) then
+        min_nz = minval(abs(array), mask=abs(array) > 0.0_real64)
+        bitpix_out = merge(-32, -64, max_abs / min_nz < 1.0e6_real64)
+     else
+        bitpix_out = -32
+     end if
   else
      bitpix_out = bitpix
   endif
@@ -774,9 +796,18 @@ contains
   integer(int64) :: naxes(3)
   integer :: group=1, felem=1, nelem
   real(real32), allocatable :: arr(:,:,:)
+  real(real64) :: max_abs, min_nz
 
   if (.not. present(bitpix)) then
      bitpix_out = -64
+  else if (bitpix == 0) then
+     max_abs = maxval(abs(array))
+     if (max_abs > 0.0_real64) then
+        min_nz = minval(abs(array), mask=abs(array) > 0.0_real64)
+        bitpix_out = merge(-32, -64, max_abs / min_nz < 1.0e6_real64)
+     else
+        bitpix_out = -32
+     end if
   else
      bitpix_out = bitpix
   endif
@@ -814,9 +845,18 @@ contains
   integer(int64) :: naxes(4)
   integer :: group=1, felem=1, nelem
   real(real32), allocatable :: arr(:,:,:,:)
+  real(real64) :: max_abs, min_nz
 
   if (.not. present(bitpix)) then
      bitpix_out = -64
+  else if (bitpix == 0) then
+     max_abs = maxval(abs(array))
+     if (max_abs > 0.0_real64) then
+        min_nz = minval(abs(array), mask=abs(array) > 0.0_real64)
+        bitpix_out = merge(-32, -64, max_abs / min_nz < 1.0e6_real64)
+     else
+        bitpix_out = -32
+     end if
   else
      bitpix_out = bitpix
   endif
@@ -1010,9 +1050,18 @@ contains
   integer :: tfields = 1, varidat = 0
   real(real32), allocatable :: arr(:)
   integer :: hdutype
+  real(real64) :: max_abs, min_nz
 
   if (.not. present(bitpix)) then
      bitpix_out = -64
+  else if (bitpix == 0) then
+     max_abs = maxval(abs(array))
+     if (max_abs > 0.0_real64) then
+        min_nz = minval(abs(array), mask=abs(array) > 0.0_real64)
+        bitpix_out = merge(-32, -64, max_abs / min_nz < 1.0e6_real64)
+     else
+        bitpix_out = -32
+     end if
   else
      bitpix_out = bitpix
   endif
@@ -1059,8 +1108,8 @@ contains
   real(real64), allocatable :: arr(:)
   integer :: hdutype
 
-  if (.not. present(bitpix)) then
-     bitpix_out = -32
+  if (.not. present(bitpix) .or. bitpix == 0) then
+     bitpix_out = -32   ! real32 input: float32 always sufficient
   else
      bitpix_out = bitpix
   endif

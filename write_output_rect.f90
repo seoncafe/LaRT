@@ -74,9 +74,7 @@ contains
      if (par%save_backup) then
         fname_backup = name_for_backup(get_base_name(trim(filename)))
         filename2    = trim(fname_backup)//'.fits.gz'
-        !--- copy_file modifies the time stamp of the file.
-        !--- call copy_file(trim(par%out_file), trim(filename2), status)
-        call execute_command_line("cp -p "//trim(par%out_file)//" "//trim(filename2), exitstat=status)
+        call copy_file(trim(par%out_file), trim(filename2), status)
      endif
 
      call fits_open_old(unit0,trim(filename),status)
@@ -409,8 +407,7 @@ contains
      !--- make a backup file.
      if (par%save_backup) then
         filename2    = trim(fname_backup)//'_obs2D'//trim(filename_end)//'.fits.gz'
-        !call copy_file(trim(filename1), trim(filename2), status)
-        call execute_command_line("cp -p "//trim(filename1)//" "//trim(filename2), exitstat=status)
+        call copy_file(trim(filename1), trim(filename2), status)
      endif
 
      if (.not. allocated(arr_2D)) allocate(arr_2D, source=obs%scatt_2D)
@@ -527,8 +524,7 @@ contains
         !--- make a backup file.
         if (par%save_backup) then
            filename2 = trim(fname_backup)//'_stokes_2D'//trim(filename_end)//'.fits.gz'
-           !call copy_file(trim(filename1), trim(filename2), status)
-           call execute_command_line("cp -p "//trim(filename1)//" "//trim(filename2), exitstat=status)
+           call copy_file(trim(filename1), trim(filename2), status)
         endif
 
         call fits_open_old(unit0,trim(filename1),status)
@@ -671,8 +667,7 @@ contains
      !--- make a backup file.
      if (par%save_backup) then
         filename2    = trim(fname_backup)//'_obs'//trim(filename_end)//'.fits.gz'
-        !call copy_file(trim(filename1), trim(filename2), status)
-        call execute_command_line("cp -p "//trim(filename1)//" "//trim(filename2), exitstat=status)
+        call copy_file(trim(filename1), trim(filename2), status)
      endif
 
      if (.not. allocated(arr_3D)) allocate(arr_3D, source=obs%scatt)
@@ -809,8 +804,7 @@ contains
         !--- make a backup file.
         if (par%save_backup) then
            filename2 = trim(fname_backup)//'_stokes'//trim(filename_end)//'.fits.gz'
-           !call copy_file(trim(filename1), trim(filename2), status)
-           call execute_command_line("cp -p "//trim(filename1)//" "//trim(filename2), exitstat=status)
+           call copy_file(trim(filename1), trim(filename2), status)
         endif
 
         call fits_open_old(unit0,trim(filename1),status)
@@ -946,8 +940,7 @@ contains
   if (merge_ok) then
      if (par%save_backup) then
         filename2    = trim(fname_backup)//'_allph.fits.gz'
-        !call copy_file(trim(filename1), trim(filename2), status)
-        call execute_command_line("cp -p "//trim(filename1)//" "//trim(filename2), exitstat=status)
+        call copy_file(trim(filename1), trim(filename2), status)
      endif
 
      call fits_open_old(unit0,trim(filename1),status)

@@ -1,9 +1,9 @@
 
 Running ../../LaRT.x on lart4,lart1 with  threads.
-   with the machinefile /tmp/host_file_1520
+   with the machinefile /tmp/host_file_17532
 
 +++++ rin0.1_Vrot100_NHI18_amr.in +++++
- >>> START @ 2026/04/26 14:15:39
+ >>> START @ 2026/04/26 15:01:29
 Use_Master_Slave          : T
 Line ID                   : ly_alpha
 Dust Parameters(a, g)     :  0.3253 0.6761
@@ -16,12 +16,50 @@ AMR voigt_a      :   4.7186E-04
 AMR temperature  :   1.0000E+04
 AMR N(HI)_pole   :   1.0000E+18
 AMR tau_pole      :   5.8983E+04
----> Now starting simulation...  @    0.318 mins
-   1.00000E+05 photons calculated:    3.613 mins
-   2.00000E+05 photons calculated:    6.654 mins
-   3.00000E+05 photons calculated:    9.744 mins
-   4.00000E+05 photons calculated:   12.811 mins
-   5.00000E+05 photons calculated:   15.895 mins
-   6.00000E+05 photons calculated:   18.996 mins
-   7.00000E+05 photons calculated:   22.083 mins
-   8.00000E+05 photons calculated:   25.162 mins
+---> Now starting simulation...  @    0.317 mins
+   1.00000E+05 photons calculated:    3.614 mins
+   2.00000E+05 photons calculated:    6.644 mins
+   3.00000E+05 photons calculated:    9.728 mins
+   4.00000E+05 photons calculated:   12.773 mins
+   5.00000E+05 photons calculated:   15.838 mins
+   6.00000E+05 photons calculated:   18.904 mins
+   7.00000E+05 photons calculated:   21.966 mins
+   8.00000E+05 photons calculated:   25.023 mins
+   9.00000E+05 photons calculated:   28.061 mins
+   1.00000E+06 photons calculated:   31.156 mins
+---> Now Gathering Results...
+Average Number of scattering :   4.2638E+04
+Nscatt_dust, Nscatt_gas      :   0.0000E+00  4.2638E+04
+Total Excution Time          :   31.312 mins
+ >>> STOP  @ 2026/04/26 15:32:53
+
++++++ rin0.1_Vrot300_NHI18_amr.in +++++
+ >>> START @ 2026/04/26 15:32:56
+Use_Master_Slave          : T
+Line ID                   : ly_alpha
+Dust Parameters(a, g)     :  0.3253 0.6761
+Dust-to-Gas Ratio         :    0.000E+00
+Total number of photons   :    1.000E+06
+AMR nleaf    : 6280016
+AMR boxlen   :   2.0000E+00 (code units)
+AMR boxlen   :   2.0000E+00 cm
+AMR voigt_a      :   4.7186E-04
+AMR temperature  :   1.0000E+04
+AMR N(HI)_pole   :   1.0000E+18
+AMR tau_pole      :   5.8983E+04
+---> Now starting simulation...  @    0.324 mins
+   1.00000E+05 photons calculated:    2.907 mins
+   2.00000E+05 photons calculated:    5.307 mins
+   3.00000E+05 photons calculated:    7.731 mins
+   4.00000E+05 photons calculated:   10.152 mins
+   5.00000E+05 photons calculated:   12.544 mins
+   6.00000E+05 photons calculated:   14.948 mins
+   7.00000E+05 photons calculated:   17.334 mins
+   8.00000E+05 photons calculated:   19.731 mins
+   9.00000E+05 photons calculated:   22.161 mins
+   1.00000E+06 photons calculated:   24.537 mins
+---> Now Gathering Results...
+Average Number of scattering :   2.8050E+04
+Nscatt_dust, Nscatt_gas      :   0.0000E+00  2.8050E+04
+Total Excution Time          :   24.688 mins
+ >>> STOP  @ 2026/04/26 15:57:42

@@ -34,5 +34,8 @@ echo "   with the machinefile $host_file"
 
 #mpirun -machinefile $host_file $EXEC rin0.1_Vrot100_NHI18.in
 #mpirun -machinefile $host_file $EXEC rin0.1_Vrot300_NHI18.in
+
 mpirun -machinefile $host_file $EXEC rin0.1_Vrot100_NHI18_amr.in
 mpirun -machinefile $host_file $EXEC rin0.1_Vrot300_NHI18_amr.in
+#mpirun -machinefile $host_file $EXEC rin0.1_Vrot100_NHI21_amr.in
+#mpirun -machinefile $host_file $EXEC rin0.1_Vrot300_NHI21_amr.in

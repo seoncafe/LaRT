@@ -30,6 +30,7 @@ import os
 import re
 import struct
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Tuple
 
@@ -490,6 +491,16 @@ def write_generic_text(
             )
 
 
+def _auto_bitpix_col(arr: np.ndarray) -> int:
+    """Return -32 (float32) or -64 (float64) based on dynamic range of arr."""
+    a = np.asarray(arr, dtype=np.float64)
+    max_abs = float(np.max(np.abs(a)))
+    if max_abs == 0.0:
+        return -32
+    nz = np.abs(a[a != 0.0])
+    return -32 if max_abs / float(np.min(nz)) < 1.0e6 else -64
+
+
 def write_generic_fits(
     filename: Path,
     x: np.ndarray,
@@ -502,38 +513,32 @@ def write_generic_fits(
     vy: np.ndarray,
     vz: np.ndarray,
     boxlen: float,
+    bitpix: int = 0,
 ) -> None:
-    data = np.empty(
-        len(x),
-        dtype=[
-            ("x", "f8"),
-            ("y", "f8"),
-            ("z", "f8"),
-            ("level", "i4"),
-            ("gasDen", "f8"),
-            ("T", "f8"),
-            ("vx", "f8"),
-            ("vy", "f8"),
-            ("vz", "f8"),
-        ],
-    )
-    data["x"] = x
-    data["y"] = y
-    data["z"] = z
-    data["level"] = level.astype(np.int32)
-    data["gasDen"] = nH
-    data["T"] = T
-    data["vx"] = vx
-    data["vy"] = vy
-    data["vz"] = vz
+    float_cols = {
+        "x": x, "y": y, "z": z,
+        "gasDen": nH, "T": T, "vx": vx, "vy": vy, "vz": vz,
+    }
+    cols = []
+    for name, arr in float_cols.items():
+        bp = _auto_bitpix_col(arr) if bitpix == 0 else bitpix
+        fmt = "1E" if bp == -32 else "1D"
+        col_arr = arr.astype(np.float32 if bp == -32 else np.float64)
+        cols.append(fits.Column(name=name, format=fmt, array=col_arr))
+        if name == "z":
+            cols.append(fits.Column(name="level", format="1J",
+                                    array=level.astype(np.int32)))
 
     primary = fits.PrimaryHDU()
-    table = fits.BinTableHDU(data=data, name="AMRGRID")
-    table.header["BOXLEN"] = (float(boxlen), "Simulation box length")
-    table.header["ORIGINX"] = (0.0, "Box origin x")
-    table.header["ORIGINY"] = (0.0, "Box origin y")
-    table.header["ORIGINZ"] = (0.0, "Box origin z")
-    table.header["NLEAF"] = (len(x), "Number of AMR leaf cells")
+    table   = fits.BinTableHDU.from_columns(cols, name="AMRGRID")
+    table.header["CREATOR"]  = ("convert_ramses_to_generic_amr.py", "Created by")
+    table.header["DATE"]     = (datetime.now().strftime("%Y-%m-%dT%H:%M"),
+                                "Creation date-time (YYYY-MM-DDTHH:MM)")
+    table.header["BOXLEN"]   = (float(boxlen), "Simulation box length")
+    table.header["ORIGINX"]  = (0.0, "Box origin x")
+    table.header["ORIGINY"]  = (0.0, "Box origin y")
+    table.header["ORIGINZ"]  = (0.0, "Box origin z")
+    table.header["NLEAF"]    = (len(x), "Number of AMR leaf cells")
     fits.HDUList([primary, table]).writeto(filename, overwrite=True)
 
 
@@ -607,6 +612,13 @@ def parse_args() -> argparse.Namespace:
         default="momentum",
         help="Interpret hydro velocity slots as rho*v or v (default: momentum).",
     )
+    parser.add_argument(
+        "--bitpix",
+        type=int,
+        choices=(0, -32, -64),
+        default=0,
+        help="FITS column precision: 0=auto per column (default), -32=float32, -64=float64.",
+    )
     return parser.parse_args()
 
 
@@ -635,7 +647,8 @@ def main() -> None:
     if output.suffix.lower() == ".fits" or output.name.lower().endswith(".fits.gz"):
         write_generic_fits(
             output, x_out, y_out, z_out, data["level"], data["nH"], data["T"],
-            data["vx"], data["vy"], data["vz"], boxlen_out
+            data["vx"], data["vy"], data["vz"], boxlen_out,
+            bitpix=args.bitpix,
         )
     else:
         write_generic_text(

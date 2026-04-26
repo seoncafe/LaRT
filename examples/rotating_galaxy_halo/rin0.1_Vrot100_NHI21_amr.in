@@ -1,7 +1,7 @@
 &parameters
  par%no_photons  = 1e6
  par%temperature = 1.0e4
- par%N_HImax     = 1.0e18
+ par%N_HImax     = 1.0e21
  par%DGR         = 0.0
 
  par%use_amr_grid = .true.
