@@ -329,6 +329,23 @@ contains
     real(wp) :: vtherm, xscale, atau1, atau0_arg
     integer  :: i, ierr
 
+    vtherm = line%vtherm1 * sqrt(par%temperature)
+
+    ! Translate wavelength/velocity range inputs to x-frequency range (mirrors grid_mod_car)
+    if (is_finite(par%wavelength_min) .and. is_finite(par%wavelength_max)) then
+      if (par%nwavelength == 0 .and. par%nxfreq > 0) par%nwavelength = par%nxfreq
+      if (par%nwavelength > 0) par%nxfreq = par%nwavelength
+      par%xfreq_min = -(par%wavelength_max - line%wavelength0*1.0e4_wp) / &
+                       (line%wavelength0*1.0e4_wp) * (speedc/vtherm)
+      par%xfreq_max = -(par%wavelength_min - line%wavelength0*1.0e4_wp) / &
+                       (line%wavelength0*1.0e4_wp) * (speedc/vtherm)
+    else if (is_finite(par%velocity_min) .and. is_finite(par%velocity_max)) then
+      if (par%nvelocity == 0 .and. par%nxfreq > 0) par%nvelocity = par%nxfreq
+      if (par%nvelocity > 0) par%nxfreq = par%nvelocity
+      par%xfreq_min = -par%velocity_max / vtherm
+      par%xfreq_max = -par%velocity_min / vtherm
+    end if
+
     atau1 = (amr_grid%voigt_amean * par%tauhomo)**(1.0_wp/3.0_wp)
 
     if (.not. (is_finite(par%xfreq_max) .and. is_finite(par%xfreq_min))) then
@@ -337,7 +354,6 @@ contains
       else if (par%taumax <= 5.0e3_wp) then; xscale = 10.0_wp
       else;                               xscale =  5.0_wp
       end if
-      vtherm = line%vtherm1 * sqrt(par%temperature)
       if (par%Vexp == 0.0_wp) then
         par%xfreq_max = floor(xscale * atau1) + 1.0_wp
         par%xfreq_min = -(floor(xscale * atau1 + line%DnuHK_Hz/amr_grid%Dfreq_ref) + 1.0_wp)
@@ -349,6 +365,12 @@ contains
         par%xfreq_max = floor(xscale * atau1 + abs(par%Vexp)/vtherm) + 1.0_wp
         par%xfreq_min = -(floor(xscale * atau1 + line%DnuHK_Hz/amr_grid%Dfreq_ref) + 1.0_wp)
       end if
+      if (trim(par%spectral_type) == 'continuum') then
+        xscale        = 4.0_wp * xscale
+        par%xfreq_max = floor(xscale * atau1 + abs(par%Vexp)/vtherm) + 1.0_wp
+        par%xfreq_min = -(floor(xscale * atau1 + abs(par%Vexp)/vtherm &
+                            + line%DnuHK_Hz/amr_grid%Dfreq_ref) + 1.0_wp)
+      end if
     end if
 
     amr_grid%nxfreq   = par%nxfreq
@@ -359,8 +381,6 @@ contains
     call create_shared_mem(amr_grid%xfreq,     [par%nxfreq])
     call create_shared_mem(amr_grid%velocity,  [par%nxfreq])
     call create_shared_mem(amr_grid%wavelength,[par%nxfreq])
-
-    vtherm = line%vtherm1 * sqrt(par%temperature)
     ! Only h_rank==0 writes to shared arrays; all ranks compute the scalar dwave.
     if (mpar%h_rank == 0) then
       do i = 1, par%nxfreq

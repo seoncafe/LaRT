@@ -4,6 +4,10 @@
  par%N_HImax     = 1.0e18
  par%DGR         = 0.0
 
+ par%use_amr_grid = .true.
+ par%amr_type     = 'generic'
+ par%amr_file     = 'sphere_Vrot100_amr.fits.gz'
+
  par%geometry      = 'sphere'
  par%velocity_type = 'rotating_galaxy_halo'
  par%Vrot          = 100.0
@@ -15,9 +19,9 @@
  par%recoil          = .false.
  !par%spectral_type   = 'voigt'
  par%spectral_type   = 'monochromatic'
- par%nx = 801
- par%ny = 801
- par%nz = 801
+ !par%nx = 801
+ !par%ny = 801
+ !par%nz = 801
  par%nprint = 1000000
 
  par%velocity_min = -1400.0
