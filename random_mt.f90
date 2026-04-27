@@ -22,6 +22,9 @@ module random
 !         where r is a number (32- or 64-bit) or an 1-, 2-, or 3-dimentional array.
 !
 ! History:
+!   v2.54 (2026/04/27) added rand_mt_full_range(): uniform on (0,1) extending down to the
+!                      IEEE 754 float64 subnormal limit (~2^-1074) via Downey-style
+!                      geometric exponent + uniform 52-bit mantissa.
 !   v2.53 (2023/12/01) random_seed now works as it is supposed to be.
 !   v2.52 (2022/07/23) 64-bit random number generator are added
 !   v2.50 (2021/09/15) random_alias_linear and random_alias_linear_wgt are added
@@ -90,7 +93,8 @@ module random
 
   public init_random_seed
   public random_seed, random_number, random_gauss, random_3Dsphere, random_sphere, random_t
-  public rand_number, rand_gauss, rand_exp, rand_r1exp, rand_r2exp, rand_zexp, rand_sech2
+  public rand_number, rand_mt_full_range
+  public rand_gauss, rand_exp, rand_r1exp, rand_r2exp, rand_zexp, rand_sech2
   public rand_permutation, rand_pick, rand_cyclic_permutation, rand_index, rand_binomial, rand_multinomial
   public rand_t, rand_gamma, rand_scaled_inv_chi2
   public rand_bactrian
@@ -624,6 +628,101 @@ contains
     fn_val = real(ishft(x, -12), kind=real64)
     fn_val = (fn_val + 0.5_real64) * pi252
   end function rand_mt
+
+  !-----------------------------------------------------------------------------
+  ! rand_mt_full_range: uniform random double on the open interval (0, 1)
+  ! extending down to the IEEE 754 float64 subnormal limit (~2^-1074).
+  !
+  ! Algorithm (Downey 2007, "Generating Pseudo-random Floating-Point Values"):
+  !   - upper 52 bits of one MT word -> mantissa (uniform on [0, 2^52 - 1])
+  !   - lower 12 bits + LEADZ() -> exponent via a geometric distribution
+  !     P(e = -k) = 2^-k, which is the exact float64-grid uniform measure
+  !   - if the lower 12 bits are all zero (probability 2^-12 ~ 0.024%),
+  !     additional MT words are drawn until a 1-bit appears
+  !   - mantissa LSB is forced to 1 to guarantee fn_val > 0 strictly
+  !   - SCALE() is used for safe composition into the subnormal range
+  !
+  ! Range:  [2^-1074, 1 - 2^-53]   (open at both ends for non-zero values)
+  ! Cost:   ~1.0002 MT word draws per call (amortised); same precision as rand_mt
+  !         in the common path; fills subnormals in the rare deep tail.
+  !-----------------------------------------------------------------------------
+  function rand_mt_full_range() result(fn_val)
+    implicit none
+    real(real64) :: fn_val
+    integer(int64), save :: mag01(0:1) = [0_int64, mt_mata]
+    !$OMP THREADPRIVATE(mag01)
+    integer(int64) :: x, mantissa
+    integer        :: e
+    integer(int64), parameter :: umask = -2147483648_int64    ! most  significant 33 bits
+    integer(int64), parameter :: lmask =  2147483647_int64    ! least significant 31 bits
+    real(real64),   parameter :: pi252 = 1.0_real64/(2.0_real64**52)
+
+    !--- 1) draw one tempered 64-bit MT word
+    call mt_step(x)
+
+    !--- 2) upper 52 bits -> mantissa
+    mantissa = ishft(x, -12)
+
+    !--- 3) lower 12 bits -> exponent shift via leading-zero count.
+    !       LEADZ on a 64-bit container counts zeros above bit 11 too,
+    !       so subtract 52 to recover the true 12-bit leading-zero count.
+    e = -1
+    if (iand(x, 4095_int64) /= 0_int64) then
+       e = e - (LEADZ(iand(x, 4095_int64)) - 52)
+    else
+       !--- bottom 12 bits all zero (probability 2^-12); keep counting
+       e = e - 12
+       do
+          call mt_step(x)
+          if (x /= 0_int64) then
+             e = e - LEADZ(x)
+             exit
+          end if
+          e = e - 64
+          if (e <= -1074) then
+             !--- underflow guard (probability < 2^-1074, essentially never)
+             e = -1074
+             mantissa = 0_int64
+             exit
+          end if
+       end do
+    end if
+
+    !--- 4) ensure fn_val is strictly positive
+    mantissa = ior(mantissa, 1_int64)
+
+    !--- 5) compose: (1 + mantissa*2^-52) * 2^e, using SCALE for subnormal safety
+    fn_val = SCALE(1.0_real64 + real(mantissa, real64) * pi252, e)
+
+  contains
+
+    subroutine mt_step(y)
+       implicit none
+       integer(int64), intent(out) :: y
+       integer :: i
+       if (mti >= mt_n) then
+          if (mti == mt_n+1) call init_mt(mt_seed0)
+          do i = 1, mt_n-mt_m
+             y = ior(iand(mt(i), umask), iand(mt(i+1), lmask))
+             mt(i) = ieor(ieor(mt(i+mt_m),    ishft(y,-1)), mag01(iand(y,1_int64)))
+          end do
+          do i = mt_n-mt_m+1, mt_n-1
+             y = ior(iand(mt(i), umask), iand(mt(i+1), lmask))
+             mt(i) = ieor(ieor(mt(i+mt_m-mt_n), ishft(y,-1)), mag01(iand(y,1_int64)))
+          end do
+          y = ior(iand(mt(mt_n), umask), iand(mt(1), lmask))
+          mt(mt_n) = ieor(ieor(mt(mt_m), ishft(y,-1)), mag01(iand(y,1_int64)))
+          mti = 0
+       end if
+       mti = mti + 1
+       y = mt(mti)
+       y = ieor(y, iand(ishft(y,-29), 6148914691236517205_int64))
+       y = ieor(y, iand(ishft(y, 17), 8202884508482404352_int64))
+       y = ieor(y, iand(ishft(y, 37),   -2270628950310912_int64))
+       y = ieor(y, ishft(y, -43))
+    end subroutine mt_step
+
+  end function rand_mt_full_range
 
 !----------------------------------
   subroutine random_kiss_seed_(seed_size,put,get)

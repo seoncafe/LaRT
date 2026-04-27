@@ -15,9 +15,9 @@
  par%Vrot          = 300.0
  par%rinner        = 0.1
 
- par%nxfreq           = 400
- par%velocity_min     = -200.0
- par%velocity_max     =  200.0
+ par%nxfreq           = 500
+ par%velocity_min     = -1000.0
+ par%velocity_max     =  1000.0
  par%nx = 11, par%ny = 11, par%nz = 11
  par%save_clump_info  = .true.
 
