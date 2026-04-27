@@ -638,8 +638,8 @@ contains
   character(len=128) :: filename1, filename2, filename_end
   logical            :: file_exist, merge_ok
   real(real64)       :: nph1, nph2, nph_tot
-  real(real64)       :: cd1_1, cd1_2, cd2_1, cd2_2
-  real(real64)       :: crpix1, crpix2, crval1, crval2
+  real(real64)       :: cd1_1, cd1_2, cd2_1, cd2_2, cd3_3
+  real(real64)       :: crpix1, crpix2, crval1, crval2, crpix3, crval3
   integer            :: equinox = 2000
   real(real64), allocatable :: arr_3D(:,:,:)
 
@@ -710,27 +710,41 @@ contains
   !--- write scattered data
   call fits_append_image(unit,obs%scatt,status,bitpix=par%out_bitpix)
 
-  !--- header keyword for 3D spectral image
-  cd1_1  = par%dxim
-  cd1_2  = 0.0_wp
-  cd2_1  = 0.0_wp
-  cd2_2  = par%dyim
-  crpix1 = (par%nxim+1)/2.0_wp
-  crpix2 = (par%nyim+1)/2.0_wp
-  crval1 = 0.0_wp
+  !--- header keywords for 3D spectral cube.
+  !    Data layout: obs%scatt(par%nxfreq, par%nxim, par%nyim) ⇒
+  !      NAXIS1 = par%nxfreq  (wavelength axis; index 1 holds the largest
+  !                            wavelength because xfreq increases with i and
+  !                            wavelength = (1 - vtherm*xfreq/c) * lambda0)
+  !      NAXIS2 = par%nxim    (RA pixel)
+  !      NAXIS3 = par%nyim    (DEC pixel)
+  cd1_1  = -grid%dwave             ! Angstrom / pixel (negative: lambda decreases with i)
+  cd2_2  =  par%dxim               ! degree / pixel (RA)
+  cd3_3  =  par%dyim               ! degree / pixel (DEC)
+  crpix1 = 1.0_wp                  ! reference pixel for spectral axis
+  crpix2 = (par%nxim+1)/2.0_wp     ! center of RA axis
+  crpix3 = (par%nyim+1)/2.0_wp     ! center of DEC axis
+  crval1 = grid%wavelength(1)      ! wavelength at pixel 1 (Angstrom)
   crval2 = 0.0_wp
+  crval3 = 0.0_wp
   call fits_put_keyword(unit,'EXTNAME','Scattered','J(freq,x,y) (intensity)',status)
   call fits_put_keyword(unit,'EQUINOX' ,equinox,   'Equinox of Ref. Coord.' ,status)
-  call fits_put_keyword(unit,'CD1_1'   ,cd1_1  ,   'Degree / Pixel',status)
-  call fits_put_keyword(unit,'CD2_1'   ,cd2_1  ,   'Degree / Pixel',status)
-  call fits_put_keyword(unit,'CD1_2'   ,cd1_2  ,   'Degree / Pixel',status)
-  call fits_put_keyword(unit,'CD2_2'   ,cd2_2  ,   'Degree / Pixel' ,status)
-  call fits_put_keyword(unit,'CRPIX1'  ,crpix1 ,   'Reference Pixel in X',status)
-  call fits_put_keyword(unit,'CRPIX2'  ,crpix2 ,   'Reference Pixel in Y',status)
-  call fits_put_keyword(unit,'CRVAL1'  ,crval1 ,   'R.A. (Degree)',status)
-  call fits_put_keyword(unit,'CRVAL2'  ,crval2 ,   'Dec  (Degree)',status)
-  call fits_put_keyword(unit,'CTYPE1'  ,'RA--TAN', 'Coordinate Type',status)
-  call fits_put_keyword(unit,'CTYPE2'  ,'DEC-TAN', 'Coordinate Type',status)
+  !--- Spectral axis (NAXIS1)
+  call fits_put_keyword(unit,'CTYPE1'  ,'WAVE'    ,'vacuum wavelength (FITS WCS)', status)
+  call fits_put_keyword(unit,'CUNIT1'  ,'Angstrom','wavelength unit', status)
+  call fits_put_keyword(unit,'CRPIX1'  ,crpix1    ,'reference pixel for spectral axis', status)
+  call fits_put_keyword(unit,'CRVAL1'  ,crval1    ,'wavelength at CRPIX1 (Angstrom)', status)
+  call fits_put_keyword(unit,'CD1_1'   ,cd1_1     ,'wavelength step (Angstrom/pixel)', status)
+  !--- Spatial axes (NAXIS2 = RA, NAXIS3 = DEC)
+  call fits_put_keyword(unit,'CTYPE2'  ,'RA--TAN' ,'Coordinate Type',status)
+  call fits_put_keyword(unit,'CUNIT2'  ,'deg'     ,'RA unit',status)
+  call fits_put_keyword(unit,'CRPIX2'  ,crpix2    ,'Reference Pixel in X',status)
+  call fits_put_keyword(unit,'CRVAL2'  ,crval2    ,'R.A. (Degree)',status)
+  call fits_put_keyword(unit,'CD2_2'   ,cd2_2     ,'Degree / Pixel',status)
+  call fits_put_keyword(unit,'CTYPE3'  ,'DEC-TAN' ,'Coordinate Type',status)
+  call fits_put_keyword(unit,'CUNIT3'  ,'deg'     ,'DEC unit',status)
+  call fits_put_keyword(unit,'CRPIX3'  ,crpix3    ,'Reference Pixel in Y',status)
+  call fits_put_keyword(unit,'CRVAL3'  ,crval3    ,'Dec  (Degree)',status)
+  call fits_put_keyword(unit,'CD3_3'   ,cd3_3     ,'Degree / Pixel',status)
   call fits_put_keyword(unit,'DISTANCE', par%distance,     'Distance',status)
   call fits_put_keyword(unit,'DISTUNIT', par%distance_unit,'Distance Unit',status)
   call fits_put_keyword(unit,'DIST_CM',  par%distance2cm,  'Distance Unit (cm)',status)
@@ -835,27 +849,34 @@ contains
      !--- write Stokes I data
      call fits_append_image(unit,obs%I,status,bitpix=par%out_bitpix)
 
-     !--- header keyword for 3D spectral image
-     cd1_1  = par%dxim
-     cd1_2  = 0.0_wp
-     cd2_1  = 0.0_wp
-     cd2_2  = par%dyim
-     crpix1 = (par%nxim+1)/2.0_wp
-     crpix2 = (par%nyim+1)/2.0_wp
-     crval1 = 0.0_wp
+     !--- header keywords for 3D Stokes spectral cube. Same data layout as
+     !    'Scattered' above: NAXIS1=nxfreq (wavelength), NAXIS2=nxim (RA), NAXIS3=nyim (DEC).
+     cd1_1  = -grid%dwave
+     cd2_2  =  par%dxim
+     cd3_3  =  par%dyim
+     crpix1 = 1.0_wp
+     crpix2 = (par%nxim+1)/2.0_wp
+     crpix3 = (par%nyim+1)/2.0_wp
+     crval1 = grid%wavelength(1)
      crval2 = 0.0_wp
+     crval3 = 0.0_wp
      call fits_put_keyword(unit,'EXTNAME','Stokes_I','Stokes I image',status)
      call fits_put_keyword(unit,'EQUINOX',equinox,   'Equinox of Ref. Coord.' ,status)
-     call fits_put_keyword(unit,'CD1_1'  ,cd1_1  ,   'Degree / Pixel',status)
-     call fits_put_keyword(unit,'CD2_1'  ,cd2_1  ,   'Degree / Pixel',status)
-     call fits_put_keyword(unit,'CD1_2'  ,cd1_2  ,   'Degree / Pixel',status)
-     call fits_put_keyword(unit,'CD2_2'  ,cd2_2  ,   'Degree / Pixel' ,status)
-     call fits_put_keyword(unit,'CRPIX1' ,crpix1 ,   'Reference Pixel in X',status)
-     call fits_put_keyword(unit,'CRPIX2' ,crpix2 ,   'Reference Pixel in Y',status)
-     call fits_put_keyword(unit,'CRVAL1' ,crval1 ,   'R.A. (Degree)',status)
-     call fits_put_keyword(unit,'CRVAL2' ,crval2 ,   'Dec  (Degree)',status)
-     call fits_put_keyword(unit,'CTYPE1' ,'RA--TAN', 'Coordinate Type',status)
-     call fits_put_keyword(unit,'CTYPE2' ,'DEC-TAN', 'Coordinate Type',status)
+     call fits_put_keyword(unit,'CTYPE1' ,'WAVE'    ,'vacuum wavelength (FITS WCS)', status)
+     call fits_put_keyword(unit,'CUNIT1' ,'Angstrom','wavelength unit', status)
+     call fits_put_keyword(unit,'CRPIX1' ,crpix1    ,'reference pixel for spectral axis', status)
+     call fits_put_keyword(unit,'CRVAL1' ,crval1    ,'wavelength at CRPIX1 (Angstrom)', status)
+     call fits_put_keyword(unit,'CD1_1'  ,cd1_1     ,'wavelength step (Angstrom/pixel)', status)
+     call fits_put_keyword(unit,'CTYPE2' ,'RA--TAN' ,'Coordinate Type',status)
+     call fits_put_keyword(unit,'CUNIT2' ,'deg'     ,'RA unit',status)
+     call fits_put_keyword(unit,'CRPIX2' ,crpix2    ,'Reference Pixel in X',status)
+     call fits_put_keyword(unit,'CRVAL2' ,crval2    ,'R.A. (Degree)',status)
+     call fits_put_keyword(unit,'CD2_2'  ,cd2_2     ,'Degree / Pixel',status)
+     call fits_put_keyword(unit,'CTYPE3' ,'DEC-TAN' ,'Coordinate Type',status)
+     call fits_put_keyword(unit,'CUNIT3' ,'deg'     ,'DEC unit',status)
+     call fits_put_keyword(unit,'CRPIX3' ,crpix3    ,'Reference Pixel in Y',status)
+     call fits_put_keyword(unit,'CRVAL3' ,crval3    ,'Dec  (Degree)',status)
+     call fits_put_keyword(unit,'CD3_3'  ,cd3_3     ,'Degree / Pixel',status)
      call fits_put_keyword(unit,'DISTANCE', par%distance,     'Distance',status)
      call fits_put_keyword(unit,'DISTUNIT', par%distance_unit,'Distance Unit',status)
      call fits_put_keyword(unit,'DIST_CM',  par%distance2cm,  'Distance Unit (cm)',status)

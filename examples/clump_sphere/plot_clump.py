@@ -49,7 +49,7 @@ def load_peeloff(fname):
 # Per-run plots
 # -----------------------------------------------------------------------
 
-def plot_run(base, save_pdf=False):
+def plot_run(base, save_pdf=False, plot_Jin=False):
     spec_file   = base + '.fits.gz'
     clump_file  = base + '_clumps.fits.gz'
     obs_file    = base + '_obs.fits.gz'
@@ -66,7 +66,7 @@ def plot_run(base, save_pdf=False):
     ax = axes[0]
     vel, Jout, Jin = load_spectrum(spec_file)
     ax.plot(vel, Jout, lw=1.5, label='Jout (escaped)')
-    if Jin is not None:
+    if plot_Jin==True and Jin is not None:
         ax.plot(vel, Jin,  lw=1.0, ls='--', label='Jin (total interior)')
     ax.set_xlabel('Velocity  [km/s]')
     ax.set_ylabel('J  [arbitrary]')

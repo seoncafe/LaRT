@@ -600,9 +600,9 @@ contains
      output_reduce    => output_reduce_outside
      output_normalize => output_normalize_outside
      write_output     => write_output_outside
-     !--- Peel-off and observer (same as Cartesian; note: for save_peeloff_3D
-     !    with clump_sigma_v > 0, the peel-off frequency bin may be slightly off
-     !    because grid%vfx = 0 ignores clump bulk velocities)
+     !--- Peel-off and observer (same as Cartesian; the peeling_*_outside routines
+     !    detect clump mode via par%use_clump_medium .and. photon%icell_clump > 0
+     !    and use cl_v* / cl_vtherm instead of grid%vfx = 0 for the frame conversion.)
      peeling_direct             => peeling_direct_outside
      peeling_dust_nostokes      => peeling_dust_nostokes_outside
      peeling_dust_stokes        => peeling_dust_stokes_outside

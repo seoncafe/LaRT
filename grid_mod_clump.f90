@@ -21,6 +21,7 @@ module grid_mod_clump
 !---------------------------------------------------------------------------
   use grid_mod
   use clump_mod
+  use voigt_mod, only: voigt
   implicit none
 
   public :: grid_create_clump, grid_destroy_clump
@@ -38,7 +39,8 @@ contains
   implicit none
   type(grid_type), intent(inout) :: grid
 
-  integer :: ierr
+  integer       :: ierr
+  real(kind=wp) :: f_vol_realized, f_cov_realized, voigt0, tau_per_clump_lc
 
   if (par%rmax <= 0.0_wp) then
      if (mpar%p_rank == 0) write(*,*) 'ERROR: par%rmax must be > 0 for clump medium'
@@ -61,14 +63,57 @@ contains
   par%xy_periodic  = .false.
   par%z_symmetry   = .false.
 
+  !--- Initialize clumps FIRST: computes cl_Dfreq, cl_voigt_a, cl_rhokap,
+  !    determines N_clumps, places clumps via RSA, builds CSR acceleration grid.
+  !    Done before grid_create so that par%tauhomo can be set correctly for
+  !    the auto-detection of the frequency range inside car_setup_freq_grid.
+  call init_clumps(par%rmax)
+
+  !--- Set par%tauhomo / par%taumax / par%N_gashomo / par%N_gasmax for the
+  !    clumpy medium, only if the user did not specify them in the input.
+  !
+  !    tauhomo (homogeneous-equivalent line-center optical depth): the
+  !    optical depth of a uniform medium of the same total HI mass spread
+  !    over the sphere volume:
+  !
+  !        tauhomo = f_vol * cl_rhokap * voigt(0, cl_voigt_a) * R_max
+  !                = (4/3) * f_cov * tau_per_clump
+  !
+  !    where f_vol = N_clumps * (R_cl/R_max)^3 (volume filling fraction),
+  !          f_cov = (3/4) * N_clumps * (R_cl/R_max)^2 (expected number
+  !                  of clump crossings per radial path; LaRT convention),
+  !          tau_per_clump = cl_rhokap * voigt(0, cl_voigt_a) * R_cl
+  !                        (line-center tau from clump center to surface).
+  !
+  !    For a clumpy medium the EXPECTED radial taumax along a random LOS
+  !    equals tauhomo, although a specific realization can deviate widely
+  !    (no clumps -> 0; many clumps stacked -> >> tauhomo).
+  !    N_gashomo and N_gasmax are set similarly via N_HI_per_clump =
+  !        cl_rhokap / line%cross0 * cl_Dfreq * R_cl  (column from clump
+  !        center to surface; reduces to par%clump_NHI when that input is used).
+  voigt0           = voigt(0.0_wp, cl_voigt_a)
+  f_vol_realized   = real(N_clumps, wp) * (par%clump_radius / par%rmax)**3
+  f_cov_realized   = 0.75_wp * real(N_clumps, wp) * (par%clump_radius / par%rmax)**2
+  tau_per_clump_lc = cl_rhokap * voigt0 * par%clump_radius
+
+  if (par%tauhomo  <= 0.0_wp) par%tauhomo  = (4.0_wp/3.0_wp) * f_cov_realized * tau_per_clump_lc
+  if (par%taumax   <= 0.0_wp) par%taumax   = (4.0_wp/3.0_wp) * f_cov_realized * tau_per_clump_lc
+  if (par%N_gashomo <= 0.0_wp) &
+       par%N_gashomo = (4.0_wp/3.0_wp) * f_cov_realized * (cl_rhokap / line%cross0) * cl_Dfreq * par%clump_radius
+  if (par%N_gasmax  <= 0.0_wp) &
+       par%N_gasmax  = (4.0_wp/3.0_wp) * f_cov_realized * (cl_rhokap / line%cross0) * cl_Dfreq * par%clump_radius
+
+  if (mpar%p_rank == 0) then
+     write(*,'(a,es14.5)') ' Clump derived: tauhomo  = ', par%tauhomo
+     write(*,'(a,es14.5)') ' Clump derived: taumax   = ', par%taumax
+     write(*,'(a,es14.5)') ' Clump derived: N_gashomo= ', par%N_gashomo
+  end if
+
   !--- Create the base Cartesian grid (allocates shared-memory arrays,
   !    sets up Jout/Jin/xfreq axes, face arrays, xcrit, etc.)
-  !    rhokap will be overridden to 0 below.
+  !    grid%rhokap will be normalised by par%tauhomo here (waste but harmless),
+  !    then overridden to 0 below.
   call grid_create(grid)
-
-  !--- Initialize clumps: computes cl_Dfreq, cl_voigt_a, cl_rhokap,
-  !    places N clumps via RSA, builds CSR acceleration grid.
-  call init_clumps(par%rmax)
 
   !--- Override grid arrays with uniform clump values (h_rank=0 only).
   if (mpar%h_rank == 0) then

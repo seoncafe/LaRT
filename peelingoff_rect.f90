@@ -6,6 +6,17 @@ module peelingoff_rect
   use mathlib
   use utility
   use line_mod
+  !--- Clump-mode bulk velocity: when photon is inside a clump
+  !    (par%use_clump_medium .and. photon%icell_clump > 0), grid%vfx/y/z = 0
+  !    and the photon's xfreq is in the clump's rest frame. We must add the
+  !    clump's bulk velocity to convert to the lab frame before binning.
+  !    cl_v* are stored as v / cl_vtherm (dimensionless, see clump_mod.f90),
+  !    so they can be used directly in u1 without further normalisation,
+  !    matching the Cartesian grid%vfx convention. (Bug fix 2026-04-27:
+  !    previously used grid%vfx=0, which caused peel-off spectra to be in
+  !    the clump frame and disagree with the Jout spectrum, e.g., for
+  !    rotating-halo or Hubble-flow clump runs.)
+  use clump_mod, only: cl_vx, cl_vy, cl_vz
 contains
   !--------------------------------------------------
   subroutine peeling_direct_outside(photon,grid)
@@ -165,9 +176,15 @@ contains
 
     !--- frequency for spectral binning in the detector plane.
     !--- xfreq_ref = lab (observer) frame frequency of peel-off photon (2020.08.28, bug-fixed)
-    u1 = grid%vfx(pobs%icell,pobs%jcell,pobs%kcell)*pobs%kx + &
-         grid%vfy(pobs%icell,pobs%jcell,pobs%kcell)*pobs%ky + &
-         grid%vfz(pobs%icell,pobs%jcell,pobs%kcell)*pobs%kz
+    if (par%use_clump_medium .and. photon%icell_clump > 0) then
+       u1 = cl_vx(photon%icell_clump)*pobs%kx + &
+            cl_vy(photon%icell_clump)*pobs%ky + &
+            cl_vz(photon%icell_clump)*pobs%kz
+    else
+       u1 = grid%vfx(pobs%icell,pobs%jcell,pobs%kcell)*pobs%kx + &
+            grid%vfy(pobs%icell,pobs%jcell,pobs%kcell)*pobs%ky + &
+            grid%vfz(pobs%icell,pobs%jcell,pobs%kcell)*pobs%kz
+    endif
     xfreq_ref = photon%xfreq + u1
 
     !--- Note that frequency for the calculation of optical depth along the peel-off direction is
@@ -374,9 +391,15 @@ contains
        endif
 
        !--- xfreq_ref = lab (observer) frame frequency of peel-off photon.
-       u1 = grid%vfx(pobs%icell,pobs%jcell,pobs%kcell)*pobs%kx + &
-            grid%vfy(pobs%icell,pobs%jcell,pobs%kcell)*pobs%ky + &
-            grid%vfz(pobs%icell,pobs%jcell,pobs%kcell)*pobs%kz
+       if (par%use_clump_medium .and. photon%icell_clump > 0) then
+          u1 = cl_vx(photon%icell_clump)*pobs%kx + &
+               cl_vy(photon%icell_clump)*pobs%ky + &
+               cl_vz(photon%icell_clump)*pobs%kz
+       else
+          u1 = grid%vfx(pobs%icell,pobs%jcell,pobs%kcell)*pobs%kx + &
+               grid%vfy(pobs%icell,pobs%jcell,pobs%kcell)*pobs%ky + &
+               grid%vfz(pobs%icell,pobs%jcell,pobs%kcell)*pobs%kz
+       endif
        xfreq_ref = xfreq + u1
 
        !--- frequency bin
@@ -501,9 +524,15 @@ contains
     if (ix >= 1 .and. ix <= observer(i)%nxim .and. iy >= 1 .and. iy <= observer(i)%nyim) then
        !--- frequency for spectral binning.
        !--- xfreq_ref = lab (observer) frame frequency of peel-off photon (2020.08.28, bug-fixed)
-       u1 = grid%vfx(pobs%icell,pobs%jcell,pobs%kcell)*pobs%kx + &
-            grid%vfy(pobs%icell,pobs%jcell,pobs%kcell)*pobs%ky + &
-            grid%vfz(pobs%icell,pobs%jcell,pobs%kcell)*pobs%kz
+       if (par%use_clump_medium .and. photon%icell_clump > 0) then
+          u1 = cl_vx(photon%icell_clump)*pobs%kx + &
+               cl_vy(photon%icell_clump)*pobs%ky + &
+               cl_vz(photon%icell_clump)*pobs%kz
+       else
+          u1 = grid%vfx(pobs%icell,pobs%jcell,pobs%kcell)*pobs%kx + &
+               grid%vfy(pobs%icell,pobs%jcell,pobs%kcell)*pobs%ky + &
+               grid%vfz(pobs%icell,pobs%jcell,pobs%kcell)*pobs%kz
+       endif
        xfreq_ref = photon%xfreq + u1
 
        !--- Note that frequency for the calculation of optical depth along the peel-off direction is
@@ -617,9 +646,15 @@ contains
        endif
 
        !--- xfreq_ref = lab (observer) frame frequency of peel-off photon.
-       u1 = grid%vfx(pobs%icell,pobs%jcell,pobs%kcell)*pobs%kx + &
-            grid%vfy(pobs%icell,pobs%jcell,pobs%kcell)*pobs%ky + &
-            grid%vfz(pobs%icell,pobs%jcell,pobs%kcell)*pobs%kz
+       if (par%use_clump_medium .and. photon%icell_clump > 0) then
+          u1 = cl_vx(photon%icell_clump)*pobs%kx + &
+               cl_vy(photon%icell_clump)*pobs%ky + &
+               cl_vz(photon%icell_clump)*pobs%kz
+       else
+          u1 = grid%vfx(pobs%icell,pobs%jcell,pobs%kcell)*pobs%kx + &
+               grid%vfy(pobs%icell,pobs%jcell,pobs%kcell)*pobs%ky + &
+               grid%vfz(pobs%icell,pobs%jcell,pobs%kcell)*pobs%kz
+       endif
        xfreq_ref = xfreq + u1
 
        !--- frequency bin

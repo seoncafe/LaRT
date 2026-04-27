@@ -164,6 +164,80 @@ $\kappa_c = n_H\,\sigma_0\,d_\mathrm{cm}$,
 where $\sigma_0 \equiv \texttt{line\%cross0}/\Delta\nu_D^{cl}$ [cm$^2$]
 (requires \texttt{par\%distance\_unit}).
 
+\subsection{Derived Global Optical-Depth Quantities ($\tau_\mathrm{homo}$,
+$N_\mathrm{HI,homo}$, $\tau_\mathrm{max}$, $N_\mathrm{HI,max}$)}
+\label{subsec:tauhomo}
+
+LaRT carries four scalar parameters that describe the line-centre
+optical depth and HI column density of the medium as a whole:
+\begin{description}
+\item[\texttt{par\%tauhomo}, \texttt{par\%N\_gashomo}] — the line-centre
+  optical depth and HI column density of an equivalent
+  \emph{homogeneous} medium that contains the same total HI mass spread
+  uniformly over the sphere volume.
+\item[\texttt{par\%taumax}, \texttt{par\%N\_gasmax}] — the line-centre
+  optical depth and HI column density along a single radial sightline
+  from the centre to the $+z$ surface.
+\end{description}
+For a homogeneous medium these four numbers are equal up to geometric
+factors; for a clumpy medium \texttt{taumax} along any specific sightline
+fluctuates strongly (it can be zero if no clumps lie along the LOS, or
+many times the homogeneous value if several clumps are stacked), while
+\texttt{tauhomo} is a deterministic property of the medium (mass / volume).
+
+The auto-detection of the simulation frequency range
+($\texttt{par\%xfreq\_max}/\texttt{xfreq\_min}$) inside
+\texttt{car\_setup\_freq\_grid} uses both quantities:
+\begin{equation}
+  a_{\tau,3} = \left(a_V \cdot \tau_\mathrm{homo}\right)^{1/3},\qquad
+  x_\mathrm{max} \approx x_\mathrm{scale}(\tau_\mathrm{max}) \cdot a_{\tau,3}.
+\end{equation}
+Hence even when the user supplies \texttt{velocity\_min}/\texttt{velocity\_max}
+explicitly, having physically meaningful \texttt{tauhomo} and \texttt{taumax}
+is important for the FITS header to be informative and for the
+fall-back auto-range to produce a usable grid.
+
+\paragraph{Derivation in clump mode.}
+\texttt{init\_clumps()} is called BEFORE \texttt{grid\_create()} inside
+\texttt{grid\_create\_clump}, so the realised clump count $N_c$, opacity
+$\kappa_c$, and Voigt parameter $a_V^{cl}$ are all known when the global
+$\tau$/N values are derived.  The volume filling factor and the LaRT
+covering factor (defined as the expected number of clumps along a radial
+path of length $R$) are
+\begin{equation}
+  f_\mathrm{vol} = N_c \left(\frac{r_c}{R}\right)^3,\qquad
+  f_\mathrm{cov} = \frac{3}{4}\,N_c \left(\frac{r_c}{R}\right)^2.
+\end{equation}
+The line-centre optical depth of one clump (centre to surface) is
+$\tau_0 = \kappa_c\,\phi(0,a_V^{cl})\,r_c$.  Distributing the same total
+HI mass uniformly over the sphere volume gives the homogeneous-equivalent
+opacity per unit length
+$\langle\kappa\rangle_\mathrm{lc} = f_\mathrm{vol}\,\kappa_c\,\phi(0,a_V^{cl})$,
+and the volume-averaged $\tau$ from centre to surface is therefore
+\begin{equation}
+  \tau_\mathrm{homo} = \langle\kappa\rangle_\mathrm{lc}\cdot R
+                     = f_\mathrm{vol}\,\kappa_c\,\phi(0,a_V^{cl})\,R
+                     = \tfrac{4}{3}\,f_\mathrm{cov}\,\tau_0.
+\end{equation}
+The same value is also the EXPECTED radial $\tau_\mathrm{max}$ for a
+random sightline through the clumpy sphere (so the two have the same
+expectation for clumpy media, and are identical for the truly homogeneous
+limit).  The HI columns are obtained by replacing $\tau_0$ with the
+per-clump column $N_\mathrm{HI}^{cl}$:
+\begin{equation}
+  N_\mathrm{HI,homo} = N_\mathrm{HI,max}^\mathrm{(expected)}
+    = \tfrac{4}{3}\,f_\mathrm{cov}\,N_\mathrm{HI}^{cl},\qquad
+  N_\mathrm{HI}^{cl} = \frac{\kappa_c}{\sigma_0} = \frac{\kappa_c\,\Delta\nu_D^{cl}}{\texttt{line\%cross0}}\;r_c.
+\end{equation}
+For the canonical \texttt{clump\_NHI = 7.5e17 cm$^{-2}$, $f_\mathrm{cov} = 1$, $T = 10^4$ K} test
+case this gives $N_\mathrm{HI,homo} = 1.0\times10^{18}\,\mathrm{cm}^{-2}$,
+$\tau_\mathrm{homo} = 5.9\times10^{4}$, and
+$a_{\tau,3} = 3.0$.
+
+The derivation only overrides parameters that the user did not specify
+(stored as $\le 0$ before \texttt{read\_input}); explicit user values are
+always preserved.
+
 \subsection{Clump Velocities}
 
 Each clump's velocity is the sum of two independent components:
@@ -578,10 +652,24 @@ The photon frequency $x$ (in units of $\Delta\nu_D^{cl}$) is maintained in
 the local clump rest frame while inside a clump, and in the global frame in
 vacuum:
 \begin{align}
-  \text{at clump entry:}\quad &x \leftarrow x - u_\mathrm{los}/v_\mathrm{th},\\
-  \text{at clump exit:}\quad  &x \leftarrow x + u_\mathrm{los}/v_\mathrm{th},
+  \text{at clump entry:}\quad &x \leftarrow x - u_\mathrm{los},\\
+  \text{at clump exit:}\quad  &x \leftarrow x + u_\mathrm{los},
 \end{align}
-where $u_\mathrm{los} = (\mathbf{v}_i \cdot \hat{\mathbf{k}})$.
+where $u_\mathrm{los} = (\mathbf{v}_i \cdot \hat{\mathbf{k}})/v_\mathrm{th}$
+is the line-of-sight component of the host clump's bulk velocity in units
+of the clump thermal velocity $v_\mathrm{th}=\Delta\nu_D^{cl}\,\lambda_0$.
+
+\paragraph{Internal storage of clump bulk velocities:}
+\texttt{cl\_vx/y/z} are stored as $\mathbf{v}/v_\mathrm{th}$ (dimensionless),
+matching the Cartesian/AMR convention for \texttt{grid\%vfx} (which is also
+pre-normalised to $v/v_\mathrm{th}$ in \texttt{grid\_mod\_car.f90}).  The
+clump velocity assignment routines fill the arrays in km/s; \texttt{init\_clumps}
+divides by \texttt{cl\_vtherm} after the \texttt{MPI\_BCAST} step so that
+all subsequent raytrace and peel-off code can use \texttt{cl\_v*} directly
+in $u_\mathrm{los}$ without a per-call division.  The user-facing FITS
+output (Section~\ref{sec:clump_fits}) multiplies back by
+\texttt{cl\_vtherm} to keep the stored \texttt{VX}/\texttt{VY}/\texttt{VZ}
+columns in km/s.
 
 \paragraph{Jout accumulation:}
 When the photon exits the outer sphere (\texttt{photon\%inside} becomes
@@ -625,8 +713,62 @@ set so that the full sphere subtends the image:
 For $R=1$, $d=100$, $N_x=129$: $\delta\theta \approx 0\fdg0089$, covering
 $\pm 0\fdg57$ (total $1\fdg14$), which exactly spans the sphere.
 
+\paragraph{Clump-aware lab-frame conversion:}
+At the moment a peel-off is computed, scattering happens INSIDE a clump,
+so \texttt{photon\%xfreq} is in the host clump's rest frame.  The peel-off
+output must be in the lab (observer) frame, hence the routines compute
+\begin{equation}
+  x_\mathrm{ref} = x_\mathrm{photon} + u_1,\qquad
+  u_1 = \mathbf{v}_\mathrm{cell}\cdot\hat{\mathbf{k}}_\mathrm{obs}/v_\mathrm{th}.
+\end{equation}
+For the standard Cartesian path $\mathbf{v}_\mathrm{cell}$ comes from
+\texttt{grid\%vfx/y/z}; in clump mode \texttt{grid\%vfx/y/z} are zero
+everywhere (the inter-clump medium is vacuum and the bulk velocities live
+on the clumps), so the peel-off routines branch on
+\texttt{par\%use\_clump\_medium .and. photon\%icell\_clump > 0} and use
+the host clump's velocity instead:
+\begin{equation}
+  u_1 = \texttt{cl\_vx}(\mathrm{icl})\,k_x + \texttt{cl\_vy}(\mathrm{icl})\,k_y + \texttt{cl\_vz}(\mathrm{icl})\,k_z,
+\end{equation}
+where \texttt{icl}~=~\texttt{photon\%icell\_clump}.  The
+\texttt{peeling\_direct\_outside} routine, called only at photon birth
+when \texttt{photon\%icell\_clump}~=~0, needs no special case.
+
+Without this branch the peel-off spectra would remain in the clump frame
+while \texttt{grid\%Jout} (the angular average) is in the lab frame,
+producing a systematically narrower peel-off line profile whenever the
+clump bulk velocity field is non-trivial (e.g.\ rotating-halo or
+Hubble-flow runs).
+
+\paragraph{FITS WCS for the 3D peel-off cube:}
+The peel-off cube is allocated as
+\texttt{obs\%scatt(par\%nxfreq, par\%nxim, par\%nyim)}, so the FITS file
+has \texttt{NAXIS1}~=~\texttt{nxfreq} (wavelength), \texttt{NAXIS2}~=~\texttt{nxim}
+(RA), \texttt{NAXIS3}~=~\texttt{nyim} (DEC).  The header carries a
+three-axis WCS:
+\begin{center}
+\begin{tabular}{l|lll}
+\hline
+Axis & \texttt{CTYPE} & \texttt{CUNIT} & step \\
+\hline
+\texttt{NAXIS1} & \texttt{WAVE}    & \texttt{Angstrom} & $\texttt{CD1\_1} = -\,\delta\lambda$ \\
+\texttt{NAXIS2} & \texttt{RA-{}-TAN} & \texttt{deg}    & $\texttt{CD2\_2} = \delta\theta_x$ \\
+\texttt{NAXIS3} & \texttt{DEC-TAN} & \texttt{deg}      & $\texttt{CD3\_3} = \delta\theta_y$ \\
+\hline
+\end{tabular}
+\end{center}
+\texttt{CD1\_1} is negative because $x_\mathrm{freq}$ increases with the
+pixel index while wavelength
+$\lambda(x) = (1 - v_\mathrm{th}\,x/c)\,\lambda_0$ decreases with~$x$.
+\texttt{CRPIX1}~=~$1$, \texttt{CRVAL1}~=~\texttt{grid\%wavelength(1)}
+(largest wavelength, at pixel~1).  The scalar header keywords
+\texttt{XFREQ1}, \texttt{XFREQ2}, \texttt{DXFREQ}, and \texttt{DWAVE} are
+also retained for backward compatibility with existing analysis scripts
+that compute the spectral axis from those instead of from the WCS.
+
 %=============================================================================
 \section{FITS Output of Clump Information}
+\label{sec:clump_fits}
 %=============================================================================
 
 When \texttt{par\%save\_clump\_info = .true.}, the subroutine
@@ -636,6 +778,10 @@ FITS file \texttt{<base>\_clumps.fits.gz} containing:
 \paragraph{BinTable columns:}
 \texttt{X}, \texttt{Y}, \texttt{Z} (clump centres, code units);
 \texttt{VX}, \texttt{VY}, \texttt{VZ} (bulk velocities, km/s).
+The internal arrays \texttt{cl\_vx/y/z} are stored dimensionlessly as
+$\mathbf{v}/v_\mathrm{th}$; \texttt{write\_clumps\_fits} multiplies each
+column by \texttt{cl\_vtherm} (km/s) before writing, so the user-facing
+file always carries velocities in km/s.
 
 \paragraph{Header keywords (in the BinTable HDU):}
 \begin{center}

@@ -4,6 +4,169 @@ LaRT_v2.00
 Author: Kwang-Il Seon
 ================================================================================
 
+DATE: 2026-04-27 (later)
+--------------------------------------------------------------------------------
+
+REFACTOR: cl_vx/y/z stored as v / cl_vtherm (dimensionless), matching the
+          Cartesian/AMR grid%vfx convention.
+
+  Previously cl_vx/cl_vy/cl_vz were stored in km/s, requiring a per-call
+  division by cl_vtherm in raytrace_clump.f90 (6 places) and peelingoff_rect.f90
+  (4 places).  This was inconsistent with the Cartesian/AMR convention, where
+  grid%vfx is already pre-normalised to v/vtherm in grid_create_car
+  (cf. grid_mod_car.f90, where each cell's v_field is divided by the local
+  vtherm right after being read).
+
+  Changes:
+    - clump_mod.f90: after the MPI_BCAST of cl_vx/vy/vz in init_clumps(),
+      divide each component by cl_vtherm (h_rank=0 only, matching the shared-
+      memory ownership).  Updated the declaration comment for cl_vx/y/z.
+    - clump_mod.f90 / write_clumps_fits: multiply by cl_vtherm when writing
+      VX/VY/VZ columns so the user-facing FITS file remains in km/s.
+    - raytrace_clump.f90: removed `/ cl_vtherm` from all 6 occurrences of
+      `u_los = (cl_vx*kx + cl_vy*ky + cl_vz*kz) / cl_vtherm` patterns.
+      Updated the frequency-convention comment block.
+    - peelingoff_rect.f90 (v2.00 + v2.10): removed `/ cl_vtherm` from all
+      4 occurrences in the clump-aware u1 expressions; removed cl_vtherm
+      from the `use clump_mod, only:` clause.
+
+  Effect: small per-call savings in tight loops; no change in physics.
+  cl_vtherm is a scalar so the previous division was already nearly free
+  for the compiler, but the new convention is cleaner and removes a class
+  of "forgot to divide by cl_vtherm" bugs.  Verified with fcov=1 and fcov=5
+  rotating-galaxy-halo cases (Direct/Jin within statistical agreement of
+  the Poisson exp(-fcov) expectation).
+
+  Files modified: clump_mod.f90, raytrace_clump.f90, peelingoff_rect.f90
+                  (v2.00 and v2.10)
+
+
+BUG FIX (A): FITS WCS axis labels swapped in the 3D peel-off cube.
+
+  obs%scatt is allocated as obs%scatt(par%nxfreq, par%nxim, par%nyim), so
+  in the FITS file:
+    NAXIS1 = nxfreq  (frequency / wavelength)
+    NAXIS2 = nxim    (RA pixel)
+    NAXIS3 = nyim    (DEC pixel)
+
+  The previous code wrote
+      CTYPE1='RA--TAN', CD1_1=par%dxim, CRPIX1=(nxim+1)/2
+      CTYPE2='DEC-TAN', CD2_2=par%dyim, CRPIX2=(nyim+1)/2
+  i.e. the spatial WCS was attached to the (wavelength) NAXIS1 axis, and
+  NAXIS3 had no WCS at all.  External tools (astropy.wcs, ds9) consequently
+  saw a 400-pixel "RA" axis and an unidentified third axis.
+
+  Fix (write_output_rect.f90, both `Scattered` and `Stokes_I` 3D HDUs in
+  write_output_peeling_3D):
+    NAXIS1 -> CTYPE1='WAVE', CUNIT1='Angstrom',
+              CRPIX1=1, CRVAL1=grid%wavelength(1), CD1_1=-grid%dwave
+              (CD1_1 is negative because xfreq increases with i and
+               wavelength = (1 - vtherm*xfreq/c)*lambda0 decreases with i)
+    NAXIS2 -> CTYPE2='RA--TAN',  CUNIT2='deg', CD2_2=par%dxim, CRPIX2=(nxim+1)/2
+    NAXIS3 -> CTYPE3='DEC-TAN', CUNIT3='deg', CD3_3=par%dyim, CRPIX3=(nyim+1)/2
+  The previously-written DXFREQ, DWAVE, XFREQ1, XFREQ2 scalar keywords
+  are kept for backward compatibility with existing analysis scripts.
+
+  Verified: astropy.wcs.WCS(header).wcs.ctype now returns
+            ['WAVE', 'RA--TAN', 'DEC-TAN']; pixel ~200 maps to 1215.67 A
+            (Lyalpha vacuum wavelength) for the fcov1 test.
+
+  Files modified: write_output_rect.f90 (v2.00 and v2.10)
+
+
+BUG FIX (B): par%tauhomo / par%taumax / par%N_gashomo / par%N_gasmax were
+             derived from a unit-density placeholder grid in clump mode.
+
+  In grid_create_clump(), the call sequence used to be
+      call grid_create(grid)      ! computes tauhomo, taumax, N_gashomo,
+                                  ! N_gasmax from a uniform grid%rhokap=1
+      call init_clumps(par%rmax)  ! computes the actual clump cl_rhokap
+      grid%rhokap = 0             ! override (clump mode has zero ICM opacity)
+  so the derived "homogeneous" quantities had no physical meaning (e.g.
+  TAUHOMO ~ 5.9e-14 in the FITS header), and the auto-detection of the
+  frequency range inside car_setup_freq_grid (via xscale * atau3) got a
+  meaningless atau3.
+
+  Fix (grid_mod_clump.f90): swap the order so init_clumps() runs first,
+  then derive the proper clump-medium values BEFORE grid_create() is
+  called.  Only set them when the user has not already specified the
+  parameter (i.e. par%* <= 0):
+
+    voigt0           = voigt(0, cl_voigt_a)
+    f_vol            = N_clumps * (r_c/R_max)^3
+    f_cov            = (3/4) * N_clumps * (r_c/R_max)^2     (LaRT convention:
+                                  expected number of clump crossings per
+                                  radial path from centre to surface)
+    tau_per_clump_lc = cl_rhokap * voigt0 * r_c            (line-centre
+                                  optical depth of one clump, centre to
+                                  surface)
+    par%tauhomo      = (4/3) * f_cov * tau_per_clump_lc    (= homogeneous-
+                                  equivalent line-centre tau, identical
+                                  to the EXPECTED radial taumax for a
+                                  random sightline through the clumpy sphere)
+    par%taumax       = (4/3) * f_cov * tau_per_clump_lc    (no physical
+                                  meaning for a single LOS in a clumpy
+                                  medium; set equal to tauhomo so the
+                                  xscale auto-detection picks a sensible
+                                  bracket)
+    par%N_gashomo    = (4/3) * f_cov * (cl_rhokap/line%cross0) * cl_Dfreq * r_c
+    par%N_gasmax     = (4/3) * f_cov * (cl_rhokap/line%cross0) * cl_Dfreq * r_c
+
+  The factor (4/3) f_cov reduces to the trivial result
+      N_HI_homo = (4/3) * f_cov * clump_NHI
+  when par%clump_NHI is the input.
+
+  Verified for fcov1, NHI=7.5e17, T=1e4:
+      TAUHOMO = 5.90e4   (= 1.0e18 * 5.88e-14 cm^2 = N_HI_homo * sigma_0)
+      ATAU3   = 3.03     (consistent with auto-detected xfreq_max ~ 16,
+                           covering the +/- 200 km/s rotation range)
+
+  Files modified: grid_mod_clump.f90 (v2.00 and v2.10)
+
+
+BUG FIX (C): Peel-off frame inconsistency for clump mode with non-zero
+             clump bulk velocities.
+
+  When a photon scatters inside a clump, photon%xfreq is in the CLUMP frame.
+  The Jout binning (raytrace_clump.f90) shifts to the lab frame at clump
+  exit (xfreq += u_los), so Jout is always in the lab frame.  The peel-off
+  binning (peeling_*_outside in peelingoff_rect.f90), however, used
+      u1 = grid%vfx(...) * pobs%kx + grid%vfy(...) * pobs%ky + grid%vfz(...)*pobs%kz
+  to convert to the lab frame, and grid%vfx/vfy/vfz are forced to 0 in
+  clump mode.  Hence u1 = 0 and the peel-off photon was binned at the
+  CLUMP-frame frequency, while Jout was binned at the LAB-frame frequency.
+
+  Symptom: for runs with significant clump bulk velocities (e.g.
+           rotating_galaxy_halo with Vrot=300 km/s), the peel-off spectrum
+           was systematically narrower than Jout — the rotational broadening
+           of the line was missing from the peel-off output.
+
+  Fix: in each of peeling_dust_stokes_outside, peeling_dust_nostokes_outside,
+       peeling_resonance_stokes_outside, peeling_resonance_nostokes_outside,
+       branch on `par%use_clump_medium .and. photon%icell_clump > 0` and
+       use the host clump's velocity instead of grid%vf:
+
+           u1 = cl_vx(photon%icell_clump) * pobs%kx
+              + cl_vy(photon%icell_clump) * pobs%ky
+              + cl_vz(photon%icell_clump) * pobs%kz
+
+       (cl_v* are in v/vtherm units after the refactor above; with the
+       previous km/s storage the formula was the same expression divided
+       by cl_vtherm.)  The `peeling_direct_outside` routine is left alone
+       because at photon birth photon%icell_clump = 0 (the photon is in
+       vacuum) and the existing u1 = grid%vfx*... = 0 already gives the
+       correct lab-frame xfreq.
+
+  Verified: with the fix, the peel-off scattered spectra of fcov1 broaden
+            to span +/- ~200 km/s with a peak that shifts with the
+            line-of-sight component of the host clumps' rotation velocity,
+            matching the angular structure expected from the rotating-halo
+            velocity field.
+
+  Files modified: peelingoff_rect.f90, setup.f90 (clump-mode comment update)
+                  (v2.00 and v2.10)
+
+
 DATE: 2026-04-27
 --------------------------------------------------------------------------------
 

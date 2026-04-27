@@ -137,6 +137,7 @@ OBJSB	= \
 	output_sum_heal.o \
 	write_output_rect.o \
 	write_output_heal.o \
+	clump_mod.o \
 	peelingoff_rect.o \
 	peelingoff_heal.o \
 	point_illumination.o \
@@ -151,7 +152,6 @@ OBJSB	= \
 	scattering_amr.o \
 	grid_mod_amr.o \
 	peelingoff_amr.o \
-	clump_mod.o \
 	raytrace_clump.o \
 	grid_mod_clump.o \
 	setup.o \

@@ -31,7 +31,13 @@ module clump_mod
   real(kind=wp),  save :: cl_vtherm      = 0.0_wp   ! thermal velocity [km/s] = cl_Dfreq * lambda0 * um2km
   real(kind=wp),  save :: cl_temperature = 0.0_wp   ! actual clump temperature [K]
 
-  !--- Clump positions [code units] and bulk velocities [km/s] – MPI shared memory
+  !--- Clump positions [code units] and bulk velocities – MPI shared memory.
+  !
+  !    cl_vx/y/z are stored DIMENSIONLESSLY as v / cl_vtherm (matching the
+  !    Cartesian/AMR grid%vfx convention). Velocities are assigned in km/s
+  !    inside generate_clumps()/assign_clump_velocities_from_type(), then
+  !    divided by cl_vtherm at the end of init_clumps(). write_clumps_fits()
+  !    multiplies by cl_vtherm to keep the user-facing FITS output in km/s.
   real(kind=dp), pointer, save :: cl_x(:)  => null()
   real(kind=dp), pointer, save :: cl_y(:)  => null()
   real(kind=dp), pointer, save :: cl_z(:)  => null()
@@ -153,6 +159,15 @@ contains
      call MPI_BCAST(cl_vx, int(N_clumps), MPI_DOUBLE_PRECISION, 0, mpar%SAME_HRANK_COMM, ierr)
      call MPI_BCAST(cl_vy, int(N_clumps), MPI_DOUBLE_PRECISION, 0, mpar%SAME_HRANK_COMM, ierr)
      call MPI_BCAST(cl_vz, int(N_clumps), MPI_DOUBLE_PRECISION, 0, mpar%SAME_HRANK_COMM, ierr)
+     !--- Normalise clump bulk velocities by cl_vtherm so cl_v* is stored as
+     !    v / vtherm (dimensionless), matching the Cartesian/AMR grid%vfx
+     !    convention. Avoids a per-call division in raytrace_clump and
+     !    peelingoff_rect.
+     if (cl_vtherm > 0.0_wp) then
+        cl_vx(:) = cl_vx(:) / cl_vtherm
+        cl_vy(:) = cl_vy(:) / cl_vtherm
+        cl_vz(:) = cl_vz(:) / cl_vtherm
+     end if
   end if
   call MPI_BARRIER(mpar%hostcomm, ierr)
 
@@ -677,11 +692,13 @@ contains
   call fits_write_table_column(unit, 'Y',  tmp, status, bitpix)
   tmp = cl_z(1:ncl)
   call fits_write_table_column(unit, 'Z',  tmp, status, bitpix)
-  tmp = cl_vx(1:ncl)
+  !--- cl_v* are stored as v/vtherm internally (since 2026-04-27);
+  !    multiply back by cl_vtherm to write velocities in km/s in the FITS file.
+  tmp = cl_vx(1:ncl) * cl_vtherm
   call fits_write_table_column(unit, 'VX', tmp, status, bitpix)
-  tmp = cl_vy(1:ncl)
+  tmp = cl_vy(1:ncl) * cl_vtherm
   call fits_write_table_column(unit, 'VY', tmp, status, bitpix)
-  tmp = cl_vz(1:ncl)
+  tmp = cl_vz(1:ncl) * cl_vtherm
   call fits_write_table_column(unit, 'VZ', tmp, status, bitpix)
 
   deallocate(tmp)

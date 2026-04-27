@@ -8,8 +8,9 @@ module raytrace_clump_mod
 !
 ! Frequency convention (same as Cartesian):
 !   photon%xfreq is in units of cl_Dfreq (= Dfreq_ref).
-!   At clump entry: xfreq -= v_los_clump / cl_vtherm   (v in units of vtherm)
-!   At clump exit:  xfreq += v_los_clump / cl_vtherm
+!   cl_vx/y/z are stored as v / cl_vtherm (dimensionless), set in init_clumps.
+!   At clump entry: xfreq -= v_los_clump   (v already in vtherm units)
+!   At clump exit:  xfreq += v_los_clump
 !
 ! photon%icell_clump: 0 = in vacuum; > 0 = index of current clump (1-based).
 ! photon%icell/jcell/kcell: maintained using floor() map from position.
@@ -97,7 +98,7 @@ contains
         photon%z = photon%z + t_seg * kz
 
         !--- shift xfreq back to global frame at exit
-        u_los = (cl_vx(icl)*kx + cl_vy(icl)*ky + cl_vz(icl)*kz) / cl_vtherm
+        u_los = cl_vx(icl)*kx + cl_vy(icl)*ky + cl_vz(icl)*kz
         photon%xfreq = photon%xfreq + u_los
 
         last_icl           = icl
@@ -139,8 +140,8 @@ contains
            photon%z = photon%z + te * kz
 
            !--- shift xfreq to clump frame at entry
-           u_los = (cl_vx(icl_found)*kx + cl_vy(icl_found)*ky + &
-                    cl_vz(icl_found)*kz) / cl_vtherm
+           u_los = cl_vx(icl_found)*kx + cl_vy(icl_found)*ky + &
+                   cl_vz(icl_found)*kz
            photon%xfreq = photon%xfreq - u_los
 
            last_icl           = 0_int64   ! entering a new clump; no skip needed
@@ -200,7 +201,7 @@ contains
      xp    = xp + t_seg * kx
      yp    = yp + t_seg * ky
      zp    = zp + t_seg * kz
-     u_los = (cl_vx(icl_cur)*kx + cl_vy(icl_cur)*ky + cl_vz(icl_cur)*kz) / cl_vtherm
+     u_los = cl_vx(icl_cur)*kx + cl_vy(icl_cur)*ky + cl_vz(icl_cur)*kz
      xfreq_loc = xfreq_loc + u_los
      ! keep icl_cur as skip index for first find_next_clump call
      if (xp**2 + yp**2 + zp**2 >= sphere_R**2) return
@@ -220,7 +221,7 @@ contains
      xp = xp + te * kx;  yp = yp + te * ky;  zp = zp + te * kz
 
      !--- xfreq shift at entry
-     u_los = (cl_vx(icl_found)*kx + cl_vy(icl_found)*ky + cl_vz(icl_found)*kz) / cl_vtherm
+     u_los = cl_vx(icl_found)*kx + cl_vy(icl_found)*ky + cl_vz(icl_found)*kz
      xfreq_loc = xfreq_loc - u_los
 
      !--- tau through this clump
@@ -326,7 +327,7 @@ contains
      t_rem = t_rem - t_seg
      if (t_rem <= 0.0_wp) return
      xp = xp + t_seg*kx;  yp = yp + t_seg*ky;  zp = zp + t_seg*kz
-     u_los = (cl_vx(icl_cur)*kx + cl_vy(icl_cur)*ky + cl_vz(icl_cur)*kz) / cl_vtherm
+     u_los = cl_vx(icl_cur)*kx + cl_vy(icl_cur)*ky + cl_vz(icl_cur)*kz
      xfreq_loc = xfreq_loc + u_los
      ! keep icl_cur as skip for first find_next_clump
   end if
@@ -340,7 +341,7 @@ contains
      xp = xp + te*kx;  yp = yp + te*ky;  zp = zp + te*kz
      t_rem = t_rem - te
 
-     u_los = (cl_vx(icl_found)*kx + cl_vy(icl_found)*ky + cl_vz(icl_found)*kz) / cl_vtherm
+     u_los = cl_vx(icl_found)*kx + cl_vy(icl_found)*ky + cl_vz(icl_found)*kz
      xfreq_loc = xfreq_loc - u_los
 
      t_seg = min(clump_exit_dist(xp, yp, zp, kx, ky, kz, icl_found), t_rem)
