@@ -2,8 +2,54 @@
 LaRT_v2.00 AMR (Adaptive Mesh Refinement) Extension
 ================================================================================
 Date: 2026-04-18  (initial)
-Last updated: 2026-04-25
+Last updated: 2026-04-28
 Author: Kwang-Il Seon
+
+Update note (2026-04-28):
+Added analytic velocity_type override for generic AMR data, mirroring the
+Cartesian and clump-mode mechanism. The same `par%velocity_type` settings
+already supported by Cartesian mode can now be applied on top of a generic
+AMR data file without regenerating the file. This is useful when only the
+velocity scaling needs to change while density, temperature, and refinement
+structure stay the same.
+
+  grid_mod_amr.f90:
+    - New private subroutine assign_amr_velocities_from_type(T_cgs):
+        Overrides per-leaf amr_grid%vfx/vfy/vfz using the analytic velocity
+        models supported by Cartesian mode. Velocities are stored as
+        v / v_thermal (dimensionless, per-leaf vtherm from T_cgs(il)).
+        Cell-centre coordinates come from amr_grid%cx/cy/cz(icell_of_leaf(il)).
+    - Called from grid_create_amr immediately after the leaf-fill loop
+      (Step 4), guarded by:
+          if (par%amr_type == 'generic' .and.
+              len_trim(par%velocity_type) > 0)
+      RAMSES mode is intentionally excluded — RAMSES velocities are physical
+      and should not be overridden silently.
+    - Override is total, not additive: input vx/vy/vz fields from the AMR
+      data file are completely replaced when velocity_type is set.
+
+  Supported par%velocity_type values (identical semantics to grid_mod_car):
+    'hubble'              : v = Vexp * r / rmax       (linear expansion)
+    'constant_radial'     : v = Vexp * r_hat           (uniform outflow)
+    'parallel_velocity'   : v = (Vx, Vy, Vz)           (uniform bulk)
+    'ssh'                 : Song, Seon & Hwang (2020) galaxy model
+    'rotating_solid_body' : v = Vrot * (-y, x, 0) / rmax
+    'rotating_galaxy_halo': flat rotation curve (Vrot, rinner)
+  Effective rmax: par%rmax if positive, else amr_grid%L_box / 2.
+  Unrecognised velocity_type values: warning printed, input velocities kept.
+
+  Example use:
+    &parameters
+     par%use_amr_grid  = .true.
+     par%amr_type      = 'generic'
+     par%amr_file      = 'sphere.fits.gz'
+     par%distance_unit = 'kpc'
+     par%temperature   = 1.0e4
+     par%taumax        = 1.0e4
+     par%velocity_type = 'rotating_galaxy_halo'   ! ← new feature
+     par%Vrot          = 200.0
+     par%rinner        = 15.0
+    /
 
 Update note (2026-04-25b):
 Renamed photon generation module and subroutine; extended AMR source geometries.

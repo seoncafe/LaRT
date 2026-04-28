@@ -24,6 +24,8 @@ module grid_mod_amr
 
   public :: grid_create_amr, grid_destroy_amr, amr_sync_to_grid
 
+  private :: assign_amr_velocities_from_type
+
 contains
 
   !=========================================================================
@@ -172,6 +174,15 @@ contains
       amr_grid%vfy(il) = vy_kms(il) / vtherm
       amr_grid%vfz(il) = vz_kms(il) / vtherm
     end do
+
+    !--- Optional override: apply analytic velocity_type model on top of the
+    !    generic AMR data velocities.  This lets the user reuse the same
+    !    octree structure (density, temperature, refinement) while testing
+    !    different velocity scalings without regenerating the AMR file.
+    !    Only enabled for amr_type='generic' (RAMSES velocities are physical).
+    if (trim(par%amr_type) == 'generic' .and. len_trim(par%velocity_type) > 0) then
+       call assign_amr_velocities_from_type(T_cgs)
+    end if
     end if
     call MPI_BARRIER(mpar%hostcomm, ierr)
 
@@ -570,5 +581,135 @@ contains
     if (allocated(amr_grid%Jin))   deallocate(amr_grid%Jin)
     if (allocated(amr_grid%Jabs))  deallocate(amr_grid%Jabs)
   end subroutine grid_destroy_amr
+
+  !=========================================================================
+  ! assign_amr_velocities_from_type: override per-leaf vfx/vfy/vfz using the same
+  ! analytic velocity-field models supported by Cartesian mode.  Called from
+  ! grid_create_amr only when amr_type='generic' and par%velocity_type is set.
+  !
+  ! Supported par%velocity_type values (identical to Cartesian semantics):
+  !   'hubble'              : v = Vexp * r / rmax              (linear expansion)
+  !   'constant_radial'     : v = Vexp * r_hat                  (uniform outflow)
+  !   'parallel_velocity'   : v = (Vx, Vy, Vz)                  (uniform bulk)
+  !   'ssh'                 : Song, Seon & Hwang (2020) galaxy model
+  !   'rotating_solid_body' : v = Vrot * (-y, x, 0) / rmax
+  !   'rotating_galaxy_halo': flat rotation curve (Vrot, rinner)
+  !
+  ! Only h_rank==0 calls this (vfx/vfy/vfz are MPI shared-memory windows).
+  ! Velocities are stored as v / v_thermal (dimensionless), per AMR convention.
+  !=========================================================================
+  subroutine assign_amr_velocities_from_type(T_cgs)
+    use define
+    use line_mod
+    implicit none
+    real(wp), intent(in) :: T_cgs(:)
+
+    integer  :: il, icell
+    real(wp) :: xc, yc, zc, rr, rr_cyl, vtherm, Vscale, rmax_eff
+
+    rmax_eff = par%rmax
+    if (rmax_eff <= 0.0_wp) rmax_eff = amr_grid%L_box * 0.5_wp
+
+    if (mpar%p_rank == 0) then
+       write(6,'(2a)') 'AMR generic: overriding input velocities with velocity_type = ', &
+                       trim(par%velocity_type)
+    end if
+
+    select case (trim(par%velocity_type))
+
+    case ('hubble')
+       do il = 1, amr_grid%nleaf
+          icell  = amr_grid%icell_of_leaf(il)
+          vtherm = line%vtherm1 * sqrt(T_cgs(il))
+          amr_grid%vfx(il) = (par%Vexp / vtherm) * amr_grid%cx(icell) / rmax_eff
+          amr_grid%vfy(il) = (par%Vexp / vtherm) * amr_grid%cy(icell) / rmax_eff
+          amr_grid%vfz(il) = (par%Vexp / vtherm) * amr_grid%cz(icell) / rmax_eff
+       end do
+
+    case ('constant_radial')
+       do il = 1, amr_grid%nleaf
+          icell  = amr_grid%icell_of_leaf(il)
+          xc = amr_grid%cx(icell);  yc = amr_grid%cy(icell);  zc = amr_grid%cz(icell)
+          rr = sqrt(xc*xc + yc*yc + zc*zc)
+          if (rr > amr_grid%ch(icell) * 0.1_wp) then
+             vtherm = line%vtherm1 * sqrt(T_cgs(il))
+             amr_grid%vfx(il) = (par%Vexp / vtherm) * xc / rr
+             amr_grid%vfy(il) = (par%Vexp / vtherm) * yc / rr
+             amr_grid%vfz(il) = (par%Vexp / vtherm) * zc / rr
+          else
+             amr_grid%vfx(il) = 0.0_wp
+             amr_grid%vfy(il) = 0.0_wp
+             amr_grid%vfz(il) = 0.0_wp
+          end if
+       end do
+
+    case ('parallel_velocity')
+       do il = 1, amr_grid%nleaf
+          vtherm = line%vtherm1 * sqrt(T_cgs(il))
+          amr_grid%vfx(il) = par%Vx / vtherm
+          amr_grid%vfy(il) = par%Vy / vtherm
+          amr_grid%vfz(il) = par%Vz / vtherm
+       end do
+
+    case ('ssh')
+       do il = 1, amr_grid%nleaf
+          icell  = amr_grid%icell_of_leaf(il)
+          xc = amr_grid%cx(icell);  yc = amr_grid%cy(icell);  zc = amr_grid%cz(icell)
+          rr = sqrt(xc*xc + yc*yc + zc*zc)
+          vtherm = line%vtherm1 * sqrt(T_cgs(il))
+          if (rr < par%rpeak) then
+             Vscale = par%Vpeak / par%rpeak
+             amr_grid%vfx(il) = (Vscale / vtherm) * xc
+             amr_grid%vfy(il) = (Vscale / vtherm) * yc
+             amr_grid%vfz(il) = (Vscale / vtherm) * zc
+          else if (rr > 0.0_wp) then
+             Vscale = par%Vpeak + par%DeltaV * (rr - par%rpeak) / (rmax_eff - par%rpeak)
+             amr_grid%vfx(il) = (Vscale / vtherm) * xc / rr
+             amr_grid%vfy(il) = (Vscale / vtherm) * yc / rr
+             amr_grid%vfz(il) = (Vscale / vtherm) * zc / rr
+          else
+             amr_grid%vfx(il) = 0.0_wp
+             amr_grid%vfy(il) = 0.0_wp
+             amr_grid%vfz(il) = 0.0_wp
+          end if
+       end do
+
+    case ('rotating_solid_body')
+       do il = 1, amr_grid%nleaf
+          icell  = amr_grid%icell_of_leaf(il)
+          vtherm = line%vtherm1 * sqrt(T_cgs(il))
+          amr_grid%vfx(il) = -(par%Vrot / vtherm) * amr_grid%cy(icell) / rmax_eff
+          amr_grid%vfy(il) =  (par%Vrot / vtherm) * amr_grid%cx(icell) / rmax_eff
+          amr_grid%vfz(il) = 0.0_wp
+       end do
+
+    case ('rotating_galaxy_halo')
+       do il = 1, amr_grid%nleaf
+          icell  = amr_grid%icell_of_leaf(il)
+          xc = amr_grid%cx(icell);  yc = amr_grid%cy(icell)
+          rr_cyl = sqrt(xc*xc + yc*yc)
+          vtherm = line%vtherm1 * sqrt(T_cgs(il))
+          if (rr_cyl < par%rinner) then
+             amr_grid%vfx(il) = -(par%Vrot / vtherm) * yc / par%rinner
+             amr_grid%vfy(il) =  (par%Vrot / vtherm) * xc / par%rinner
+          else if (rr_cyl > 0.0_wp) then
+             amr_grid%vfx(il) = -(par%Vrot / vtherm) * yc / rr_cyl
+             amr_grid%vfy(il) =  (par%Vrot / vtherm) * xc / rr_cyl
+          else
+             amr_grid%vfx(il) = 0.0_wp
+             amr_grid%vfy(il) = 0.0_wp
+          end if
+          amr_grid%vfz(il) = 0.0_wp
+       end do
+
+    case default
+       if (mpar%p_rank == 0) then
+          write(6,'(3a)') 'AMR generic: WARNING velocity_type "', &
+                          trim(par%velocity_type), &
+                          '" not recognised - keeping input data velocities'
+       end if
+    end select
+
+  end subroutine assign_amr_velocities_from_type
 
 end module grid_mod_amr

@@ -80,8 +80,8 @@ contains
   !                = (4/3) * f_cov * tau_per_clump
   !
   !    where f_vol = N_clumps * (R_cl/R_max)^3 (volume filling fraction),
-  !          f_cov = (3/4) * N_clumps * (R_cl/R_max)^2 (expected number
-  !                  of clump crossings per radial path; LaRT convention),
+  !          f_cov = (3/4) * N_clumps * (R_cl/R_max)^2 (covering factor;
+  !                  expected number of clump crossings per radial path),
   !          tau_per_clump = cl_rhokap * voigt(0, cl_voigt_a) * R_cl
   !                        (line-center tau from clump center to surface).
   !

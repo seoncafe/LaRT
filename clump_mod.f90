@@ -34,10 +34,11 @@ module clump_mod
   !--- Clump positions [code units] and bulk velocities – MPI shared memory.
   !
   !    cl_vx/y/z are stored DIMENSIONLESSLY as v / cl_vtherm (matching the
-  !    Cartesian/AMR grid%vfx convention). Velocities are assigned in km/s
-  !    inside generate_clumps()/assign_clump_velocities_from_type(), then
-  !    divided by cl_vtherm at the end of init_clumps(). write_clumps_fits()
-  !    multiplies by cl_vtherm to keep the user-facing FITS output in km/s.
+  !    Cartesian/AMR grid%vfx convention). Each setter routine
+  !    (generate_clumps and assign_clump_velocities_from_type) divides by
+  !    cl_vtherm inline before writing, so no separate post-pass rescaling
+  !    is needed. write_clumps_fits() multiplies by cl_vtherm to keep the
+  !    user-facing FITS output in km/s.
   real(kind=dp), pointer, save :: cl_x(:)  => null()
   real(kind=dp), pointer, save :: cl_y(:)  => null()
   real(kind=dp), pointer, save :: cl_z(:)  => null()
@@ -159,15 +160,8 @@ contains
      call MPI_BCAST(cl_vx, int(N_clumps), MPI_DOUBLE_PRECISION, 0, mpar%SAME_HRANK_COMM, ierr)
      call MPI_BCAST(cl_vy, int(N_clumps), MPI_DOUBLE_PRECISION, 0, mpar%SAME_HRANK_COMM, ierr)
      call MPI_BCAST(cl_vz, int(N_clumps), MPI_DOUBLE_PRECISION, 0, mpar%SAME_HRANK_COMM, ierr)
-     !--- Normalise clump bulk velocities by cl_vtherm so cl_v* is stored as
-     !    v / vtherm (dimensionless), matching the Cartesian/AMR grid%vfx
-     !    convention. Avoids a per-call division in raytrace_clump and
-     !    peelingoff_rect.
-     if (cl_vtherm > 0.0_wp) then
-        cl_vx(:) = cl_vx(:) / cl_vtherm
-        cl_vy(:) = cl_vy(:) / cl_vtherm
-        cl_vz(:) = cl_vz(:) / cl_vtherm
-     end if
+     ! cl_vx/y/z are already stored as v / cl_vtherm (normalised inline by
+     ! generate_clumps and assign_clump_velocities_from_type).
   end if
   call MPI_BARRIER(mpar%hostcomm, ierr)
 
@@ -246,9 +240,10 @@ contains
      icl = icl + 1_int64
      cl_x(icl) = real(xc, dp);  cl_y(icl) = real(yc, dp);  cl_z(icl) = real(zc, dp)
      if (par%clump_sigma_v > 0.0_wp) then
-        cl_vx(icl) = real(par%clump_sigma_v * rand_gauss(), dp)
-        cl_vy(icl) = real(par%clump_sigma_v * rand_gauss(), dp)
-        cl_vz(icl) = real(par%clump_sigma_v * rand_gauss(), dp)
+        ! store v / cl_vtherm directly (dimensionless, matches AMR convention)
+        cl_vx(icl) = real(par%clump_sigma_v / cl_vtherm * rand_gauss(), dp)
+        cl_vy(icl) = real(par%clump_sigma_v / cl_vtherm * rand_gauss(), dp)
+        cl_vz(icl) = real(par%clump_sigma_v / cl_vtherm * rand_gauss(), dp)
      end if
 
      !--- insert into RSA linked list
@@ -352,9 +347,10 @@ contains
 
      end select
 
-     cl_vx(icl) = cl_vx(icl) + real(vx, dp)
-     cl_vy(icl) = cl_vy(icl) + real(vy, dp)
-     cl_vz(icl) = cl_vz(icl) + real(vz, dp)
+     ! store v / cl_vtherm directly (dimensionless, matches AMR convention)
+     cl_vx(icl) = cl_vx(icl) + real(vx / cl_vtherm, dp)
+     cl_vy(icl) = cl_vy(icl) + real(vy / cl_vtherm, dp)
+     cl_vz(icl) = cl_vz(icl) + real(vz / cl_vtherm, dp)
   end do
 
   if (mpar%p_rank == 0) &
