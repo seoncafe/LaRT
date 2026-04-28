@@ -40,7 +40,8 @@ contains
      do ip = 1, par%nphotons, par%num_send_at_once
         call MPI_RECV(ans,1,MPI_INTEGER,MPI_ANY_SOURCE,MPI_ANY_TAG,MPI_COMM_WORLD,status,ierr)
         worker  = status(MPI_SOURCE)
-        numdone = numdone + par%num_send_at_once
+        !--- cap printed counter at nphotons (the final chunk may be partial)
+        numdone = min(numdone + par%num_send_at_once, par%nphotons)
         if (mod(numdone,int(par%nprint,int64)) == 0) then
            call time_stamp(dtime)
            write(6,'(es14.5,a,f8.3,a)') dble(numdone),' photons calculated: ',dtime/60.0_wp,' mins'
@@ -61,6 +62,9 @@ contains
         if (status(MPI_TAG) == 0) exit
         do ii = 1, par%num_send_at_once
            ip = numreceived - par%num_send_at_once + ii
+           !--- skip indices that exceed the requested total (final chunk may
+           !    be partial when nphotons is not a multiple of num_send_at_once)
+           if (ip > par%nphotons) exit
            !++++++++++++++++++++++++++++++++
            !--- Main Part of the simulation
            !--- Release photon

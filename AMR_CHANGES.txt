@@ -2,8 +2,89 @@
 LaRT_v2.00 AMR (Adaptive Mesh Refinement) Extension
 ================================================================================
 Date: 2026-04-18  (initial)
-Last updated: 2026-04-28
+Last updated: 2026-04-29
 Author: Kwang-Il Seon
+
+Update note (2026-04-29) -- code-review fixes:
+Six findings from a code review (LaRT_v2_code_review.md) were applied
+to v2.00 (and mirrored to v2.10).  Each affects either correctness, runtime
+stability, or input handling.
+
+  F-04: AMR doublet scattering (do_resonance2_amr) was using a stale
+        photon%E1 instead of computing the doublet-specific E1 from the
+        atom-rest-frame frequency.  As a result the angular redistribution
+        and the Stokes scattering matrix for line_type=2 (CIV, MgII, NaI D,
+        SiIV, CaII H&K, ...) were inconsistent with the Cartesian
+        implementation in line_mod.f90:do_resonance2.
+
+        Fix in scattering_amr.f90:
+          - Compute  qH = xfreq_atom + DnuHK,  qK = xfreq_atom,
+                     E1 = (2*qK*qH + qH^2) / (qK^2 + 2*qH^2)
+                     after the H/K branch chooses uz.
+          - Use the new E1 in S11/S12/S22/S33/S44 (S11 = S22 + (1-E1),
+                     S44 = (E1+2)/2 * cost) — matching Cartesian.
+          - Update photon%E1 = E1, photon%E2 = 1 - E1, photon%E3 = (E1+2)/3.
+
+  F-13: clump-mode raytrace was accumulating gas column density without
+        the cl_Dfreq factor.  cl_rhokap is defined so that the actual
+        atomic column along a path of length t_seg (in code units) is
+            N_HI = (cl_rhokap / line%cross0) * cl_Dfreq * t_seg
+        (consistent with grid_mod_clump's analytic per-clump column).
+
+        Fix in raytrace_clump.f90 (4 sites in raytrace_to_edge_column_clump
+        and raytrace_to_dist_column_clump):
+          - N_gas = N_gas + (cl_rhokap / line%cross0) * cl_Dfreq * t_seg
+
+  F-01: master-slave MPI work distribution always processed exactly
+        par%num_send_at_once photons per worker chunk, even on the final
+        chunk.  When par%nphotons was not a multiple of num_send_at_once,
+        the last worker processed indices > nphotons.  Outputs are
+        normalised by par%nphotons, so this biased Jout slightly upward
+        and could overflow save_all_photons arrays.
+
+        Fix in run_simulation_mod.f90 (run_master_slave):
+          - Worker: skip indices ip > par%nphotons (`if (ip > par%nphotons)
+                    exit` inside the inner ii-loop).
+          - Master: cap printed counter `numdone =
+                    min(numdone + par%num_send_at_once, par%nphotons)`.
+
+  F-03: Cartesian dust z-scale formula used par%density_rscale where
+        par%density_zscale was intended.  When density_zscale > 0 and
+        density_rscale was left at its default (or any different value),
+        the dust z-profile differed from the gas profile (or could even
+        increase with |z| if rscale was negative).
+
+        Fix in grid_mod_car.f90 (inside the `if (density_zscale > 0)` block):
+          - rhokapD(:,:,:) *= exp(-|zz(k)| / density_zscale)   (was rscale)
+
+  F-02: when par%save_Jin = .false., the Cartesian/HEALPIX output
+        normalisation paths still dereferenced grid%Jin (which is only
+        allocated when save_Jin = .true.).  The AMR path already had the
+        `if (associated(grid%Jin))` guard.
+
+        Fix in output_sum_rect.f90 and output_sum_heal.f90:
+          - Wrap every `grid%Jin(:) = grid%Jin(:) / ...` with
+            `if (associated(grid%Jin))`.
+          - Continuum normalisation (sum(grid%Jin)/size(grid%Jin)) now
+            aborts with a clear message if Jin is not allocated.
+
+  F-05: AMR + nside>0 (HEALPIX inside observer) silently went through the
+        outside (rectangular) output path because the AMR setup branch
+        returns from setup_procedure() before the inside-observer pointer
+        wiring.  Combined with nxim=nyim=0, this could produce empty
+        output or runtime failures.  The AMR/clump paths do not currently
+        wire HEALPIX-inside output.
+
+        Fix in setup.f90: explicitly abort when nside>0 is combined with
+        AMR or clump mode.
+
+  F-07: par%amr_type was not lowercased after namelist read, while
+        comparisons later expected exact strings 'ramses' / 'generic'.
+        Inputs using 'RAMSES' or 'Generic' silently fell into the wrong
+        branch.
+
+        Fix in setup.f90: par%amr_type = strlowcase(par%amr_type) added
+        to the existing block of string canonicalisations.
 
 Update note (2026-04-28):
 Added analytic velocity_type override for generic AMR data, mirroring the

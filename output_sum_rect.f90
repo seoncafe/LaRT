@@ -127,7 +127,7 @@ contains
   real(kind=wp) :: dVol, area
   real(kind=wp) :: scale_factor
   real(kind=wp) :: intensity_bin_unit
-  integer       :: i,j,k
+  integer       :: i,j,k,ierr
 
   !--- slightly modified, 2020.09.16
   par%nscatt_dust = par%nscatt_dust/par%nphotons
@@ -153,7 +153,8 @@ contains
      !-grid%Jout(:)    = grid%Jout(:)/(par%nphotons*grid%dxfreq*twopi*2.0_wp)
      !-grid%Jin(:)     = grid%Jin(:) /(par%nphotons*grid%dxfreq*twopi*2.0_wp)
      grid%Jout(:)    = grid%Jout(:)/(par%nphotons*intensity_bin_unit*twopi*2.0_wp)
-     grid%Jin(:)     = grid%Jin(:) /(par%nphotons*intensity_bin_unit*twopi*2.0_wp)
+     if (associated(grid%Jin)) &
+        grid%Jin(:)  = grid%Jin(:) /(par%nphotons*intensity_bin_unit*twopi*2.0_wp)
   else
      ! sphere or box geometry
      ! luminosity is assumed to be 1 photons/whole volume.
@@ -166,7 +167,8 @@ contains
      !-grid%Jout(:)    = grid%Jout(:)/(par%nphotons*grid%dxfreq*twopi*area)
      !-grid%Jin(:)     = grid%Jin(:) /(par%nphotons*grid%dxfreq*twopi*area)
      grid%Jout(:)    = grid%Jout(:)/(par%nphotons*intensity_bin_unit*twopi*area)
-     grid%Jin(:)     = grid%Jin(:) /(par%nphotons*intensity_bin_unit*twopi*area)
+     if (associated(grid%Jin)) &
+        grid%Jin(:)  = grid%Jin(:) /(par%nphotons*intensity_bin_unit*twopi*area)
   endif
 
   if (par%DGR > 0.0_wp .and. par%save_Jabs) then
@@ -192,6 +194,11 @@ contains
      endif
   endif
   if (trim(par%spectral_type) == 'continuum' .and. par%continuum_normalize) then
+     if (.not. associated(grid%Jin)) then
+        if (mpar%p_rank == 0) write(*,*) &
+           'ERROR: continuum_normalize=T requires save_Jin=T'
+        call MPI_ABORT(MPI_COMM_WORLD, 1, ierr)
+     endif
      scale_factor = sum(grid%Jin)/size(grid%Jin)
      grid%Jout(:) = grid%Jout(:)/scale_factor
      grid%Jin(:)  = grid%Jin(:) /scale_factor

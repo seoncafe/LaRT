@@ -429,38 +429,44 @@ contains
     real(wp), optional, intent(out)  :: S11, S22, S12, S33, S44
 
     integer  :: il
-    real(wp) :: DnuHK, pH, pK, E1, cost2
+    real(wp) :: DnuHK, pH, pK, qH, qK, E1, cost2
     real(wp) :: va
     il   = photon%icell_amr
     va   = amr_grid%voigt_a(il)
     DnuHK = line%DnuHK_Hz / amr_grid%Dfreq(il)
-    pH    = voigt(photon%xfreq + DnuHK, va) * (1.0_wp/3.0_wp)
-    pK    = voigt(photon%xfreq,         va) * (2.0_wp/3.0_wp)
+    pH    = voigt(photon%xfreq + DnuHK, va) * one_over_three
+    pK    = voigt(photon%xfreq,         va) * two_over_three
     pH    = pH / (pH + pK)
 
-    if (rand_number() <= pH) then
-      ! H component
+    if (rand_number() < pH) then
+      ! scattered by an atom at H state (2P1/2)
       uz = rand_resonance_vz(photon%xfreq + DnuHK, va)
-      xfreq_atom = photon%xfreq - uz
-      E1 = photon%E1
     else
-      ! K component
+      ! scattered by an atom at K state (2P3/2)
       uz = rand_resonance_vz(photon%xfreq, va)
-      xfreq_atom = photon%xfreq - uz
-      E1 = photon%E1
     end if
 
+    xfreq_atom = photon%xfreq - uz
+    !--- E1 depends on frequency in the atom's rest frame
+    !    qH = nu - nu_H, qK = nu - nu_K, nu_K = nu_H + DnuHK_Hz
+    qH    = xfreq_atom + DnuHK
+    qK    = xfreq_atom
+    E1    = (2.0_wp*qK*qH + qH**2) / (qK**2 + 2.0_wp*qH**2)
     cost  = rand_resonance(E1)
     cost2 = cost**2
     sint  = sqrt(1.0_wp - cost2)
 
     if (present(S44)) then
+      !--- Stokes scattering matrix: E2 = 1-E1, (3/2)E3 = (E1+2)/2
       S22 = three_over_four * E1 * (cost2 + 1.0_wp)
-      S11 = S22 + photon%E2
+      S11 = S22 + (1.0_wp - E1)
       S12 = three_over_four * E1 * (cost2 - 1.0_wp)
       S33 = three_over_two  * E1 * cost
-      S44 = three_over_two  * photon%E3 * cost
+      S44 = (E1 + 2.0_wp)/2.0_wp * cost
     end if
+    photon%E1 = E1
+    photon%E2 = 1.0_wp - E1
+    photon%E3 = (E1 + 2.0_wp)/3.0_wp
   end subroutine do_resonance2_amr
 
   !=========================================================================

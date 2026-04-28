@@ -47,6 +47,7 @@ contains
   par%velocity_type   = strlowcase(par%velocity_type)
   par%distance_unit   = strlowcase(par%distance_unit)
   par%spectral_type   = strlowcase(par%spectral_type)
+  par%amr_type        = strlowcase(par%amr_type)
 
   !--- Normalise geometry string to a canonical value.
   !    Default is 'sphere'.  RAMSES AMR defaults to 'rectangle' because
@@ -150,6 +151,14 @@ contains
      par%observer_located_inside = .true.
   endif
   if (par%observer_located_inside) then
+     !--- HEALPIX/inside-observer is not supported for AMR or clump modes
+     !    (the AMR setup branch wires output through the outside-observer
+     !    path; clump output is also based on the rectangular path).
+     if (par%use_amr_grid .or. par%use_clump_medium) then
+        if (mpar%p_rank == 0) write(*,*) &
+           'ERROR: nside>0 (HEALPIX inside observer) is not supported with AMR or clump mode'
+        call MPI_ABORT(MPI_COMM_WORLD, 1, ierr)
+     endif
      if (par%nside < 1) par%nside = 64
      !--- At the moment, Stokes parameters are not used for HEALPIX.
      par%use_stokes   = .false.

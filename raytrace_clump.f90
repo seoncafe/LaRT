@@ -271,7 +271,7 @@ contains
 
   if (icl_cur > 0) then
      t_seg = clump_exit_dist(xp, yp, zp, kx, ky, kz, icl_cur)
-     N_gas = N_gas + (cl_rhokap / line%cross0) * t_seg
+     N_gas = N_gas + (cl_rhokap / line%cross0) * cl_Dfreq * t_seg
      xp = xp + t_seg*kx;  yp = yp + t_seg*ky;  zp = zp + t_seg*kz
      ! keep icl_cur as skip for first find_next_clump
      if (xp**2 + yp**2 + zp**2 >= sphere_R**2) return
@@ -286,7 +286,7 @@ contains
      te = max(0.0_wp, te)
      xp = xp + te*kx;  yp = yp + te*ky;  zp = zp + te*kz
      t_seg = clump_exit_dist(xp, yp, zp, kx, ky, kz, icl_found)
-     N_gas = N_gas + (cl_rhokap / line%cross0) * t_seg
+     N_gas = N_gas + (cl_rhokap / line%cross0) * cl_Dfreq * t_seg
      xp = xp + t_seg*kx;  yp = yp + t_seg*ky;  zp = zp + t_seg*kz
      icl_cur = icl_found
      if (xp**2 + yp**2 + zp**2 >= sphere_R**2) exit
@@ -393,7 +393,7 @@ contains
 
   if (icl_cur > 0) then
      t_seg = min(clump_exit_dist(xp, yp, zp, kx, ky, kz, icl_cur), t_rem)
-     N_gas = N_gas + (cl_rhokap / line%cross0) * t_seg
+     N_gas = N_gas + (cl_rhokap / line%cross0) * cl_Dfreq * t_seg
      t_rem = t_rem - t_seg
      if (t_rem <= 0.0_wp) return
      xp = xp + t_seg*kx;  yp = yp + t_seg*ky;  zp = zp + t_seg*kz
@@ -408,7 +408,7 @@ contains
      xp = xp + te*kx;  yp = yp + te*ky;  zp = zp + te*kz
      t_rem = t_rem - te
      t_seg = min(clump_exit_dist(xp, yp, zp, kx, ky, kz, icl_found), t_rem)
-     N_gas = N_gas + (cl_rhokap / line%cross0) * t_seg
+     N_gas = N_gas + (cl_rhokap / line%cross0) * cl_Dfreq * t_seg
      t_rem = t_rem - t_seg
      if (t_rem <= 0.0_wp) return
      xp = xp + t_seg*kx;  yp = yp + t_seg*ky;  zp = zp + t_seg*kz

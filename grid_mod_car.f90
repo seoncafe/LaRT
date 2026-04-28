@@ -331,7 +331,7 @@ contains
         do j=1,grid%ny
         do i=1,grid%nx
            grid%rhokap(i,j,k) = grid%rhokap(i,j,k)*exp(-abs(zz(k))/par%density_zscale)
-           if (par%DGR > 0.0_wp) grid%rhokapD(i,j,k) = grid%rhokapD(i,j,k)*exp(-abs(zz(k))/par%density_rscale)
+           if (par%DGR > 0.0_wp) grid%rhokapD(i,j,k) = grid%rhokapD(i,j,k)*exp(-abs(zz(k))/par%density_zscale)
         enddo
         enddo
         enddo
