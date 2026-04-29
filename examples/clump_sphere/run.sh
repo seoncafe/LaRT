@@ -35,7 +35,8 @@ EXEC=../../LaRT.x
 #HOSTS=mocafe,lart1,lart2,lart3,lart4
 #HOSTS=lart4,lart3,lart2,lart1
 #HOSTS=lart4
-HOSTS=lart4,lart3,lart2
+#HOSTS=lart4,lart3,lart2
+HOSTS=lart4,lart3
 
 #====== Do not touch starting from here =========
 host_file=/tmp/host_file_$RANDOM
