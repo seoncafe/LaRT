@@ -1527,6 +1527,7 @@ contains
      if (ix >= 1 .and. ix <= grid%nxfreq) then
         !$OMP ATOMIC UPDATE
         grid%Jout(ix) = grid%Jout(ix) + photon%wgt
+        if (par%save_Jmu) call add_to_Jmu(photon, grid, ix)
      endif
   endif
 
@@ -1820,6 +1821,7 @@ contains
      if (ix >= 1 .and. ix <= grid%nxfreq) then
         !$OMP ATOMIC UPDATE
         grid%Jout(ix) = grid%Jout(ix) + photon%wgt
+        if (par%save_Jmu) call add_to_Jmu(photon, grid, ix)
      endif
   endif
 
@@ -2121,6 +2123,7 @@ contains
      if (ix >= 1 .and. ix <= grid%nxfreq) then
         !$OMP ATOMIC UPDATE
         grid%Jout(ix) = grid%Jout(ix) + photon%wgt
+        if (par%save_Jmu) call add_to_Jmu(photon, grid, ix)
      endif
   endif
 
@@ -2392,6 +2395,7 @@ contains
      if (ix >= 1 .and. ix <= grid%nxfreq) then
         !$OMP ATOMIC UPDATE
         grid%Jout(ix) = grid%Jout(ix) + photon%wgt
+        if (par%save_Jmu) call add_to_Jmu(photon, grid, ix)
      endif
   endif
 
@@ -2552,6 +2556,7 @@ contains
      if (ix >= 1 .and. ix <= grid%nxfreq) then
         !$OMP ATOMIC UPDATE
         grid%Jout(ix) = grid%Jout(ix) + photon%wgt
+        if (par%save_Jmu) call add_to_Jmu(photon, grid, ix)
      endif
   endif
 
@@ -2827,6 +2832,7 @@ contains
      if (ix >= 1 .and. ix <= grid%nxfreq) then
         !$OMP ATOMIC UPDATE
         grid%Jout(ix) = grid%Jout(ix) + photon%wgt
+        if (par%save_Jmu) call add_to_Jmu(photon, grid, ix)
      endif
   endif
 
@@ -2988,6 +2994,7 @@ contains
         if (kcell > 1) then
            !$OMP ATOMIC UPDATE
            grid%Jout(ix)  = grid%Jout(ix)  + photon%wgt
+           if (par%save_Jmu) call add_to_Jmu(photon, grid, ix)
         else
            !$OMP ATOMIC UPDATE
            grid%Jabs2(ix) = grid%Jabs2(ix) + photon%wgt
@@ -3197,6 +3204,7 @@ contains
      if (ix >= 1 .and. ix <= grid%nxfreq) then
         !$OMP ATOMIC UPDATE
         grid%Jout(ix) = grid%Jout(ix) + photon%wgt
+        if (par%save_Jmu) call add_to_Jmu(photon, grid, ix)
      endif
   endif
 
@@ -3515,6 +3523,7 @@ contains
      if (ix >= 1 .and. ix <= grid%nxfreq) then
         !$OMP ATOMIC UPDATE
         grid%Jout(ix) = grid%Jout(ix) + photon%wgt
+        if (par%save_Jmu) call add_to_Jmu(photon, grid, ix)
      endif
   endif
 
@@ -3924,5 +3933,23 @@ contains
   endif
   end subroutine add_to_Pnew
 #endif
+
+!--- accumulate Jmu(xfreq, mu) at photon escape (mu = cos(theta_z) of escape direction).
+  subroutine add_to_Jmu(photon, grid, ix)
+  use define
+  type(photon_type), intent(in)    :: photon
+  type(grid_type),   intent(inout) :: grid
+  integer,           intent(in)    :: ix
+  integer       :: imu
+  real(kind=wp) :: mu_val
+  if (.not. associated(grid%Jmu)) return
+  mu_val = photon%kz
+  if (par%xyz_symmetry) mu_val = abs(mu_val)
+  imu = floor((mu_val - par%mu_min)/par%dmu) + 1
+  if (imu < 1)       imu = 1
+  if (imu > par%nmu) imu = par%nmu
+  !$OMP ATOMIC UPDATE
+  grid%Jmu(ix, imu) = grid%Jmu(ix, imu) + photon%wgt
+  end subroutine add_to_Jmu
 
 end module raytrace

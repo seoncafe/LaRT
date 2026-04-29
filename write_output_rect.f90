@@ -123,6 +123,15 @@ contains
      endif
      if (allocated(arr_1D)) deallocate(arr_1D)
 
+     !--- Jmu image (escaped spectrum binned by mu)
+     if (associated(grid%Jmu)) then
+        if (.not. allocated(arr_2D)) allocate(arr_2D, source=grid%Jmu)
+        call fits_move_to_next_hdu(unit0,status)
+        call fits_read_image(unit0,arr_2D,status)
+        grid%Jmu = (arr_2D * nph1 + grid%Jmu * nph2)/nph_tot
+        if (allocated(arr_2D)) deallocate(arr_2D)
+     endif
+
 #ifdef CALCP
      if (associated(grid%Pa)) then
         !--- save P_alapha(x,y,z) : scattering number per atom per photon
@@ -301,6 +310,23 @@ contains
      call fits_put_keyword(unit,'fluxfac',  par%flux_factor,    'Flux (or luminosity) factor', status)
   endif
 !---------------------------------
+
+  !--- save Jmu(xfreq, mu): escaped spectrum binned by mu = cos(theta_z)
+  if (associated(grid%Jmu)) then
+     call fits_append_image(unit,grid%Jmu,status,bitpix=par%out_bitpix)
+     call fits_put_keyword(unit,'EXTNAME','Jmu',         'J(xfreq, mu) escaped spectrum vs cos(theta_z)',status)
+     call fits_put_keyword(unit,'CTYPE1', 'XFREQ',       'axis 1 = xfreq',status)
+     call fits_put_keyword(unit,'CRPIX1', 1.0_wp,        'reference pixel',status)
+     call fits_put_keyword(unit,'CRVAL1', grid%xfreq_min + 0.5_wp*grid%dxfreq, 'value at CRPIX1',status)
+     call fits_put_keyword(unit,'CDELT1', grid%dxfreq,   'xfreq step per pixel',status)
+     call fits_put_keyword(unit,'CTYPE2', 'MU',          'axis 2 = cos(theta_z)',status)
+     call fits_put_keyword(unit,'CRPIX2', 1.0_wp,        'reference pixel',status)
+     call fits_put_keyword(unit,'CRVAL2', par%mu_min + 0.5_wp*par%dmu, 'mu value at CRPIX2 (bin center)',status)
+     call fits_put_keyword(unit,'CDELT2', par%dmu,       'mu step per pixel',status)
+     call fits_put_keyword(unit,'nmu',    par%nmu,       'number of mu bins',status)
+     call fits_put_keyword(unit,'mu_min', par%mu_min,    'mu range lower edge',status)
+     call fits_put_keyword(unit,'dmu',    par%dmu,       'mu bin width',status)
+  endif
 
 #ifdef CALCP
   if (associated(grid%Pa)) then

@@ -20,6 +20,9 @@ contains
   if (par%save_Jin) then
      call reduce_mem(grid%Jin)
   endif
+  if (par%save_Jmu .and. associated(grid%Jmu)) then
+     call reduce_mem(grid%Jmu)
+  endif
 
 #ifdef CALCJ
   select case (grid%geometry_JPa)
@@ -144,6 +147,8 @@ contains
      grid%Jout(:)    = grid%Jout(:)/(par%nphotons*intensity_bin_unit*twopi*2.0_wp)
      if (associated(grid%Jin)) &
         grid%Jin(:)  = grid%Jin(:) /(par%nphotons*intensity_bin_unit*twopi*2.0_wp)
+     if (associated(grid%Jmu)) &
+        grid%Jmu(:,:) = grid%Jmu(:,:) * par%nmu / (par%nphotons*intensity_bin_unit*twopi*2.0_wp)
   else
      ! sphere or box geometry
      ! luminosity is assumed to be 1 photons/whole volume.
@@ -158,6 +163,8 @@ contains
      grid%Jout(:)    = grid%Jout(:)/(par%nphotons*intensity_bin_unit*twopi*area)
      if (associated(grid%Jin)) &
         grid%Jin(:)  = grid%Jin(:) /(par%nphotons*intensity_bin_unit*twopi*area)
+     if (associated(grid%Jmu)) &
+        grid%Jmu(:,:) = grid%Jmu(:,:) * par%nmu / (par%nphotons*intensity_bin_unit*twopi*area)
   endif
 
   if (par%DGR > 0.0_wp .and. par%save_Jabs) then
@@ -193,6 +200,7 @@ contains
      grid%Jin(:)  = grid%Jin(:) /scale_factor
      if (associated(grid%Jabs))  grid%Jabs(:)  = grid%Jabs(:) /scale_factor
      if (associated(grid%Jabs2)) grid%Jabs2(:) = grid%Jabs2(:)/scale_factor
+     if (associated(grid%Jmu))   grid%Jmu(:,:) = grid%Jmu(:,:)/scale_factor
   endif
 
 #ifdef CALCJ

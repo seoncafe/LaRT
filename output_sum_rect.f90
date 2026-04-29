@@ -28,6 +28,9 @@ contains
   if (par%save_Jin) then
      call reduce_mem(grid%Jin)
   endif
+  if (par%save_Jmu .and. associated(grid%Jmu)) then
+     call reduce_mem(grid%Jmu)
+  endif
 
 #ifdef CALCJ
   select case (grid%geometry_JPa)
@@ -155,6 +158,9 @@ contains
      grid%Jout(:)    = grid%Jout(:)/(par%nphotons*intensity_bin_unit*twopi*2.0_wp)
      if (associated(grid%Jin)) &
         grid%Jin(:)  = grid%Jin(:) /(par%nphotons*intensity_bin_unit*twopi*2.0_wp)
+     !--- Jmu normalised so that each mu bin = Jout for homogeneous isotropic case
+     if (associated(grid%Jmu)) &
+        grid%Jmu(:,:) = grid%Jmu(:,:) * par%nmu / (par%nphotons*intensity_bin_unit*twopi*2.0_wp)
   else
      ! sphere or box geometry
      ! luminosity is assumed to be 1 photons/whole volume.
@@ -169,6 +175,9 @@ contains
      grid%Jout(:)    = grid%Jout(:)/(par%nphotons*intensity_bin_unit*twopi*area)
      if (associated(grid%Jin)) &
         grid%Jin(:)  = grid%Jin(:) /(par%nphotons*intensity_bin_unit*twopi*area)
+     !--- Jmu normalised so that each mu bin = Jout for homogeneous isotropic case
+     if (associated(grid%Jmu)) &
+        grid%Jmu(:,:) = grid%Jmu(:,:) * par%nmu / (par%nphotons*intensity_bin_unit*twopi*area)
   endif
 
   if (par%DGR > 0.0_wp .and. par%save_Jabs) then
@@ -204,6 +213,7 @@ contains
      grid%Jin(:)  = grid%Jin(:) /scale_factor
      if (associated(grid%Jabs))  grid%Jabs(:)  = grid%Jabs(:) /scale_factor
      if (associated(grid%Jabs2)) grid%Jabs2(:) = grid%Jabs2(:)/scale_factor
+     if (associated(grid%Jmu))   grid%Jmu(:,:) = grid%Jmu(:,:)/scale_factor
   endif
 
 #ifdef CALCJ
@@ -536,11 +546,15 @@ contains
       call MPI_ALLREDUCE(MPI_IN_PLACE, amr_grid%Jin(1),  amr_grid%nxfreq, MPI_DOUBLE_PRECISION, MPI_SUM, MPI_COMM_WORLD, ierr)
   if (allocated(amr_grid%Jabs)) &
       call MPI_ALLREDUCE(MPI_IN_PLACE, amr_grid%Jabs(1), amr_grid%nxfreq, MPI_DOUBLE_PRECISION, MPI_SUM, MPI_COMM_WORLD, ierr)
+  if (allocated(amr_grid%Jmu)) &
+      call MPI_ALLREDUCE(MPI_IN_PLACE, amr_grid%Jmu(1,1), amr_grid%nxfreq*size(amr_grid%Jmu,2), &
+                          MPI_DOUBLE_PRECISION, MPI_SUM, MPI_COMM_WORLD, ierr)
 
   ! Copy reduced amr_grid spectra into grid pointers for write_output
   grid%Jout = amr_grid%Jout
   if (allocated(amr_grid%Jin))  grid%Jin  = amr_grid%Jin
   if (allocated(amr_grid%Jabs)) grid%Jabs = amr_grid%Jabs
+  if (allocated(amr_grid%Jmu))  grid%Jmu  = amr_grid%Jmu
 
   ! Peel-off observer array reductions (same as output_reduce_outside)
   if (par%save_peeloff_2D) then
@@ -601,6 +615,8 @@ contains
       grid%Jin(:)  = grid%Jin(:)  / (par%nphotons * intensity_bin_unit * twopi * area)
   if (associated(grid%Jabs)) &
       grid%Jabs(:) = grid%Jabs(:) / (par%nphotons * intensity_bin_unit * twopi * area)
+  if (associated(grid%Jmu)) &
+      grid%Jmu(:,:) = grid%Jmu(:,:) * par%nmu / (par%nphotons * intensity_bin_unit * twopi * area)
 
   ! Peel-off observer array normalizations
   if (par%save_peeloff_2D) then

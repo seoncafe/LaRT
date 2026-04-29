@@ -7,6 +7,7 @@
  par%xyz_symmetry    = .true.
  par%comoving_source = .false.
  par%save_all        = .false.
+ par%save_Jmu        = .true.
  par%recoil          = .false.
  par%spectral_type   = 'voigt'
  par%nx = 101

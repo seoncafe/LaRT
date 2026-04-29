@@ -319,7 +319,7 @@ contains
     call amr_setup_freq_grid(atau0, boxlen_code * par%distance2cm)
 
     !--- Step 9: Allocate output arrays -------------------------------
-    call amr_alloc_output(par%save_Jin, par%save_Jabs, par%DGR > 0.0_wp)
+    call amr_alloc_output(par%save_Jin, par%save_Jabs, par%DGR > 0.0_wp, par%save_Jmu, par%nmu)
 
     !--- Print summary ------------------------------------------------
     if (mpar%p_rank == 0) then
@@ -543,6 +543,9 @@ contains
     if (allocated(amr_grid%Jabs)) then
       allocate(grid%Jabs(n));   grid%Jabs = 0.0_wp
     end if
+    if (allocated(amr_grid%Jmu)) then
+      allocate(grid%Jmu(n, par%nmu)); grid%Jmu = 0.0_wp
+    end if
   end subroutine amr_sync_to_grid
 
   !=========================================================================
@@ -580,6 +583,7 @@ contains
     if (allocated(amr_grid%Jout))  deallocate(amr_grid%Jout)
     if (allocated(amr_grid%Jin))   deallocate(amr_grid%Jin)
     if (allocated(amr_grid%Jabs))  deallocate(amr_grid%Jabs)
+    if (allocated(amr_grid%Jmu))   deallocate(amr_grid%Jmu)
   end subroutine grid_destroy_amr
 
   !=========================================================================

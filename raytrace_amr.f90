@@ -140,6 +140,7 @@ contains
       if (ix >= 1 .and. ix <= amr_grid%nxfreq) then
         !$OMP ATOMIC UPDATE
         amr_grid%Jout(ix) = amr_grid%Jout(ix) + photon%wgt
+        if (par%save_Jmu) call add_to_Jmu_amr(photon, ix)
       end if
     end if
   end subroutine raytrace_to_tau_amr
@@ -479,5 +480,23 @@ contains
       il = il_new
     end do
   end subroutine raytrace_to_dist_column_amr
+
+!--- accumulate amr_grid%Jmu(xfreq, mu) at escape (mu = cos(theta_z)).
+  subroutine add_to_Jmu_amr(photon, ix)
+  use define
+  use octree_mod, only: amr_grid
+  type(photon_type), intent(in) :: photon
+  integer,           intent(in) :: ix
+  integer       :: imu
+  real(kind=wp) :: mu_val
+  if (.not. allocated(amr_grid%Jmu)) return
+  mu_val = photon%kz
+  if (par%xyz_symmetry) mu_val = abs(mu_val)
+  imu = floor((mu_val - par%mu_min)/par%dmu) + 1
+  if (imu < 1)       imu = 1
+  if (imu > par%nmu) imu = par%nmu
+  !$OMP ATOMIC UPDATE
+  amr_grid%Jmu(ix, imu) = amr_grid%Jmu(ix, imu) + photon%wgt
+  end subroutine add_to_Jmu_amr
 
 end module raytrace_amr_mod

@@ -79,6 +79,7 @@ module octree_mod
     real(wp), allocatable :: Jout(:)  ! escaped spectrum
     real(wp), allocatable :: Jin(:)   ! input (injected) spectrum
     real(wp), allocatable :: Jabs(:)  ! absorbed by dust spectrum
+    real(wp), allocatable :: Jmu(:,:) ! escaped spectrum binned by mu = cos(theta_z)
 
   end type amr_grid_type
 
@@ -329,13 +330,20 @@ contains
   !=========================================================================
   ! Allocate spectral-output arrays (per-rank, NOT shared).
   !=========================================================================
-  subroutine amr_alloc_output(save_jin, save_jabs, use_dust)
+  subroutine amr_alloc_output(save_jin, save_jabs, use_dust, save_jmu, nmu)
     logical, intent(in) :: save_jin, save_jabs, use_dust
+    logical, intent(in), optional :: save_jmu
+    integer, intent(in), optional :: nmu
     integer :: n
     n = amr_grid%nxfreq
     allocate(amr_grid%Jout(n), source=0.0_wp)
     if (save_jin)                 allocate(amr_grid%Jin(n),  source=0.0_wp)
     if (save_jabs .and. use_dust) allocate(amr_grid%Jabs(n), source=0.0_wp)
+    if (present(save_jmu)) then
+       if (save_jmu .and. present(nmu)) then
+          allocate(amr_grid%Jmu(n, nmu), source=0.0_wp)
+       endif
+    endif
   end subroutine amr_alloc_output
 
   !=========================================================================

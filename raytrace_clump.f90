@@ -112,6 +112,7 @@ contains
            if (ix_jout >= 1 .and. ix_jout <= grid%nxfreq) then
               !$OMP ATOMIC UPDATE
               grid%Jout(ix_jout) = grid%Jout(ix_jout) + photon%wgt
+              if (par%save_Jmu) call add_to_Jmu_clump(photon, grid, ix_jout)
            end if
            return
         end if
@@ -125,6 +126,7 @@ contains
            if (ix_jout >= 1 .and. ix_jout <= grid%nxfreq) then
               !$OMP ATOMIC UPDATE
               grid%Jout(ix_jout) = grid%Jout(ix_jout) + photon%wgt
+              if (par%save_Jmu) call add_to_Jmu_clump(photon, grid, ix_jout)
            end if
            return
         end if
@@ -158,6 +160,7 @@ contains
            if (ix_jout >= 1 .and. ix_jout <= grid%nxfreq) then
               !$OMP ATOMIC UPDATE
               grid%Jout(ix_jout) = grid%Jout(ix_jout) + photon%wgt
+              if (par%save_Jmu) call add_to_Jmu_clump(photon, grid, ix_jout)
            end if
            return
         end if
@@ -417,5 +420,23 @@ contains
 
   end subroutine raytrace_to_dist_column_clump
   !===========================================================================
+
+!--- accumulate grid%Jmu(xfreq, mu) at escape (mu = cos(theta_z)).
+  subroutine add_to_Jmu_clump(photon, grid, ix)
+  use define
+  type(photon_type), intent(in)    :: photon
+  type(grid_type),   intent(inout) :: grid
+  integer,           intent(in)    :: ix
+  integer  :: imu
+  real(wp) :: mu_val
+  if (.not. associated(grid%Jmu)) return
+  mu_val = photon%kz
+  if (par%xyz_symmetry) mu_val = abs(mu_val)
+  imu = floor((mu_val - par%mu_min)/par%dmu) + 1
+  if (imu < 1)       imu = 1
+  if (imu > par%nmu) imu = par%nmu
+  !$OMP ATOMIC UPDATE
+  grid%Jmu(ix, imu) = grid%Jmu(ix, imu) + photon%wgt
+  end subroutine add_to_Jmu_clump
 
 end module raytrace_clump_mod

@@ -953,6 +953,9 @@ contains
   if (par%save_Jin) then
      call create_mem(grid%Jin,  [grid%nxfreq])
   endif
+  if (par%save_Jmu) then
+     call create_mem(grid%Jmu,  [grid%nxfreq, par%nmu])
+  endif
   !--- Jabs(xfreq)    = spectrum absorbed by dust (intensity unit)
   if (par%DGR > 0.0_wp .and. par%save_Jabs) then
      call create_mem(grid%Jabs, [grid%nxfreq])
@@ -1293,6 +1296,7 @@ contains
   if (associated(grid%Jin))   deallocate(grid%Jin)
   if (associated(grid%Jabs))  deallocate(grid%Jabs)
   if (associated(grid%Jabs2)) deallocate(grid%Jabs2)
+  if (associated(grid%Jmu))   deallocate(grid%Jmu)
 
 #ifdef CALCJ
   if (associated(grid%J))    deallocate(grid%J)

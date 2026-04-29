@@ -136,6 +136,8 @@ public
      real(kind=wp), pointer :: rhokap(:,:,:)  => null()
      real(kind=wp), pointer :: Jin(:)         => null()
      real(kind=wp), pointer :: Jout(:)        => null()
+     !--- Jmu(xfreq, mu) = escaped spectrum binned by mu = cos(theta_z)
+     real(kind=wp), pointer :: Jmu(:,:)       => null()
      real(kind=wp), pointer :: rhokapD(:,:,:) => null()
      real(kind=wp), pointer :: Jabs(:)        => null()
      !--- for exoplanet atmosphere model.
@@ -322,6 +324,11 @@ public
      logical       :: save_all         = .false.
      logical       :: save_Jin         = .true.
      logical       :: save_Jabs        = .true.
+     !--- save Jmu(xfreq, mu) where mu = cos(theta_z) of escape direction
+     logical       :: save_Jmu         = .false.
+     integer       :: nmu              = 11
+     real(kind=wp) :: mu_min           = -1.0_wp     ! derived in setup
+     real(kind=wp) :: dmu              = 0.0_wp      ! derived in setup
      logical       :: save_backup      = .false.
      logical       :: save_direc0      = .false.
      logical       :: save_all_photons = .false.

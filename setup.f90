@@ -216,6 +216,23 @@ contains
   if (par%DGR == 0.0_wp)       par%save_Jabs = .false.
   if (par%core_skip_global)    par%core_skip = .true.
 
+  !--- Jmu setup (escaped spectrum binned by mu = cos(theta_z))
+  if (par%save_Jmu) then
+     if (par%nmu < 1) then
+        if (mpar%p_rank == 0) write(*,'(a)') 'ERROR: par%nmu must be >= 1 when par%save_Jmu = .true.'
+        call MPI_ABORT(MPI_COMM_WORLD, 1, ierr)
+     endif
+     !--- xyz_symmetry folds escapes onto the +z hemisphere -> mu in [0,+1]
+     !--- otherwise full mu in [-1,+1]
+     if (par%xyz_symmetry) then
+        par%mu_min = 0.0_wp
+        par%dmu    = 1.0_wp/par%nmu
+     else
+        par%mu_min = -1.0_wp
+        par%dmu    = 2.0_wp/par%nmu
+     endif
+  endif
+
   ! Propagate par%nr to grid resolution
   if (par%nr > 1) then
      par%nx = par%nr

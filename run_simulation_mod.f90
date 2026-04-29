@@ -201,15 +201,25 @@ contains
   type(grid_type),   intent(inout) :: grid
   type(photon_type), intent(in)    :: photon
   real(wp),          intent(in)    :: tau0
-  real(wp) :: u1, xfreq_ref
-  integer  :: icell, jcell, kcell, il, ix
+  real(wp) :: u1, xfreq_ref, wgt_esc, mu_val
+  integer  :: icell, jcell, kcell, il, ix, imu
+  wgt_esc = photon%wgt * exp(-tau0)
+  if (par%save_Jmu) then
+     mu_val = photon%kz
+     if (par%xyz_symmetry) mu_val = abs(mu_val)
+     imu = floor((mu_val - par%mu_min)/par%dmu) + 1
+     if (imu < 1)       imu = 1
+     if (imu > par%nmu) imu = par%nmu
+  endif
   if (par%use_amr_grid) then
      il = photon%icell_amr
      u1 = amr_grid%vfx(il)*photon%kx + amr_grid%vfy(il)*photon%ky + amr_grid%vfz(il)*photon%kz
      xfreq_ref = (photon%xfreq + u1) * (amr_grid%Dfreq(il) / amr_grid%Dfreq_ref)
      ix = floor((xfreq_ref - grid%xfreq_min)/grid%dxfreq)+1
      if (ix >= 1 .and. ix <= grid%nxfreq) then
-        amr_grid%Jout(ix) = amr_grid%Jout(ix) + photon%wgt * exp(-tau0)
+        amr_grid%Jout(ix) = amr_grid%Jout(ix) + wgt_esc
+        if (par%save_Jmu .and. allocated(amr_grid%Jmu)) &
+           amr_grid%Jmu(ix, imu) = amr_grid%Jmu(ix, imu) + wgt_esc
      end if
   else
      icell     = photon%icell
@@ -219,7 +229,9 @@ contains
      xfreq_ref = (photon%xfreq + u1) * (grid%Dfreq(icell,jcell,kcell) / grid%Dfreq_ref)
      ix        = floor((xfreq_ref - grid%xfreq_min)/grid%dxfreq)+1
      if (ix >= 1 .and. ix <= grid%nxfreq) then
-        grid%Jout(ix) = grid%Jout(ix) + photon%wgt * exp(-tau0)
+        grid%Jout(ix) = grid%Jout(ix) + wgt_esc
+        if (par%save_Jmu .and. associated(grid%Jmu)) &
+           grid%Jmu(ix, imu) = grid%Jmu(ix, imu) + wgt_esc
      endif
   end if
   end subroutine add_escaped_fraction_to_Jout

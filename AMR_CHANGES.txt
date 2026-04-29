@@ -5,6 +5,72 @@ Date: 2026-04-18  (initial)
 Last updated: 2026-04-29
 Author: Kwang-Il Seon
 
+Update note (2026-04-29) -- new output: Jmu (escaped spectrum vs cos(theta_z)):
+Added a new output array Jmu(nxfreq, nmu) that records the escaped
+spectrum binned by the z-component of the escape direction
+(mu = cos(theta_z)).  Useful for verifying isotropy of homogeneous models
+(each mu bin should match Jout within Poisson noise) and for
+characterising the angular dependence of escape in non-isotropic models.
+
+  Input parameters (added to params_type in define.f90):
+    par%save_Jmu  = .false.    ! enable Jmu output
+    par%nmu       = 11         ! number of mu bins (odd default -> mu=0
+                               ! falls at a bin center; even nmu would
+                               ! place mu=0 at a bin edge instead)
+    par%mu_min, par%dmu        ! derived in setup.f90:
+                               !   xyz_symmetry  -> mu in [0, +1]
+                               !   otherwise     -> mu in [-1, +1]
+
+  Storage:
+    grid%Jmu(:,:)              ! Cartesian/clump path (shared memory)
+    amr_grid%Jmu(:,:)          ! AMR path (per-rank)
+    Allocated alongside Jin/Jout in grid_mod_car / grid_mod_amr.
+
+  Accumulation sites:
+    raytrace_car.f90  (9 escape sites; helper add_to_Jmu)
+    raytrace_amr.f90  (helper add_to_Jmu_amr)
+    raytrace_clump.f90(3 escape sites; helper add_to_Jmu_clump)
+    run_simulation_mod.f90:add_escaped_fraction_to_Jout (forced first
+                       scattering branch)
+    A photon contributing to grid%Jout(ix) also contributes to
+    grid%Jmu(ix, imu), where
+      mu_val = photon%kz   (or |photon%kz| if par%xyz_symmetry)
+      imu    = floor((mu_val - par%mu_min)/par%dmu) + 1   (clamped to
+               [1, par%nmu])
+
+  Reduction and normalisation:
+    output_sum_rect.f90 / output_sum_heal.f90 reduce grid%Jmu and
+    amr_grid%Jmu (MPI_ALLREDUCE, full 2D extent).  Normalisation is
+    chosen so that for a homogeneous, isotropic medium each mu bin
+    matches Jout (within statistical noise):
+      grid%Jmu(:,:) = grid%Jmu(:,:) * par%nmu /
+                      (par%nphotons * intensity_bin_unit * twopi * area)
+    The same factor (par%nmu / Jout-divisor) is applied for slab,
+    sphere/box, and AMR paths.
+
+  FITS output (write_output_rect.f90 / write_output_heal.f90):
+    A 2D image extension with EXTNAME='Jmu' is appended right after the
+    Spectrum table (and before any CALCJ/CALCP HDUs).
+    Axis 1 = xfreq    (CTYPE1='XFREQ',  CRVAL1=xfreq_min+0.5*dxfreq,
+                       CDELT1=dxfreq)
+    Axis 2 = mu       (CTYPE2='MU',     CRVAL2=mu_min+0.5*dmu,
+                       CDELT2=dmu)
+    The header also stores nmu, mu_min, dmu as scalar keywords.
+    out_merge=T accumulates Jmu across runs (read previous Jmu HDU,
+    weighted average by photon counts).
+
+  Validation (5e5 photons, T=10 K, tau=1e2):
+    Cartesian sphere : max abs(Jmu_avg - Jout)/Jout = 1.95e-7  (float32)
+    AMR sphere       : max abs(Jmu_avg - Jout)/Jout = 8.49e-16
+    Clump sphere     : max abs(Jmu_avg - Jout)/Jout = 3.25e-16
+  All three modes show per-bin Jmu_max/Jout_max ratios consistent with
+  Poisson noise around 1.0 in the homogeneous isotropic test.
+
+  Mirrored to LaRT_v2.10 (OOP path).  In v2.10 an additional fix was
+  required in grid_class.f90:amr_output_normalize to copy
+  self%amr%Jmu -> self%g%Jmu so that write_output_outside (which only
+  sees self%g) finds the populated array.
+
 Update note (2026-04-29) -- code-review fixes:
 Six findings from a code review (LaRT_v2_code_review.md) were applied
 to v2.00 (and mirrored to v2.10).  Each affects either correctness, runtime

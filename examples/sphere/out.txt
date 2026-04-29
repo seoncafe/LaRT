@@ -1,8 +1,0 @@
-
-Running ../../LaRT.x on mocafe,lart1,lart2,lart3,lart4.
-   with the machinefile /tmp/host_file_28859
-ssh: Could not resolve hostname mocafe: Name or service not known
-[mpiexec@lart3] ui_cmd_cb (mpiexec/pmiserv_pmci.c:51): Launch proxy failed.
-[mpiexec@lart3] HYDT_dmxu_poll_wait_for_event (lib/tools/demux/demux_poll.c:76): callback returned error status
-[mpiexec@lart3] HYD_pmci_wait_for_completion (mpiexec/pmiserv_pmci.c:173): error waiting for event
-[mpiexec@lart3] main (mpiexec/mpiexec.c:260): process manager error waiting for completion
