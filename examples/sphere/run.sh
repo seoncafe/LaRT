@@ -29,10 +29,12 @@ echo "Running $EXEC on $HOSTS."
 echo "   with the machinefile $host_file"
 #====== Do not touch up to here =========
 
+mpirun -machinefile $host_file $EXEC t1tau2_quick.in
+
 #mpirun -machinefile $host_file $EXEC t1tau0.in
 #mpirun -machinefile $host_file $EXEC t1tau1.in
 #mpirun -machinefile $host_file $EXEC t1tau3.in
-mpirun -machinefile $host_file $EXEC t1tau4.in
+#mpirun -machinefile $host_file $EXEC t1tau4.in
 #mpirun -machinefile $host_file $EXEC t1tau5.in
 #mpirun -machinefile $host_file $EXEC t1tau6.in
 #mpirun -machinefile $host_file $EXEC t1tau7.in

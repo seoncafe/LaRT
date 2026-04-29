@@ -8,11 +8,22 @@
  par%nx = 101
  par%ny = 101
  par%nz = 101
+
  par%nxfreq = 121
- par%nxim   = 64
- par%nyim   = 64
  par%rmax   = 1.0
+
  par%save_peeloff = .true.
+ par%save_Jmu     = .true.
+
+ !--- make peeling-off 3D images to compare with Jmu data.
+ par%nxim             = 64
+ par%nyim             = 64
+ par%distance         = 1e4
+
+ par%alpha = -90.0, -90.0, -90.0, -90.0
+ par%beta  =   0.0,  30.0,  60.0,  90.0
+ par%gamma =   0.0,   0.0,   0.0,   0.0
+
  par%nprint = 10000
  par%out_merge = .false.
 /
