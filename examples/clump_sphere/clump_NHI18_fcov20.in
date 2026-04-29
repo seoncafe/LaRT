@@ -6,7 +6,7 @@
  par%clump_NHI        = 7.5e17
  par%temperature      = 1.0e4
  par%clump_sigma_v    = 0.0
- par%no_photons       = 1e5
+ par%no_photons       = 1e6
  !par%spectral_type    = 'voigt'
  par%spectral_type    = 'monochromatic'
 

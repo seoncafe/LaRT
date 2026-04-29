@@ -87,6 +87,7 @@ class LaRTOutput:
                  xmax: Optional[float] = None,
                  ymin: Optional[float] = None,
                  ymax: Optional[float] = None,
+                 z_symmetry: bool = False,
                  show: bool = False,
                  savefig: Optional[str] = None):
         """Plot Jmu as a function of frequency/velocity/wavelength.
@@ -109,6 +110,13 @@ class LaRTOutput:
         xmin, xmax, ymin, ymax : float, optional
             Per-bound shorthand; merged with xlim/ylim (the per-bound
             value wins if both are given).
+        z_symmetry : bool
+            If True, average Jmu(x; +mu) and Jmu(x; -mu) before plotting,
+            collapsing the mu axis onto |mu| in [0, +1].  Useful for
+            simulations where the medium is symmetric about the z=0
+            plane but the run was launched with par%xyz_symmetry=.false.;
+            folding doubles the photon count per mu bin.  No effect when
+            the data are already on [0, +1] (par%xyz_symmetry was on).
         title, show, savefig : convenience options.
 
         Returns
@@ -166,6 +174,34 @@ class LaRTOutput:
         factor  = orig_dx / req_dx        # multiply Jmu / Jout by this
         Jmu_y   = self.Jmu * factor
         Jout_y  = (self.Jout * factor) if self.Jout is not None else None
+        mu_arr  = self.mu
+        mu_edges_arr = self.mu_edges
+
+        # --- Optional fold of +/-mu pairs: assume z=0 plane symmetry ---
+        if z_symmetry and self.mu_min is not None and self.mu_min < -1e-6:
+            # Group bins by |mu| (rounded to 4 decimals so near-symmetric
+            # +/- pairs merge cleanly).
+            abs_mu_key = np.round(np.abs(mu_arr), 4)
+            keys, inv  = np.unique(abs_mu_key, return_inverse=True)
+            new_jmu    = np.zeros((len(keys), Jmu_y.shape[1]))
+            counts     = np.zeros(len(keys))
+            for i, k in enumerate(inv):
+                new_jmu[k] += Jmu_y[i]
+                counts[k]  += 1
+            new_jmu /= counts[:, None]
+            Jmu_y  = new_jmu
+            mu_arr = keys
+            # rebuild mu_edges (uniform spacing from folded centres)
+            if len(mu_arr) >= 2:
+                dmu_new = float(mu_arr[1] - mu_arr[0])
+            else:
+                dmu_new = 1.0
+            mu_edges_arr = np.concatenate(
+                [[max(0.0, mu_arr[0] - 0.5*dmu_new)],
+                 mu_arr + 0.5*dmu_new])
+            mu_label_text = r'$|\mu| = |\cos\theta_z|$'
+        else:
+            mu_label_text = r'$\mu = \cos\theta_z$'
 
         ylabel_lines = rf'$J({yvar};\mu){yunit}$'
         ylabel_img   = ylabel_lines
@@ -174,18 +210,17 @@ class LaRTOutput:
             _, ax = plt.subplots(figsize=(7.0, 4.5))
 
         if kind == 'lines':
-            norm = Normalize(vmin=float(self.mu.min()),
-                             vmax=float(self.mu.max()))
+            norm = Normalize(vmin=float(mu_arr.min()),
+                             vmax=float(mu_arr.max()))
             sm   = ScalarMappable(norm=norm, cmap=cmap)
-            for i, mu in enumerate(self.mu):
+            for i, mu in enumerate(mu_arr):
                 ax.plot(xvals, Jmu_y[i, :], color=sm.to_rgba(mu),
                         lw=1.0, label=f'$\\mu={mu:+.2f}$')
             if overplot_jout and Jout_y is not None:
                 ax.plot(xvals, Jout_y, color='black', lw=1.5, ls='--',
                         label=r'$J_{\rm out}$ (all $\mu$)')
             sm.set_array([])
-            cbar = ax.figure.colorbar(sm, ax=ax,
-                                      label=r'$\mu = \cos\theta_z$')
+            cbar = ax.figure.colorbar(sm, ax=ax, label=mu_label_text)
             ax.set_xlabel(xlabel)
             ax.set_ylabel(ylabel_lines)
             if overplot_jout and Jout_y is not None:
@@ -197,12 +232,11 @@ class LaRTOutput:
             dx       = float(xvals[1] - xvals[0])
             x_edges  = np.concatenate([xvals - 0.5*dx,
                                        [xvals[-1] + 0.5*dx]])
-            mu_edges = self.mu_edges
-            mesh     = ax.pcolormesh(x_edges, mu_edges, Jmu_y,
+            mesh     = ax.pcolormesh(x_edges, mu_edges_arr, Jmu_y,
                                      cmap=cmap, shading='flat')
             ax.figure.colorbar(mesh, ax=ax, label=ylabel_img)
             ax.set_xlabel(xlabel)
-            ax.set_ylabel(r'$\mu = \cos\theta_z$')
+            ax.set_ylabel(mu_label_text)
         else:
             raise ValueError(f"kind must be 'lines' or 'image', got {kind!r}")
 

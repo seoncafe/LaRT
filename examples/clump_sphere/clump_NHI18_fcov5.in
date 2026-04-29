@@ -22,11 +22,12 @@
  par%save_clump_info  = .true.
  par%save_Jmu         = .true.
 
- !par%nxim             = 129
- !par%nyim             = 129
- !par%distance         = 1e4
+ !--- make peeling-off 3D images to compare with Jmu data.
+ par%nxim             = 129
+ par%nyim             = 129
+ par%distance         = 1e4
 
- !par%alpha = -90.0, -90.0, -90.0, -90.0
- !par%beta  =   0.0,  30.0,  60.0,  90.0
- !par%gamma =   0.0,   0.0,   0.0,   0.0
+ par%alpha = -90.0, -90.0, -90.0, -90.0
+ par%beta  =   0.0,  30.0,  60.0,  90.0
+ par%gamma =   0.0,   0.0,   0.0,   0.0
 /
