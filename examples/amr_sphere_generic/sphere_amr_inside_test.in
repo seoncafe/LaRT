@@ -1,0 +1,35 @@
+&parameters
+!----------------------------------------------------------------------
+! AMR + HEALPix inside-observer smoke test.
+! Uses uniform sphere AMR grid; observer placed off-centre.
+!----------------------------------------------------------------------
+ par%use_amr_grid  = .true.
+ par%amr_type      = 'generic'
+ par%amr_file      = 'uniform_amr_sphere.fits.gz'
+
+ par%no_photons    = 1e5
+ par%temperature   = 1.0e4
+ par%taumax        = 1.0e4
+ par%DGR           = 0.0
+
+ par%source_geometry = 'point'
+ par%spectral_type   = 'voigt'
+ par%xs_point        = 0.0
+ par%ys_point        = 0.0
+ par%zs_point        = 0.0
+
+ par%rmax   = 1.0
+ par%nside  = 8
+ par%obsx   = 0.3
+ par%obsy   = 0.0
+ par%obsz   = 0.0
+
+ par%nxfreq = 121
+
+ par%save_peeloff      = .true.
+ par%save_peeloff_2D   = .true.
+ par%save_Jin          = .true.
+
+ par%nprint    = 50000
+ par%out_merge = .false.
+/

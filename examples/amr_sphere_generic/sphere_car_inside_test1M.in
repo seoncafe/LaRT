@@ -1,0 +1,29 @@
+&parameters
+!----------------------------------------------------------------------
+! Cartesian + HEALPix inside-observer smoke test (1e6 photons).
+!----------------------------------------------------------------------
+ par%no_photons  = 1e6
+ par%temperature = 1.0e4
+ par%taumax      = 1.0e4
+ par%DGR         = 0.0
+ par%spectral_type   = 'voigt'
+ par%source_geometry = 'point'
+
+ par%rmax  = 1.0
+ par%nside = 8
+ par%obsx  = 0.3
+ par%obsy  = 0.0
+ par%obsz  = 0.0
+
+ par%nx = 64
+ par%ny = 64
+ par%nz = 64
+ par%nxfreq = 121
+
+ par%save_peeloff      = .true.
+ par%save_peeloff_2D   = .true.
+ par%save_Jin          = .true.
+
+ par%nprint    = 200000
+ par%out_merge = .false.
+/

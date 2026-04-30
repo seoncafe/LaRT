@@ -140,6 +140,8 @@ OBJSB	= \
 	clump_mod.o \
 	peelingoff_rect.o \
 	peelingoff_heal.o \
+	read_ramses_amr.o \
+	raytrace_amr.o \
 	point_illumination.o \
 	stellar_illumination.o \
 	generate_photon.o \
@@ -147,8 +149,6 @@ OBJSB	= \
 	run_simulation_mod.o \
 	sightline_tau_rect.o \
 	sightline_tau_heal.o \
-	read_ramses_amr.o \
-	raytrace_amr.o \
 	scattering_amr.o \
 	grid_mod_amr.o \
 	peelingoff_amr.o \

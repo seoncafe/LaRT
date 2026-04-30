@@ -6,9 +6,12 @@ module stellar_illumination_mod
   !--     random_stellar_illumination2: inspired by the method of Dongdong Yan (Yunnan Observatories, Chinese Academy of Sciences)
   !--
   use define
+  use octree_mod, only: amr_grid, amr_find_leaf
   implicit none
   public random_stellar_illumination
+  public random_stellar_illumination_amr
   public peeling_direct_stellar_illumination
+  public peeling_direct_stellar_illumination_amr
   private
   interface random_stellar_illumination
      !-- 2020.10.05
@@ -22,6 +25,10 @@ module stellar_illumination_mod
      !module procedure random_stellar_illumination3
   end interface random_stellar_illumination
 
+  interface random_stellar_illumination_amr
+     module procedure random_stellar_illumination2_amr
+  end interface random_stellar_illumination_amr
+
   !-----------------
   ! It is not possible to assign a procedure pointer to a generic interface. (2023.07.07)
   ! The procedure pointer "peeling_direct" is pointed to "peeling_direct_stellar_illumination," in "setup_procedure" routine.
@@ -32,7 +39,8 @@ module stellar_illumination_mod
   !   module procedure peeling_direct_stellar_illumination1
   !   !module procedure peeling_direct_stellar_illumination2
   !end interface peeling_direct_stellar_illumination
-  procedure(), pointer :: peeling_direct_stellar_illumination => peeling_direct_stellar_illumination1
+  procedure(), pointer :: peeling_direct_stellar_illumination     => peeling_direct_stellar_illumination1
+  procedure(), pointer :: peeling_direct_stellar_illumination_amr => peeling_direct_stellar_illumination1_amr
   !procedure(), pointer :: peeling_direct_stellar_illumination => peeling_direct_stellar_illumination2
 
   !-- Coefficients for the Limb Darkening Function
@@ -1366,5 +1374,568 @@ contains
     endif
   enddo
   end subroutine peeling_direct_stellar_illumination2
+  !================================================
+  subroutine random_stellar_illumination2_amr(grid,photon)
+  !-- AMR equivalent of random_stellar_illumination2.
+  !-- Same geometry sampling, but the photon's leaf cell is found via amr_find_leaf
+  !-- using the global amr_grid (octree_mod). The grid argument is unused but kept
+  !-- for signature compatibility with the Cartesian variant.
+  use define
+  use random
+  use mathlib
+#ifdef TEST
+  use omp_lib
+#endif
+  implicit none
+  type(grid_type),   intent(in)    :: grid
+  type(photon_type), intent(inout) :: photon
+  real(wp) :: cos_ang
+  real(wp) :: cosvt, sinvt, vphi, cosvp, sinvp
+  real(wp) :: cost, sint, phi, cosp, sinp
+  real(wp) :: x0, y0, z0, x, y, z, kx0, ky0, kz0, rr, kr
+  real(wp) :: det, r_dot_k, dist
+
+  integer  :: i
+  real(wp) :: tmp, mu1, cotc, cosp1, sinp1, phi1, dcos_vt
+  integer, parameter :: nvtheta = 1000
+  logical,  save :: parameters_initialized = .false.
+  real(wp), save :: r1, r2, tot_omega_S, flux_fac1, cos_vt1, cos_vt2, cos_vt3
+  real(wp), allocatable, save :: cos_vt(:), Prob(:), Palias(:), wgt(:)
+  integer,  allocatable, save :: alias(:)
+  !$OMP THREADPRIVATE(parameters_initialized, r1,r2, flux_fac1, cos_vt1,cos_vt2,cos_vt3, cos_vt, Prob, Palias, wgt, alias)
+#ifdef USE_COSTHETA
+  real(kind=wp) :: fsum1, fsum2
+#endif
+
+#ifdef TEST
+  integer, save :: my_threadid
+  !$OMP THREADPRIVATE(my_threadid)
+#endif
+
+  if (.not. parameters_initialized) then
+     r1      = par%stellar_radius / par%distance_star_to_planet
+     r2      = par%rmax           / par%distance_star_to_planet
+     cos_vt1 = r1 + r2
+     cos_vt2 = r1
+     cos_vt3 = r1 - r2
+#ifdef TEST
+     my_threadid = omp_get_thread_num()
+     if (mpar%p_rank == 0 .and. my_threadid == 1) write(201,'(3ES15.7)') par%rmax,par%stellar_radius,par%distance_star_to_planet
+#endif
+
+     if (.not.allocated(cos_vt)) allocate(cos_vt(nvtheta))
+     if (.not.allocated(Prob))   allocate(Prob(nvtheta))
+
+     dcos_vt = (1.0d0 - cos_vt3)/(nvtheta - 1.0d0)
+     do i=1, nvtheta
+        cos_vt(i)  = (i - 1.0d0)*dcos_vt + cos_vt3
+        tmp        = r1**2 + 1.0d0 - 2.0d0*r1*cos_vt(i)
+        mu1        = sqrt((tmp - r2**2)/tmp)
+        if (cos_vt(i) >= cos_vt1) then
+           Prob(i) = 2.0d0 * pi * (1.0d0 - mu1)
+        else if (cos_vt(i) >= cos_vt2) then
+           sinvt   = sqrt(1.0d0 - cos_vt(i)**2)
+           cotc    = (cos_vt(i) - r1)/sinvt
+           cosp1   = cotc * mu1/sqrt(1.0d0 - mu1**2)
+           if (cosp1 > 1.0d0) cosp1 = 1.0d0
+           phi1    = acos(cosp1)
+           sinp1   = sqrt(1.0d0 - cosp1**2)
+           Prob(i) = 2.0d0*pi*(1.0d0-mu1) + 2.0d0*phi1*mu1 - 2.0d0*asin(sinp1/sqrt(1.0d0+cotc**2))
+        else
+           sinvt   = sqrt(1.0d0 - cos_vt(i)**2)
+           cotc    = (cos_vt(i) - r1)/sinvt
+           cosp1   = cotc * mu1/sqrt(1.0d0 - mu1**2)
+           if (cosp1 < -1.0d0) cosp1 = -1.0d0
+           phi1    = acos(cosp1)
+           sinp1   = sqrt(1.0d0 - cosp1**2)
+           Prob(i) = -2.0d0*pi*mu1 + 2.0d0*phi1*mu1 + 2.0d0*asin(sinp1/sqrt(1.0d0+cotc**2))
+        endif
+     enddo
+     tot_omega_S = sum(Prob) * dcos_vt
+     Prob(:)     = Prob(:)/tot_omega_S
+
+     flux_fac1 = tot_omega_S / fourpi
+#ifdef USE_COSTHETA
+     if (par%stellar_limb_darkening <= 0) then
+        flux_fac1 = flux_fac1 * 2.0_wp
+     else if (par%stellar_limb_darkening == 1) then
+        flux_fac1 = flux_fac1 * 3.0_wp / 2.0_wp
+     else if (par%stellar_limb_darkening == 2) then
+        flux_fac1 = flux_fac1 * 24.0_wp / 17.0_wp
+     else
+        fsum1 = 0.0_wp
+        fsum2 = 0.0_wp
+        do i=1, size(limb_coeff)
+           fsum1 = fsum1 + limb_coeff(i) / (i+1.0_wp)
+           fsum2 = fsum2 + limb_coeff(i) / (i+2.0_wp)
+        enddo
+        flux_fac1 = flux_fac1 * (fsum1 / fsum2)
+     endif
+#endif
+
+     if (.not.allocated(Palias)) allocate(Palias(nvtheta-1))
+     if (.not.allocated(alias))  allocate(alias(nvtheta-1))
+     do i=1, nvtheta-1
+        Palias(i) = (Prob(i)+Prob(i+1))/2.0d0
+     enddo
+     Palias(:) = Palias(:)/sum(Palias)
+
+     if (par%sampling_method > 0) then
+        if (.not.allocated(wgt)) allocate(wgt(nvtheta))
+        Palias(:) = Palias(:) * (1.0_wp - par%f_composite) + par%f_composite / (nvtheta - 1.0_wp)
+        wgt(:)    = Prob(:) / (Prob(:) * (1.0_wp - par%f_composite) + par%f_composite / (1.0_wp - cos_vt3))
+        Prob(:)   = Prob(:) * (1.0_wp - par%f_composite) + par%f_composite / (1.0_wp - cos_vt3)
+     endif
+
+     call random_alias_setup(Palias, alias)
+     parameters_initialized = .true.
+  endif
+
+  photon%nrejected = 0.0_wp
+
+  if (par%sampling_method > 0) then
+     call random_alias_linear_wgt(Palias, alias, cos_vt, Prob, wgt, cosvt, photon%wgt)
+  else
+     cosvt = rand_alias_linear(Palias, alias, cos_vt, Prob)
+     photon%wgt = 1.0_wp
+  endif
+  sinvt = sqrt(1.0_wp - cosvt**2)
+  vphi  = twopi * rand_number()
+  cosvp = cos(vphi)
+  sinvp = sin(vphi)
+
+  tmp = r1**2 + 1.0d0 - 2.0d0*r1*cosvt
+  mu1 = sqrt((tmp - r2**2)/tmp)
+  if (cosvt > cos_vt1) then
+     phi  = twopi * rand_number()
+     cosp = cos(phi)
+     sinp = sin(phi)
+     cost = (1.0_wp - mu1) * rand_number() + mu1
+     sint = sqrt(1.0_wp - cost**2)
+  else if (cosvt > cos_vt2) then
+     cotc  = (cosvt - r1)/sinvt
+     do while(.true.)
+        phi  = twopi * rand_number()
+        cosp = cos(phi)
+        cost = (1.0d0 - mu1) *rand_number() + mu1
+        sint = sqrt(1.0d0 - cost**2)
+        if (cotc*cost/sint >= cosp) exit
+     enddo
+     sinp = sin(phi)
+  else
+     cotc  = (cosvt - r1)/sinvt
+     cosp1 = cotc * mu1/sqrt(1.0d0 - mu1**2)
+     if (cosp1 < -1.0d0) cosp1 = -1.0d0
+     phi1  = acos(cosp1)
+     do while(.true.)
+        phi   = 2.0_wp*(pi -  phi1) * rand_number() + phi1
+        cosp  = cos(phi)
+        cost  = (1.0d0 - mu1)*rand_number() + mu1
+        sint  = sqrt(1.0d0 - cost**2)
+        if (cotc*cost/sint >= cosp) exit
+     enddo
+     sinp  = sin(phi)
+  endif
+
+  x0  = sinvt*cosvp
+  y0  = sinvt*sinvp
+  z0  = cosvt
+  x   = par%stellar_radius * x0
+  y   = par%stellar_radius * y0
+  z   = par%stellar_radius * z0 - par%distance_star_to_planet
+
+  rr  = sqrt(x**2 + y**2 + z**2)
+  kx0 = -x/rr
+  ky0 = -y/rr
+  kz0 = -z/rr
+
+  if (abs(kz0) >= 0.99999999999_wp) then
+     photon%kx = sint*cosp
+     photon%ky = sint*sinp
+     photon%kz = cost
+  else
+     kr        = sqrt(kx0**2 + ky0**2)
+     photon%kx = cost*kx0 + sint*(kz0*kx0*cosp - ky0*sinp)/kr
+     photon%ky = cost*ky0 + sint*(kz0*ky0*cosp + kx0*sinp)/kr
+     photon%kz = cost*kz0 - sint*cosp*kr
+  endif
+
+  r_dot_k = x*photon%kx + y*photon%ky + z*photon%kz
+  det     = r_dot_k**2 - (rr**2 - par%rmax**2)
+  cos_ang = x0*photon%kx + y0*photon%ky + z0*photon%kz
+
+  if (cos_ang >= 0.0_wp .and. det >= 0.0_wp) then
+     dist             = -r_dot_k - sqrt(max(0.0_wp, det))
+     photon%x         = x + photon%kx * dist
+     photon%y         = y + photon%ky * dist
+     photon%z         = z + photon%kz * dist
+     photon%icell_amr = amr_find_leaf(photon%x, photon%y, photon%z)
+     photon%icell = 1; photon%jcell = 1; photon%kcell = 1
+
+     if (par%stellar_limb_darkening == 1) then
+        photon%wgt = photon%wgt * 2.0d0 * cos_ang
+     else if (par%stellar_limb_darkening == 2) then
+        photon%wgt = photon%wgt * cos_ang*(1.5d0*cos_ang + 1.0d0)
+     else if (par%stellar_limb_darkening > 2) then
+        photon%wgt = photon%wgt * f_general_limb_darkening(cos_ang)
+     endif
+
+     photon%flux_factor = flux_fac1 * photon%wgt
+#ifdef USE_COSTHETA
+     photon%flux_factor = photon%flux_factor * cos_ang
+#endif
+  else
+     write(*,*) 'Something wrong in random_stellar_illumination2_amr...'
+     stop
+  endif
+
+  if (par%use_stokes) then
+     cost = photon%kz
+     sint = sqrt(1.0_wp - cost**2)
+     if (sint > 0.0_wp) then
+        cosp = photon%kx / sint
+        sinp = photon%ky / sint
+     else
+        cosp = 1.0_wp
+        sinp = 0.0_wp
+     endif
+
+     photon%mx =  cost * cosp
+     photon%my =  cost * sinp
+     photon%mz = -sint
+     photon%nx = -sinp
+     photon%ny =  cosp
+     photon%nz =  0.0_wp
+
+     photon%I = 1.0_wp
+     photon%Q = 0.0_wp
+     photon%U = 0.0_wp
+     photon%V = 0.0_wp
+  endif
+  end subroutine random_stellar_illumination2_amr
+  !================================================
+  subroutine peeling_direct_stellar_illumination1_amr(photon,grid)
+  !-- AMR equivalent of peeling_direct_stellar_illumination1.
+  !-- For a spherical medium of radius par%rmax embedded in the AMR box.
+  !-- The grid argument is unused (kept for procedure-pointer compatibility).
+  use define
+  use random
+  use raytrace_amr_mod, only: raytrace_to_edge_amr
+  implicit none
+  type(photon_type),   intent(in) :: photon
+  type(grid_type),     intent(in) :: grid
+  type(photon_type) :: pobs
+  real(kind=wp) :: cost
+  real(kind=wp) :: cosvt0,cosvt,sinvt,vphi,cosvp,sinvp
+  real(kind=wp) :: r_dot_k,rr,det,dist
+  real(kind=wp) :: r2,r,wgt,tau
+  real(kind=wp) :: kx0,ky0,kz0,kr0,xx,yy,zz,kx,ky,kz
+  real(kind=wp) :: xfreq_ref, u1, u2
+  real(kind=wp) :: distance_star_to_obs2
+  integer :: ix,iy,ixf
+  integer :: i, il, il_e
+
+  il        = photon%icell_amr
+  pobs      = photon
+  u1        = amr_grid%vfx(il)*photon%kx + amr_grid%vfy(il)*photon%ky + amr_grid%vfz(il)*photon%kz
+  xfreq_ref = (photon%xfreq + u1) * (amr_grid%Dfreq(il) / amr_grid%Dfreq_ref)
+
+  pobs%wgt = 1.0_wp
+  ixf      = floor((xfreq_ref - amr_grid%xfreq_min)/amr_grid%dxfreq)+1
+
+  cosvt0 = par%stellar_radius / par%distance
+
+  if (par%stellar_limb_darkening <= 0) then
+     cost = rand_number()
+  else if (par%stellar_limb_darkening == 1) then
+     cost = sqrt(rand_number())
+  else if (par%stellar_limb_darkening == 2) then
+     cost = rand_eddington_limb_darkening()
+  else
+     cost = rand_general_limb_darkening()
+  endif
+
+  cosvt = cost*sqrt(1.0_wp - cosvt0**2 + (cosvt0*cost)**2) + cosvt0*(1.0_wp - cost**2)
+  sinvt = sqrt(1.0_wp - cosvt**2)
+  vphi  = twopi*rand_number()
+  cosvp = cos(vphi)
+  sinvp = sin(vphi)
+
+  do i=1,par%nobs
+    kx0 = observer(i)%x
+    ky0 = observer(i)%y
+    kz0 = observer(i)%z + par%distance_star_to_planet
+    kr0 = sqrt(kx0**2 + ky0**2 + kz0**2)
+    kx0 = kx0/kr0
+    ky0 = ky0/kr0
+    kz0 = kz0/kr0
+
+    if (abs(kz0) >= 0.99999999999_wp) then
+       xx  = sinvt*cosvp
+       yy  = sinvt*sinvp
+       zz  = cosvt
+    else
+       kr0 = sqrt(kx0**2 + ky0**2)
+       xx  = cosvt*kx0 + sinvt*(kz0*kx0*cosvp - ky0*sinvp)/kr0
+       yy  = cosvt*ky0 + sinvt*(kz0*ky0*cosvp + kx0*sinvp)/kr0
+       zz  = cosvt*kz0 - sinvt*cosvp*kr0
+    endif
+    xx = par%stellar_radius * xx
+    yy = par%stellar_radius * yy
+    zz = par%stellar_radius * zz - par%distance_star_to_planet
+
+    pobs%kx = (observer(i)%x-xx)
+    pobs%ky = (observer(i)%y-yy)
+    pobs%kz = (observer(i)%z-zz)
+    r2      = pobs%kx*pobs%kx + pobs%ky*pobs%ky + pobs%kz*pobs%kz
+    r       = sqrt(r2)
+    pobs%kx = pobs%kx/r
+    pobs%ky = pobs%ky/r
+    pobs%kz = pobs%kz/r
+
+    kx = observer(i)%rmatrix(1,1)*pobs%kx + observer(i)%rmatrix(1,2)*pobs%ky + observer(i)%rmatrix(1,3)*pobs%kz
+    ky = observer(i)%rmatrix(2,1)*pobs%kx + observer(i)%rmatrix(2,2)*pobs%ky + observer(i)%rmatrix(2,3)*pobs%kz
+    kz = observer(i)%rmatrix(3,1)*pobs%kx + observer(i)%rmatrix(3,2)*pobs%ky + observer(i)%rmatrix(3,3)*pobs%kz
+
+    ix = floor(atan2(-kx,kz)*rad2deg/observer(i)%dxim+observer(i)%nxim/2.0_wp) + 1
+    iy = floor(atan2(-ky,kz)*rad2deg/observer(i)%dyim+observer(i)%nyim/2.0_wp) + 1
+
+    if (ix >= 1 .and. ix <= observer(i)%nxim .and. iy >= 1 .and. iy <= observer(i)%nyim) then
+       distance_star_to_obs2 = observer(i)%x**2 + observer(i)%y**2 + (observer(i)%z + par%distance_star_to_planet)**2
+
+       if (par%save_direc0) then
+          if (par%save_peeloff_2D) then
+             wgt = 1.0_wp/distance_star_to_obs2 * pobs%wgt
+             !$OMP ATOMIC UPDATE
+             observer(i)%direc0_2D(ix,iy) = observer(i)%direc0_2D(ix,iy) + wgt
+          endif
+          if (par%save_peeloff_3D .and. ixf >= 1 .and. ixf <= amr_grid%nxfreq) then
+             wgt = 1.0_wp/distance_star_to_obs2 * pobs%wgt
+             !$OMP ATOMIC UPDATE
+             observer(i)%direc0(ixf,ix,iy) = observer(i)%direc0(ixf,ix,iy) + wgt
+          endif
+       endif
+
+       r_dot_k = xx*pobs%kx + yy*pobs%ky + zz*pobs%kz
+       rr      = sqrt(xx**2 + yy**2 + zz**2)
+       det     = r_dot_k**2 - (rr**2 - par%rmax**2)
+
+       if (r_dot_k < 0.0_wp .and. det >= 0.0_wp) then
+          dist           = -r_dot_k - sqrt(max(0.0_wp, det))
+          pobs%x         = xx + pobs%kx * dist
+          pobs%y         = yy + pobs%ky * dist
+          pobs%z         = zz + pobs%kz * dist
+          il_e           = amr_find_leaf(pobs%x, pobs%y, pobs%z)
+          if (il_e <= 0) then
+             wgt = 1.0_wp/distance_star_to_obs2 * pobs%wgt
+          else
+             pobs%icell_amr = il_e
+             pobs%icell = 1; pobs%jcell = 1; pobs%kcell = 1
+             u2 = amr_grid%vfx(il_e)*pobs%kx + amr_grid%vfy(il_e)*pobs%ky + amr_grid%vfz(il_e)*pobs%kz
+             pobs%xfreq = xfreq_ref * amr_grid%Dfreq_ref/amr_grid%Dfreq(il_e) - u2
+
+             call raytrace_to_edge_amr(pobs, grid, tau)
+             wgt = exp(-tau)/distance_star_to_obs2 * pobs%wgt
+          endif
+       else
+          wgt = 1.0_wp/distance_star_to_obs2 * pobs%wgt
+       endif
+
+       if (par%save_peeloff_2D) then
+          !$OMP ATOMIC UPDATE
+          observer(i)%direc_2D(ix,iy) = observer(i)%direc_2D(ix,iy) + wgt
+          if (par%use_stokes) then
+             !$OMP ATOMIC UPDATE
+             observer(i)%I_2D(ix,iy) = observer(i)%I_2D(ix,iy) + wgt
+          endif
+       endif
+
+       if (par%save_peeloff_3D .and. ixf >= 1 .and. ixf <= amr_grid%nxfreq) then
+          !$OMP ATOMIC UPDATE
+          observer(i)%direc(ixf,ix,iy) = observer(i)%direc(ixf,ix,iy) + wgt
+          if (par%use_stokes) then
+             !$OMP ATOMIC UPDATE
+             observer(i)%I(ixf,ix,iy) = observer(i)%I(ixf,ix,iy) + wgt
+          endif
+       endif
+    endif
+  enddo
+  end subroutine peeling_direct_stellar_illumination1_amr
+  !================================================
+  subroutine peeling_direct_stellar_illumination2_amr(photon,grid)
+  !-- AMR equivalent of peeling_direct_stellar_illumination2.
+  !-- For a general (non-spherical) AMR medium filling the box.
+  !-- The grid argument is unused (kept for procedure-pointer compatibility).
+  use define
+  use random
+  use raytrace_amr_mod, only: raytrace_to_edge_amr
+  implicit none
+  type(photon_type),   intent(in) :: photon
+  type(grid_type),     intent(in) :: grid
+  type(photon_type) :: pobs
+  real(kind=wp) :: cost
+  real(kind=wp) :: cosvt0,cosvt,sinvt,vphi,cosvp,sinvp
+  real(kind=wp) :: x0,y0,z0,dist,delt(6)
+  real(kind=wp) :: r2,r,wgt,tau
+  real(kind=wp) :: kx0,ky0,kz0,kr0,xx,yy,zz,kx,ky,kz
+  real(kind=wp) :: xfreq_ref, u1, u2
+  real(kind=wp) :: distance_star_to_obs2
+  integer :: ix,iy,ixf
+  integer :: i, jj, il, il_e
+
+  il        = photon%icell_amr
+  pobs      = photon
+  u1        = amr_grid%vfx(il)*photon%kx + amr_grid%vfy(il)*photon%ky + amr_grid%vfz(il)*photon%kz
+  xfreq_ref = (photon%xfreq + u1) * (amr_grid%Dfreq(il) / amr_grid%Dfreq_ref)
+
+  pobs%wgt = 1.0_wp
+  ixf      = floor((xfreq_ref - amr_grid%xfreq_min)/amr_grid%dxfreq)+1
+
+  cosvt0 = par%stellar_radius / par%distance
+
+  if (par%stellar_limb_darkening <= 0) then
+     cost = rand_number()
+  else if (par%stellar_limb_darkening == 1) then
+     cost = sqrt(rand_number())
+  else if (par%stellar_limb_darkening == 2) then
+     cost = rand_eddington_limb_darkening()
+  else
+     cost = rand_general_limb_darkening()
+  endif
+
+  cosvt = cost*sqrt(1.0_wp - cosvt0**2 + (cosvt0*cost)**2) + cosvt0*(1.0_wp - cost**2)
+  sinvt = sqrt(1.0_wp - cosvt**2)
+  vphi  = 2.0_wp*pi*rand_number()
+  cosvp = cos(vphi)
+  sinvp = sin(vphi)
+
+  do i=1,par%nobs
+    kx0 = observer(i)%x
+    ky0 = observer(i)%y
+    kz0 = observer(i)%z + par%distance_star_to_planet
+    kr0 = sqrt(kx0**2 + ky0**2 + kz0**2)
+    kx0 = kx0/kr0
+    ky0 = ky0/kr0
+    kz0 = kz0/kr0
+
+    if (abs(kz0) >= 0.99999999999_wp) then
+       xx  = sinvt*cosvp
+       yy  = sinvt*sinvp
+       zz  = cosvt
+    else
+       kr0 = sqrt(kx0**2 + ky0**2)
+       xx  = cosvt*kx0 + sinvt*(kz0*kx0*cosvp - ky0*sinvp)/kr0
+       yy  = cosvt*ky0 + sinvt*(kz0*ky0*cosvp + kx0*sinvp)/kr0
+       zz  = cosvt*kz0 - sinvt*cosvp*kr0
+    endif
+    xx = par%stellar_radius * xx
+    yy = par%stellar_radius * yy
+    zz = par%stellar_radius * zz - par%distance_star_to_planet
+
+    pobs%kx = (observer(i)%x-xx)
+    pobs%ky = (observer(i)%y-yy)
+    pobs%kz = (observer(i)%z-zz)
+    r2      = pobs%kx*pobs%kx + pobs%ky*pobs%ky + pobs%kz*pobs%kz
+    r       = sqrt(r2)
+    pobs%kx = pobs%kx/r
+    pobs%ky = pobs%ky/r
+    pobs%kz = pobs%kz/r
+
+    kx = observer(i)%rmatrix(1,1)*pobs%kx + observer(i)%rmatrix(1,2)*pobs%ky + observer(i)%rmatrix(1,3)*pobs%kz
+    ky = observer(i)%rmatrix(2,1)*pobs%kx + observer(i)%rmatrix(2,2)*pobs%ky + observer(i)%rmatrix(2,3)*pobs%kz
+    kz = observer(i)%rmatrix(3,1)*pobs%kx + observer(i)%rmatrix(3,2)*pobs%ky + observer(i)%rmatrix(3,3)*pobs%kz
+
+    ix = floor(atan2(-kx,kz)*rad2deg/observer(i)%dxim+observer(i)%nxim/2.0_wp) + 1
+    iy = floor(atan2(-ky,kz)*rad2deg/observer(i)%dyim+observer(i)%nyim/2.0_wp) + 1
+
+    if (ix >= 1 .and. ix <= observer(i)%nxim .and. iy >= 1 .and. iy <= observer(i)%nyim) then
+       distance_star_to_obs2 = observer(i)%x**2 + observer(i)%y**2 + (observer(i)%z + par%distance_star_to_planet)**2
+
+       if (par%save_direc0) then
+          if (par%save_peeloff_2D) then
+             wgt = 1.0_wp/distance_star_to_obs2 * pobs%wgt
+             !$OMP ATOMIC UPDATE
+             observer(i)%direc0_2D(ix,iy) = observer(i)%direc0_2D(ix,iy) + wgt
+          endif
+          if (par%save_peeloff_3D .and. ixf >= 1 .and. ixf <= amr_grid%nxfreq) then
+             wgt = 1.0_wp/distance_star_to_obs2 * pobs%wgt
+             !$OMP ATOMIC UPDATE
+             observer(i)%direc0(ixf,ix,iy) = observer(i)%direc0(ixf,ix,iy) + wgt
+          endif
+       endif
+
+       if (pobs%kx == 0.0_wp) then
+          delt(1) = hugest;  delt(2) = hugest
+       else
+          delt(1) = (amr_grid%xmax-xx)/pobs%kx
+          delt(2) = (amr_grid%xmin-xx)/pobs%kx
+       endif
+       if (pobs%ky == 0.0_wp) then
+          delt(3) = hugest;  delt(4) = hugest
+       else
+          delt(3) = (amr_grid%ymax-yy)/pobs%ky
+          delt(4) = (amr_grid%ymin-yy)/pobs%ky
+       endif
+       if (pobs%kz == 0.0_wp) then
+          delt(5) = hugest;  delt(6) = hugest
+       else
+          delt(5) = (amr_grid%zmax-zz)/pobs%kz
+          delt(6) = (amr_grid%zmin-zz)/pobs%kz
+       endif
+
+       dist = hugest
+       do jj=1,6
+          if (delt(jj) > 0.0_wp .and. delt(jj) < hugest) then
+             x0 = xx + pobs%kx * delt(jj)
+             y0 = yy + pobs%ky * delt(jj)
+             z0 = zz + pobs%kz * delt(jj)
+             if (x0 >= amr_grid%xmin .and. x0 <= amr_grid%xmax .and. &
+                 y0 >= amr_grid%ymin .and. y0 <= amr_grid%ymax .and. &
+                 z0 >= amr_grid%zmin .and. z0 <= amr_grid%zmax) then
+                if (delt(jj) < dist) dist = delt(jj)
+             endif
+          endif
+       enddo
+
+       if (dist < hugest) then
+          pobs%x = xx + pobs%kx * dist
+          pobs%y = yy + pobs%ky * dist
+          pobs%z = zz + pobs%kz * dist
+          il_e = amr_find_leaf(pobs%x, pobs%y, pobs%z)
+          if (il_e <= 0) then
+             wgt = 1.0_wp/distance_star_to_obs2 * pobs%wgt
+          else
+             pobs%icell_amr = il_e
+             pobs%icell = 1; pobs%jcell = 1; pobs%kcell = 1
+             u2 = amr_grid%vfx(il_e)*pobs%kx + amr_grid%vfy(il_e)*pobs%ky + amr_grid%vfz(il_e)*pobs%kz
+             pobs%xfreq = xfreq_ref * amr_grid%Dfreq_ref/amr_grid%Dfreq(il_e) - u2
+
+             call raytrace_to_edge_amr(pobs, grid, tau)
+             wgt = exp(-tau)/distance_star_to_obs2 * pobs%wgt
+          endif
+       else
+          wgt = 1.0_wp/distance_star_to_obs2 * pobs%wgt
+       endif
+
+       if (par%save_peeloff_2D) then
+          !$OMP ATOMIC UPDATE
+          observer(i)%direc_2D(ix,iy) = observer(i)%direc_2D(ix,iy) + wgt
+          if (par%use_stokes) then
+             !$OMP ATOMIC UPDATE
+             observer(i)%I_2D(ix,iy) = observer(i)%I_2D(ix,iy) + wgt
+          endif
+       endif
+
+       if (par%save_peeloff_3D .and. ixf >= 1 .and. ixf <= amr_grid%nxfreq) then
+          !$OMP ATOMIC UPDATE
+          observer(i)%direc(ixf,ix,iy) = observer(i)%direc(ixf,ix,iy) + wgt
+          if (par%use_stokes) then
+             !$OMP ATOMIC UPDATE
+             observer(i)%I(ixf,ix,iy) = observer(i)%I(ixf,ix,iy) + wgt
+          endif
+       endif
+    endif
+  enddo
+  end subroutine peeling_direct_stellar_illumination2_amr
   !================================================
 end module stellar_illumination_mod

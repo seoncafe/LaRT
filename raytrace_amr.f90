@@ -9,9 +9,6 @@ module raytrace_amr_mod
   !
   ! Cell-traversal convention:
   !   x, y, z  = running absolute position (updated at every face crossing).
-  !   d        = cumulative distance from the ORIGINAL photon position
-  !               (photon%x/y/z at entry); used only for the final
-  !               photon%x = photon%x + d*kx  update.
   !   iface    = face index returned by amr_cell_exit:
   !               1=+x  2=-x  3=+y  4=-y  5=+z  6=-z
   !
@@ -24,6 +21,35 @@ module raytrace_amr_mod
   !   At each cell crossing:
   !     xfreq_new = (xfreq_old + u_old) * Dfreq_old / Dfreq_new - u_new
   !   where u = dot(v_cell, k_hat)  [velocity in units of v_thermal].
+  !
+  ! Boundary handling at face exits when amr_next_leaf returns no neighbor:
+  !
+  !   par%xy_periodic       (e.g. plane_atmosphere):
+  !     iface = 1 (+x) -> x = x - amr_grid%xrange,  re-find leaf
+  !     iface = 2 (-x) -> x = x + amr_grid%xrange,  re-find leaf
+  !     iface = 3 (+y) -> y = y - amr_grid%yrange,  re-find leaf
+  !     iface = 4 (-y) -> y = y + amr_grid%yrange,  re-find leaf
+  !     iface = 5,6   -> photon escapes
+  !
+  !   par%xy_symmetry       (mirror at x=xmin and y=ymin):
+  !     iface = 2 (-x) -> kx -> -kx, stay in same leaf (specular reflection)
+  !     iface = 4 (-y) -> ky -> -ky, stay in same leaf
+  !     other faces   -> photon escapes
+  !
+  !   par%xyz_symmetry      (mirror at x=xmin, y=ymin, z=zmin):
+  !     iface = 2,4,6 -> reflect kx/ky/kz, stay in same leaf
+  !     iface = 1,3,5 -> photon escapes
+  !
+  ! Reflection assumption: no AMR leaf straddles the reflective plane (i.e.
+  ! leaves are aligned so the symmetry plane coincides exactly with leaf
+  ! faces at amr_grid%xmin / ymin / zmin).  Lab-frame frequency is
+  ! preserved across reflection: u1 is recomputed with the new kx/ky/kz and
+  ! photon%xfreq is shifted to xfreq_lab - u1_new (no Dfreq change).
+  !
+  ! Final photon position:
+  !   raytrace_to_tau_amr uses the running x/y/z directly (advanced at face
+  !   crossings and at the in-cell overshoot exit), so wraps and reflections
+  !   do not need a separate offset accumulator.
   !-----------------------------------------------------------------------
   use octree_mod
   use voigt_mod
@@ -55,10 +81,11 @@ contains
 
     integer  :: il, il_new, icell, ix
     real(wp) :: x, y, z, kx, ky, kz
-    real(wp) :: tau, d, t_exit
-    real(wp) :: rhokap, rhokapH, d_overshoot
+    real(wp) :: tau, t_exit, d_step
+    real(wp) :: rhokap, rhokapH
     real(wp) :: u1, u2, Df_old, Df_new, xfreq_ref
     integer  :: iface
+    logical  :: reflected
 
     x  = photon%x;    y  = photon%y;    z  = photon%z
     kx = photon%kx;   ky = photon%ky;   kz = photon%kz
@@ -73,7 +100,6 @@ contains
     end if
 
     tau = 0.0_wp
-    d   = 0.0_wp
     u1  = amr_grid%vfx(il)*kx + amr_grid%vfy(il)*ky + amr_grid%vfz(il)*kz
 
     do while (photon%inside)
@@ -87,47 +113,81 @@ contains
         rhokap = rhokapH
       end if
 
-      tau = tau + t_exit * rhokap
-
-      if (tau >= tau_in) then
-        ! Overshoot: backtrack to exact tau_in
+      if (tau + t_exit * rhokap >= tau_in) then
+        ! Overshoot: stop inside this cell
         if (rhokap > 0.0_wp) then
-          d_overshoot = (tau - tau_in) / rhokap
-          d           = d + t_exit - d_overshoot
+          d_step = (tau_in - tau) / rhokap
         else
-          d = d + t_exit
+          d_step = t_exit
         end if
+        x   = x + d_step * kx
+        y   = y + d_step * ky
+        z   = z + d_step * kz
+        tau = tau_in
         exit
       end if
 
       ! Advance to face
-      d = d + t_exit
-      x = x + t_exit * kx
-      y = y + t_exit * ky
-      z = z + t_exit * kz
+      tau = tau + t_exit * rhokap
+      x   = x + t_exit * kx
+      y   = y + t_exit * ky
+      z   = z + t_exit * kz
 
       ! Next leaf via precomputed neighbor table (O(1) + optional descent)
-      il_new = amr_next_leaf(icell, iface, x, y, z)
+      il_new    = amr_next_leaf(icell, iface, x, y, z)
+      reflected = .false.
+
+      if (il_new <= 0) then
+        if (par%xy_periodic) then
+          select case (iface)
+          case (1)
+            x = x - amr_grid%xrange
+          case (2)
+            x = x + amr_grid%xrange
+          case (3)
+            y = y - amr_grid%yrange
+          case (4)
+            y = y + amr_grid%yrange
+          end select
+          if (iface <= 4) il_new = amr_find_leaf(x, y, z)
+        else if (par%xyz_symmetry) then
+          select case (iface)
+          case (2);  kx = -kx; il_new = il; reflected = .true.
+          case (4);  ky = -ky; il_new = il; reflected = .true.
+          case (6);  kz = -kz; il_new = il; reflected = .true.
+          end select
+        else if (par%xy_symmetry) then
+          select case (iface)
+          case (2);  kx = -kx; il_new = il; reflected = .true.
+          case (4);  ky = -ky; il_new = il; reflected = .true.
+          end select
+        end if
+      end if
 
       if (il_new <= 0) then
         photon%inside = .false.
         exit
       end if
 
-      ! Frequency shift across cell boundary
+      ! Frequency shift across cell boundary (or reflection in same cell)
       Df_old = amr_grid%Dfreq(il)
       Df_new = amr_grid%Dfreq(il_new)
       u2     = amr_grid%vfx(il_new)*kx + amr_grid%vfy(il_new)*ky + amr_grid%vfz(il_new)*kz
-      photon%xfreq = (photon%xfreq + u1) * Df_old / Df_new - u2
+      if (reflected) then
+        ! Lab-frame frequency invariant: xfreq_lab = xfreq + u1 (old kx,ky,kz)
+        ! After reflection, recompute u1 with new direction; same cell -> Df ratio = 1.
+        photon%xfreq = (photon%xfreq + u1) - u2
+      else
+        photon%xfreq = (photon%xfreq + u1) * Df_old / Df_new - u2
+      end if
       u1 = u2
 
       il = il_new
     end do
 
-    ! Final position
-    photon%x = photon%x + d * kx
-    photon%y = photon%y + d * ky
-    photon%z = photon%z + d * kz
+    ! Final state (running x/y/z and possibly-reflected kx/ky/kz)
+    photon%x  = x;   photon%y  = y;   photon%z  = z
+    photon%kx = kx;  photon%ky = ky;  photon%kz = kz
     photon%icell_amr = il
 
     if (.not. photon%inside) then
@@ -161,6 +221,7 @@ contains
     real(wp) :: t_exit
     real(wp) :: rhokap, u1, u2, Df_old, Df_new, xfreq_loc
     integer  :: iface
+    logical  :: reflected
 
     x  = photon0%x;    y  = photon0%y;    z  = photon0%z
     kx = photon0%kx;   ky = photon0%ky;   kz = photon0%kz
@@ -187,13 +248,42 @@ contains
       x = x + t_exit * kx
       y = y + t_exit * ky
       z = z + t_exit * kz
-      il_new = amr_next_leaf(icell, iface, x, y, z)
+      il_new    = amr_next_leaf(icell, iface, x, y, z)
+      reflected = .false.
+
+      if (il_new <= 0) then
+        if (par%xy_periodic) then
+          select case (iface)
+          case (1); x = x - amr_grid%xrange
+          case (2); x = x + amr_grid%xrange
+          case (3); y = y - amr_grid%yrange
+          case (4); y = y + amr_grid%yrange
+          end select
+          if (iface <= 4) il_new = amr_find_leaf(x, y, z)
+        else if (par%xyz_symmetry) then
+          select case (iface)
+          case (2);  kx = -kx; il_new = il; reflected = .true.
+          case (4);  ky = -ky; il_new = il; reflected = .true.
+          case (6);  kz = -kz; il_new = il; reflected = .true.
+          end select
+        else if (par%xy_symmetry) then
+          select case (iface)
+          case (2);  kx = -kx; il_new = il; reflected = .true.
+          case (4);  ky = -ky; il_new = il; reflected = .true.
+          end select
+        end if
+      end if
+
       if (il_new <= 0) return
 
       Df_old    = amr_grid%Dfreq(il)
       Df_new    = amr_grid%Dfreq(il_new)
       u2        = amr_grid%vfx(il_new)*kx + amr_grid%vfy(il_new)*ky + amr_grid%vfz(il_new)*kz
-      xfreq_loc = (xfreq_loc + u1) * Df_old / Df_new - u2
+      if (reflected) then
+        xfreq_loc = (xfreq_loc + u1) - u2
+      else
+        xfreq_loc = (xfreq_loc + u1) * Df_old / Df_new - u2
+      end if
       u1 = u2
       il = il_new
     end do
@@ -214,6 +304,7 @@ contains
     real(wp) :: t_exit
     real(wp) :: rhokap, u1, u2, Df_old, Df_new, xfreq_loc
     integer  :: iface
+    logical  :: reflected
 
     x  = photon0%x;    y  = photon0%y;    z  = photon0%z
     kx = photon0%kx;   ky = photon0%ky;   kz = photon0%kz
@@ -238,13 +329,42 @@ contains
       x = x + t_exit * kx
       y = y + t_exit * ky
       z = z + t_exit * kz
-      il_new = amr_next_leaf(icell, iface, x, y, z)
+      il_new    = amr_next_leaf(icell, iface, x, y, z)
+      reflected = .false.
+
+      if (il_new <= 0) then
+        if (par%xy_periodic) then
+          select case (iface)
+          case (1); x = x - amr_grid%xrange
+          case (2); x = x + amr_grid%xrange
+          case (3); y = y - amr_grid%yrange
+          case (4); y = y + amr_grid%yrange
+          end select
+          if (iface <= 4) il_new = amr_find_leaf(x, y, z)
+        else if (par%xyz_symmetry) then
+          select case (iface)
+          case (2);  kx = -kx; il_new = il; reflected = .true.
+          case (4);  ky = -ky; il_new = il; reflected = .true.
+          case (6);  kz = -kz; il_new = il; reflected = .true.
+          end select
+        else if (par%xy_symmetry) then
+          select case (iface)
+          case (2);  kx = -kx; il_new = il; reflected = .true.
+          case (4);  ky = -ky; il_new = il; reflected = .true.
+          end select
+        end if
+      end if
+
       if (il_new <= 0) return
 
       Df_old    = amr_grid%Dfreq(il)
       Df_new    = amr_grid%Dfreq(il_new)
       u2        = amr_grid%vfx(il_new)*kx + amr_grid%vfy(il_new)*ky + amr_grid%vfz(il_new)*kz
-      xfreq_loc = (xfreq_loc + u1) * Df_old / Df_new - u2
+      if (reflected) then
+        xfreq_loc = (xfreq_loc + u1) - u2
+      else
+        xfreq_loc = (xfreq_loc + u1) * Df_old / Df_new - u2
+      end if
       u1 = u2
       il = il_new
     end do
@@ -265,6 +385,7 @@ contains
     real(wp) :: t_exit
     real(wp) :: u1, u2, Df_old, Df_new, xfreq_loc
     integer  :: iface
+    logical  :: reflected
 
     x  = photon0%x;    y  = photon0%y;    z  = photon0%z
     kx = photon0%kx;   ky = photon0%ky;   kz = photon0%kz
@@ -290,13 +411,42 @@ contains
       x = x + t_exit * kx
       y = y + t_exit * ky
       z = z + t_exit * kz
-      il_new = amr_next_leaf(icell, iface, x, y, z)
+      il_new    = amr_next_leaf(icell, iface, x, y, z)
+      reflected = .false.
+
+      if (il_new <= 0) then
+        if (par%xy_periodic) then
+          select case (iface)
+          case (1); x = x - amr_grid%xrange
+          case (2); x = x + amr_grid%xrange
+          case (3); y = y - amr_grid%yrange
+          case (4); y = y + amr_grid%yrange
+          end select
+          if (iface <= 4) il_new = amr_find_leaf(x, y, z)
+        else if (par%xyz_symmetry) then
+          select case (iface)
+          case (2);  kx = -kx; il_new = il; reflected = .true.
+          case (4);  ky = -ky; il_new = il; reflected = .true.
+          case (6);  kz = -kz; il_new = il; reflected = .true.
+          end select
+        else if (par%xy_symmetry) then
+          select case (iface)
+          case (2);  kx = -kx; il_new = il; reflected = .true.
+          case (4);  ky = -ky; il_new = il; reflected = .true.
+          end select
+        end if
+      end if
+
       if (il_new <= 0) return
 
       Df_old    = amr_grid%Dfreq(il)
       Df_new    = amr_grid%Dfreq(il_new)
       u2        = amr_grid%vfx(il_new)*kx + amr_grid%vfy(il_new)*ky + amr_grid%vfz(il_new)*kz
-      xfreq_loc = (xfreq_loc + u1) * Df_old / Df_new - u2
+      if (reflected) then
+        xfreq_loc = (xfreq_loc + u1) - u2
+      else
+        xfreq_loc = (xfreq_loc + u1) * Df_old / Df_new - u2
+      end if
       u1 = u2
       il = il_new
     end do
@@ -318,6 +468,7 @@ contains
     real(wp) :: d, t_exit
     real(wp) :: rhokap, u1, u2, Df_old, Df_new, xfreq_loc
     integer  :: iface
+    logical  :: reflected
 
     x  = photon0%x;    y  = photon0%y;    z  = photon0%z
     kx = photon0%kx;   ky = photon0%ky;   kz = photon0%kz
@@ -351,13 +502,42 @@ contains
       x = x + t_exit * kx
       y = y + t_exit * ky
       z = z + t_exit * kz
-      il_new = amr_next_leaf(icell, iface, x, y, z)
+      il_new    = amr_next_leaf(icell, iface, x, y, z)
+      reflected = .false.
+
+      if (il_new <= 0) then
+        if (par%xy_periodic) then
+          select case (iface)
+          case (1); x = x - amr_grid%xrange
+          case (2); x = x + amr_grid%xrange
+          case (3); y = y - amr_grid%yrange
+          case (4); y = y + amr_grid%yrange
+          end select
+          if (iface <= 4) il_new = amr_find_leaf(x, y, z)
+        else if (par%xyz_symmetry) then
+          select case (iface)
+          case (2);  kx = -kx; il_new = il; reflected = .true.
+          case (4);  ky = -ky; il_new = il; reflected = .true.
+          case (6);  kz = -kz; il_new = il; reflected = .true.
+          end select
+        else if (par%xy_symmetry) then
+          select case (iface)
+          case (2);  kx = -kx; il_new = il; reflected = .true.
+          case (4);  ky = -ky; il_new = il; reflected = .true.
+          end select
+        end if
+      end if
+
       if (il_new <= 0) return
 
       Df_old    = amr_grid%Dfreq(il)
       Df_new    = amr_grid%Dfreq(il_new)
       u2        = amr_grid%vfx(il_new)*kx + amr_grid%vfy(il_new)*ky + amr_grid%vfz(il_new)*kz
-      xfreq_loc = (xfreq_loc + u1) * Df_old / Df_new - u2
+      if (reflected) then
+        xfreq_loc = (xfreq_loc + u1) - u2
+      else
+        xfreq_loc = (xfreq_loc + u1) * Df_old / Df_new - u2
+      end if
       u1 = u2
       il = il_new
     end do
@@ -379,6 +559,7 @@ contains
     real(wp) :: d, t_exit
     real(wp) :: rhokap, u1, u2, Df_old, Df_new, xfreq_loc
     integer  :: iface
+    logical  :: reflected
 
     x  = photon0%x;    y  = photon0%y;    z  = photon0%z
     kx = photon0%kx;   ky = photon0%ky;   kz = photon0%kz
@@ -408,13 +589,42 @@ contains
       x = x + t_exit * kx
       y = y + t_exit * ky
       z = z + t_exit * kz
-      il_new = amr_next_leaf(icell, iface, x, y, z)
+      il_new    = amr_next_leaf(icell, iface, x, y, z)
+      reflected = .false.
+
+      if (il_new <= 0) then
+        if (par%xy_periodic) then
+          select case (iface)
+          case (1); x = x - amr_grid%xrange
+          case (2); x = x + amr_grid%xrange
+          case (3); y = y - amr_grid%yrange
+          case (4); y = y + amr_grid%yrange
+          end select
+          if (iface <= 4) il_new = amr_find_leaf(x, y, z)
+        else if (par%xyz_symmetry) then
+          select case (iface)
+          case (2);  kx = -kx; il_new = il; reflected = .true.
+          case (4);  ky = -ky; il_new = il; reflected = .true.
+          case (6);  kz = -kz; il_new = il; reflected = .true.
+          end select
+        else if (par%xy_symmetry) then
+          select case (iface)
+          case (2);  kx = -kx; il_new = il; reflected = .true.
+          case (4);  ky = -ky; il_new = il; reflected = .true.
+          end select
+        end if
+      end if
+
       if (il_new <= 0) return
 
       Df_old    = amr_grid%Dfreq(il)
       Df_new    = amr_grid%Dfreq(il_new)
       u2        = amr_grid%vfx(il_new)*kx + amr_grid%vfy(il_new)*ky + amr_grid%vfz(il_new)*kz
-      xfreq_loc = (xfreq_loc + u1) * Df_old / Df_new - u2
+      if (reflected) then
+        xfreq_loc = (xfreq_loc + u1) - u2
+      else
+        xfreq_loc = (xfreq_loc + u1) * Df_old / Df_new - u2
+      end if
       u1 = u2
       il = il_new
     end do
@@ -436,6 +646,7 @@ contains
     real(wp) :: d, t_exit, t_step
     real(wp) :: u1, u2, Df_old, Df_new, xfreq_loc
     integer  :: iface
+    logical  :: reflected
 
     x  = photon0%x;    y  = photon0%y;    z  = photon0%z
     kx = photon0%kx;   ky = photon0%ky;   kz = photon0%kz
@@ -469,13 +680,42 @@ contains
       x = x + t_exit * kx
       y = y + t_exit * ky
       z = z + t_exit * kz
-      il_new = amr_next_leaf(icell, iface, x, y, z)
+      il_new    = amr_next_leaf(icell, iface, x, y, z)
+      reflected = .false.
+
+      if (il_new <= 0) then
+        if (par%xy_periodic) then
+          select case (iface)
+          case (1); x = x - amr_grid%xrange
+          case (2); x = x + amr_grid%xrange
+          case (3); y = y - amr_grid%yrange
+          case (4); y = y + amr_grid%yrange
+          end select
+          if (iface <= 4) il_new = amr_find_leaf(x, y, z)
+        else if (par%xyz_symmetry) then
+          select case (iface)
+          case (2);  kx = -kx; il_new = il; reflected = .true.
+          case (4);  ky = -ky; il_new = il; reflected = .true.
+          case (6);  kz = -kz; il_new = il; reflected = .true.
+          end select
+        else if (par%xy_symmetry) then
+          select case (iface)
+          case (2);  kx = -kx; il_new = il; reflected = .true.
+          case (4);  ky = -ky; il_new = il; reflected = .true.
+          end select
+        end if
+      end if
+
       if (il_new <= 0) return
 
       Df_old    = amr_grid%Dfreq(il)
       Df_new    = amr_grid%Dfreq(il_new)
       u2        = amr_grid%vfx(il_new)*kx + amr_grid%vfy(il_new)*ky + amr_grid%vfz(il_new)*kz
-      xfreq_loc = (xfreq_loc + u1) * Df_old / Df_new - u2
+      if (reflected) then
+        xfreq_loc = (xfreq_loc + u1) - u2
+      else
+        xfreq_loc = (xfreq_loc + u1) * Df_old / Df_new - u2
+      end if
       u1 = u2
       il = il_new
     end do

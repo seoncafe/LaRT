@@ -6,6 +6,7 @@ module sightline_tau_heal
   use utility
   use fitsio_mod
   use memory_mod
+  use octree_mod, only: amr_grid, amr_find_leaf
 contains
   !--------------------------------------------------
   subroutine make_sightline_tau_inside(grid)
@@ -162,6 +163,133 @@ contains
      if (par%DGR > 0.0_wp) call destroy_mem(observer(i)%tau_dust_heal)
   enddo
   end subroutine make_sightline_tau_inside
+  !-------------------------------------------------------
+  subroutine make_sightline_tau_inside_amr(grid)
+  !--- AMR equivalent of make_sightline_tau_inside.
+  !--- Cell lookup uses amr_find_leaf; raytrace_to_dist_* are procedure
+  !--- pointers already routed to AMR variants in setup_procedure().
+  use healpix
+  implicit none
+  type(grid_type),  intent(in) :: grid
+  !--- local variables
+  type(photon_type) :: pobs
+  real(kind=wp) :: delt(6),dist
+  real(kind=wp) :: tau_gas,N_gas,tau_dust
+  real(kind=wp) :: u1
+  integer       :: ipix
+  integer       :: loop1,loop2
+  integer       :: ierr
+  integer       :: i,jj,kk,j0,il
+  character(len=4) :: filename_end
+
+  do i=1,par%nobs
+     call create_shared_mem(observer(i)%tau_gas_heal, [par%nxfreq,par%npix])
+     call create_shared_mem(observer(i)%N_gas_heal,   [par%npix])
+     if (par%DGR > 0.0_wp) then
+        call create_shared_mem(observer(i)%tau_dust_heal, [par%npix])
+     endif
+  enddo
+
+  do i=1,par%nobs
+    call loop_divide(par%npix,mpar%nproc,mpar%p_rank,loop1,loop2)
+    do ipix=loop1,loop2
+       call pix2vec(observer(i)%nside, ipix, pobs%kx,pobs%ky,pobs%kz)
+       if (pobs%kx == 0.0_wp) then
+          delt(1) = -999.0; delt(2) = -999.0
+       else
+          delt(1) = (grid%xmax-observer(i)%x)/pobs%kx
+          delt(2) = (grid%xmin-observer(i)%x)/pobs%kx
+       endif
+       if (pobs%ky == 0.0_wp) then
+          delt(3) = -999.0; delt(4) = -999.0
+       else
+          delt(3) = (grid%ymax-observer(i)%y)/pobs%ky
+          delt(4) = (grid%ymin-observer(i)%y)/pobs%ky
+       endif
+       if (pobs%kz == 0.0_wp) then
+          delt(5) = -999.0; delt(6) = -999.0
+       else
+          delt(5) = (grid%zmax-observer(i)%z)/pobs%kz
+          delt(6) = (grid%zmin-observer(i)%z)/pobs%kz
+       endif
+
+       dist = hugest
+       j0   = 0
+       do jj=1,6
+          if (delt(jj) > 0.0_wp .and. delt(jj) < hugest) then
+             if (delt(jj) < dist) then
+                dist = delt(jj)
+                j0   = jj
+             endif
+          endif
+       enddo
+
+       if (dist > 0.0_wp .and. dist < hugest) then
+          pobs%x = observer(i)%x + pobs%kx * dist
+          pobs%y = observer(i)%y + pobs%ky * dist
+          pobs%z = observer(i)%z + pobs%kz * dist
+
+          !--- reverse direction so the ray points from box surface toward observer.
+          pobs%kx = -pobs%kx
+          pobs%ky = -pobs%ky
+          pobs%kz = -pobs%kz
+
+          !--- nudge slightly inside the box face we just hit, then look up the leaf.
+          if      (j0 == 1) then
+             pobs%x = grid%xmax - tiny(1.0_wp)*max(1.0_wp,abs(grid%xmax))
+          else if (j0 == 2) then
+             pobs%x = grid%xmin + tiny(1.0_wp)*max(1.0_wp,abs(grid%xmin))
+          else if (j0 == 3) then
+             pobs%y = grid%ymax - tiny(1.0_wp)*max(1.0_wp,abs(grid%ymax))
+          else if (j0 == 4) then
+             pobs%y = grid%ymin + tiny(1.0_wp)*max(1.0_wp,abs(grid%ymin))
+          else if (j0 == 5) then
+             pobs%z = grid%zmax - tiny(1.0_wp)*max(1.0_wp,abs(grid%zmax))
+          else if (j0 == 6) then
+             pobs%z = grid%zmin + tiny(1.0_wp)*max(1.0_wp,abs(grid%zmin))
+          endif
+          il = amr_find_leaf(pobs%x, pobs%y, pobs%z)
+          pobs%icell_amr = il
+          pobs%icell = 1; pobs%jcell = 1; pobs%kcell = 1
+
+          if (il > 0) then
+             do kk=1, observer(i)%nxfreq
+                pobs%xfreq = grid%xfreq(kk)
+                u1 = amr_grid%vfx(il)*pobs%kx + amr_grid%vfy(il)*pobs%ky + amr_grid%vfz(il)*pobs%kz
+                pobs%xfreq = pobs%xfreq * grid%Dfreq_ref/amr_grid%Dfreq(il) - u1
+
+                call raytrace_to_dist_tau_gas(pobs,grid,dist,tau_gas)
+                observer(i)%tau_gas_heal(kk,ipix) = tau_gas
+             enddo
+             call raytrace_to_dist_column(pobs,grid,dist,N_gas,tau_dust)
+             observer(i)%N_gas_heal(ipix) = N_gas
+             if (par%DGR > 0.0_wp) observer(i)%tau_dust_heal(ipix) = tau_dust
+          endif
+       endif
+    enddo
+
+    call reduce_mem(observer(i)%tau_gas_heal, shared_memory=.true.)
+    call reduce_mem(observer(i)%N_gas_heal,   shared_memory=.true.)
+    if (par%DGR > 0.0_wp) call reduce_mem(observer(i)%tau_dust_heal, shared_memory=.true.)
+  enddo
+
+  if (mpar%p_rank == 0) then
+     do i = 1, par%nobs
+        if (par%nobs == 1) then
+           filename_end = ''
+        else
+           write(filename_end,'(a,i3.3)') '_',i
+        endif
+        call write_sightline_tau_inside(trim(par%out_file),grid,observer(i), suffix=trim(filename_end))
+     enddo
+  endif
+
+  do i=1, par%nobs
+     call destroy_mem(observer(i)%tau_gas_heal)
+     call destroy_mem(observer(i)%N_gas_heal)
+     if (par%DGR > 0.0_wp) call destroy_mem(observer(i)%tau_dust_heal)
+  enddo
+  end subroutine make_sightline_tau_inside_amr
   !-------------------------------------------------------
   subroutine write_sightline_tau_inside(filename,grid,obs,suffix)
   implicit none

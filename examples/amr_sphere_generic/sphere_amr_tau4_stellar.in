@@ -1,0 +1,36 @@
+&parameters
+!----------------------------------------------------------------------
+! AMR smoke test (v2.00): external stellar_illumination on +z axis.
+!----------------------------------------------------------------------
+
+ par%use_amr_grid  = .true.
+ par%amr_type      = 'generic'
+ par%amr_file      = 'uniform_amr_sphere.fits.gz'
+
+ par%no_photons   = 5e4
+ par%temperature  = 1.0e4
+ par%taumax       = 1.0e4
+ par%DGR          = 0.0
+
+ par%source_geometry = 'stellar_illumination'
+ par%spectral_type   = 'voigt'
+ par%xs_point        = 0.0
+ par%ys_point        = 0.0
+ par%zs_point        = 2.0
+
+ par%stellar_radius          = 0.3
+ par%distance_star_to_planet = 2.0
+ par%stellar_limb_darkening  = 2
+
+ par%rmax    = 1.0
+ par%nxfreq  = 121
+ par%nxim    = 100
+ par%nyim    = 100
+
+ par%save_peeloff      = .true.
+ par%save_peeloff_2D   = .true.
+ par%save_Jin          = .true.
+
+ par%nprint    = 10000
+ par%out_merge = .false.
+/

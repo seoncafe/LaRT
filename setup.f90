@@ -151,12 +151,12 @@ contains
      par%observer_located_inside = .true.
   endif
   if (par%observer_located_inside) then
-     !--- HEALPIX/inside-observer is not supported for AMR or clump modes
-     !    (the AMR setup branch wires output through the outside-observer
-     !    path; clump output is also based on the rectangular path).
-     if (par%use_amr_grid .or. par%use_clump_medium) then
+     !--- HEALPIX/inside-observer is not supported for clump mode (clump
+     !    output is based on the rectangular path).  AMR mode is supported
+     !    via the inside_amr peel-off / output / sightline routines.
+     if (par%use_clump_medium) then
         if (mpar%p_rank == 0) write(*,*) &
-           'ERROR: nside>0 (HEALPIX inside observer) is not supported with AMR or clump mode'
+           'ERROR: nside>0 (HEALPIX inside observer) is not supported with clump mode'
         call MPI_ABORT(MPI_COMM_WORLD, 1, ierr)
      endif
      if (par%nside < 1) par%nside = 64
@@ -672,19 +672,38 @@ contains
      else
         run_simulation => run_equal_number
      end if
-     ! Output procedures
-     output_reduce    => output_reduce_amr
-     output_normalize => output_normalize_amr
-     write_output     => write_output_outside
-     ! Observer/peel-off: AMR-aware routines
-     peeling_direct             => peeling_direct_amr
-     peeling_dust_nostokes      => peeling_dust_nostokes_amr
-     peeling_dust_stokes        => peeling_dust_stokes_amr
-     peeling_resonance_nostokes => peeling_resonance_nostokes_amr
-     peeling_resonance_stokes   => peeling_resonance_stokes_amr
-     observer_create            => observer_create_outside
-     observer_destroy           => observer_destroy_outside
-     make_sightline_tau         => make_sightline_tau_outside
+     ! Output / observer / peel-off split by observer location.
+     if (par%observer_located_inside) then
+        ! HEALPix all-sky, observer inside the AMR medium.
+        output_reduce              => output_reduce_inside_amr
+        output_normalize           => output_normalize_inside_amr
+        write_output               => write_output_inside
+        peeling_direct             => peeling_direct_inside_amr
+        peeling_dust_nostokes      => peeling_dust_nostokes_inside_amr
+        peeling_resonance_nostokes => peeling_resonance_nostokes_inside_amr
+        ! Stokes is not supported for the HEALPix _inside path (mirroring Cartesian).
+        observer_create            => observer_create_inside
+        observer_destroy           => observer_destroy_inside
+        make_sightline_tau         => make_sightline_tau_inside_amr
+     else
+        output_reduce    => output_reduce_amr
+        output_normalize => output_normalize_amr
+        write_output     => write_output_outside
+        if (trim(par%source_geometry) == 'point_illumination') then
+           peeling_direct          => peeling_direct_point_illumination_amr
+        else if (trim(par%source_geometry) == 'stellar_illumination') then
+           peeling_direct          => peeling_direct_stellar_illumination_amr
+        else
+           peeling_direct          => peeling_direct_amr
+        endif
+        peeling_dust_nostokes      => peeling_dust_nostokes_amr
+        peeling_dust_stokes        => peeling_dust_stokes_amr
+        peeling_resonance_nostokes => peeling_resonance_nostokes_amr
+        peeling_resonance_stokes   => peeling_resonance_stokes_amr
+        observer_create            => observer_create_outside
+        observer_destroy           => observer_destroy_outside
+        make_sightline_tau         => make_sightline_tau_outside
+     endif
      return
   end if
 

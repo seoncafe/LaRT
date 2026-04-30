@@ -1,0 +1,26 @@
+
++++++ sphere_amr_inside_test1M.in +++++
+ >>> START @ 2026/04/30 20:29:42
+Use_Master_Slave          : T
+Line ID                   : ly_alpha
+Dust Parameters(a, g)     :  0.3253 0.6761
+Dust-to-Gas Ratio         :    0.000E+00
+Total number of photons   :    1.000E+06
+AMR nleaf    : 178480
+AMR boxlen   :   2.0000E+00 (code units)
+AMR boxlen   :   2.0000E+00 cm
+AMR voigt_a      :   4.7186E-04
+AMR temperature  :   1.0000E+04
+AMR N(HI)_pole   :   1.6954E+17
+AMR tau_pole      :   1.0000E+04
+---> Now starting simulation...  @    0.004 mins
+   2.00000E+05 photons calculated:    0.922 mins
+   4.00000E+05 photons calculated:    1.826 mins
+   6.00000E+05 photons calculated:    2.736 mins
+   8.00000E+05 photons calculated:    3.640 mins
+   1.00000E+06 photons calculated:    4.545 mins
+---> Now Gathering Results...
+Average Number of scattering :   2.8263E+04
+Nscatt_dust, Nscatt_gas      :   0.0000E+00  2.8263E+04
+Total Excution Time          :    4.545 mins
+ >>> STOP  @ 2026/04/30 20:34:14

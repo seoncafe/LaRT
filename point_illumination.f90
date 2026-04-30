@@ -3,9 +3,11 @@ module point_illumination_mod
   !-- 2022.06.09: Written by K.I. Seon.
   !--
   use define
+  use octree_mod, only: amr_grid, amr_find_leaf
   implicit none
   public random_point_illumination
   public peeling_direct_point_illumination
+  public peeling_direct_point_illumination_amr
   private
 contains
   !================================================
@@ -52,19 +54,27 @@ contains
      dist      = dist_wall/cost
      photon%x  = dist * photon%kx
      photon%y  = dist * photon%ky
-     photon%icell = floor((photon%x-grid%xmin)/grid%dx)+1
-     photon%jcell = floor((photon%y-grid%ymin)/grid%dy)+1
 
-     if ((photon%icell >= 1 .and. photon%icell <= grid%nx) .and. &
-         (photon%jcell >= 1 .and. photon%jcell <= grid%ny))          then
+     if (photon%x >= grid%xmin .and. photon%x <= grid%xmax .and. &
+         photon%y >= grid%ymin .and. photon%y <= grid%ymax) then
         if (par%zs_point < 0.0_wp) then
-           photon%z     = grid%zmin
-           photon%kz    = cost
-           photon%kcell = 1
+           photon%z  = grid%zmin
+           photon%kz = cost
         else
-           photon%z     = grid%zmax
-           photon%kz    = -cost
-           photon%kcell = grid%nz
+           photon%z  = grid%zmax
+           photon%kz = -cost
+        endif
+        if (par%use_amr_grid) then
+           photon%icell_amr = amr_find_leaf(photon%x, photon%y, photon%z)
+           photon%icell = 1; photon%jcell = 1; photon%kcell = 1
+        else
+           photon%icell = floor((photon%x-grid%xmin)/grid%dx)+1
+           photon%jcell = floor((photon%y-grid%ymin)/grid%dy)+1
+           if (par%zs_point < 0.0_wp) then
+              photon%kcell = 1
+           else
+              photon%kcell = grid%nz
+           endif
         endif
         photon%flux_factor = flux_fac1 * photon%wgt
         exit
@@ -290,5 +300,146 @@ contains
     endif
   enddo
   end subroutine peeling_direct_point_illumination
+  !================================================
+  subroutine peeling_direct_point_illumination_amr(photon,grid)
+  !-- AMR equivalent of peeling_direct_point_illumination.
+  !-- Source: external point at (0,0,par%zs_point); ray peels off through the AMR box.
+  use define
+  use random
+  use raytrace_amr_mod, only: raytrace_to_edge_amr
+  implicit none
+  type(photon_type),   intent(in)    :: photon
+  type(grid_type),     intent(in)    :: grid
+  type(photon_type) :: pobs
+  real(kind=wp) :: dist, delt(6)
+  real(kind=wp) :: r2,r,wgt,tau
+  real(kind=wp) :: kx,ky,kz
+  real(kind=wp) :: xfreq_ref, u1, u2
+  integer :: ix,iy,ixf
+  integer :: i,jj,j0,il,il_e
+
+  il = photon%icell_amr
+
+  pobs      = photon
+  u1        = amr_grid%vfx(il)*photon%kx + amr_grid%vfy(il)*photon%ky + amr_grid%vfz(il)*photon%kz
+  xfreq_ref = (photon%xfreq + u1) * (amr_grid%Dfreq(il) / amr_grid%Dfreq_ref)
+  pobs%wgt  = 1.0_wp
+
+  ixf       = floor((xfreq_ref - amr_grid%xfreq_min)/amr_grid%dxfreq)+1
+
+  do i=1,par%nobs
+    pobs%kx = observer(i)%x
+    pobs%ky = observer(i)%y
+    pobs%kz = observer(i)%z - par%zs_point
+    r2      = pobs%kx*pobs%kx + pobs%ky*pobs%ky + pobs%kz*pobs%kz
+    r       = sqrt(r2)
+    pobs%kx = pobs%kx/r
+    pobs%ky = pobs%ky/r
+    pobs%kz = pobs%kz/r
+
+    kx = observer(i)%rmatrix(1,1)*pobs%kx + observer(i)%rmatrix(1,2)*pobs%ky + observer(i)%rmatrix(1,3)*pobs%kz
+    ky = observer(i)%rmatrix(2,1)*pobs%kx + observer(i)%rmatrix(2,2)*pobs%ky + observer(i)%rmatrix(2,3)*pobs%kz
+    kz = observer(i)%rmatrix(3,1)*pobs%kx + observer(i)%rmatrix(3,2)*pobs%ky + observer(i)%rmatrix(3,3)*pobs%kz
+
+    ix = floor(atan2(-kx,kz)*rad2deg/observer(i)%dxim+observer(i)%nxim/2.0_wp) + 1
+    iy = floor(atan2(-ky,kz)*rad2deg/observer(i)%dyim+observer(i)%nyim/2.0_wp) + 1
+
+    if (ix >= 1 .and. ix <= observer(i)%nxim .and. iy >= 1 .and. iy <= observer(i)%nyim) then
+       if (par%save_direc0) then
+          if (par%save_peeloff_2D) then
+             wgt = 1.0_wp/(fourpi*r2) * pobs%wgt
+             !$OMP ATOMIC UPDATE
+             observer(i)%direc0_2D(ix,iy) = observer(i)%direc0_2D(ix,iy) + wgt
+          endif
+          if (par%save_peeloff_3D .and. ixf >= 1 .and. ixf <= amr_grid%nxfreq) then
+             wgt = 1.0_wp/(fourpi*r2) * pobs%wgt
+             !$OMP ATOMIC UPDATE
+             observer(i)%direc0(ixf,ix,iy) = observer(i)%direc0(ixf,ix,iy) + wgt
+          endif
+       endif
+
+       if (pobs%kx == 0.0_wp) then
+          delt(1) = hugest;  delt(2) = hugest
+       else
+          delt(1) = amr_grid%xmax/pobs%kx
+          delt(2) = amr_grid%xmin/pobs%kx
+       endif
+       if (pobs%ky == 0.0_wp) then
+          delt(3) = hugest;  delt(4) = hugest
+       else
+          delt(3) = amr_grid%ymax/pobs%ky
+          delt(4) = amr_grid%ymin/pobs%ky
+       endif
+       if (pobs%kz == 0.0_wp) then
+          delt(5) = hugest;  delt(6) = hugest
+       else
+          delt(5) = (amr_grid%zmax-par%zs_point)/pobs%kz
+          delt(6) = (amr_grid%zmin-par%zs_point)/pobs%kz
+       endif
+
+       dist = hugest
+       j0   = 0
+       do jj=1,6
+          if (delt(jj) > 0.0_wp .and. delt(jj) < hugest) then
+             pobs%x = pobs%kx * delt(jj)
+             pobs%y = pobs%ky * delt(jj)
+             pobs%z = pobs%kz * delt(jj) + par%zs_point
+             if (pobs%x >= amr_grid%xmin .and. pobs%x <= amr_grid%xmax .and. &
+                 pobs%y >= amr_grid%ymin .and. pobs%y <= amr_grid%ymax .and. &
+                 pobs%z >= amr_grid%zmin .and. pobs%z <= amr_grid%zmax) then
+                if (delt(jj) < dist) then
+                   dist = delt(jj)
+                   j0   = jj
+                endif
+             endif
+          endif
+       enddo
+
+       if (dist < hugest) then
+          pobs%x = pobs%kx * dist
+          pobs%y = pobs%ky * dist
+          pobs%z = pobs%kz * dist + par%zs_point
+          !-- snap to box face exactly to reduce numerical errors.
+          if (j0 == 1) pobs%x = amr_grid%xmax
+          if (j0 == 2) pobs%x = amr_grid%xmin
+          if (j0 == 3) pobs%y = amr_grid%ymax
+          if (j0 == 4) pobs%y = amr_grid%ymin
+          if (j0 == 5) pobs%z = amr_grid%zmax
+          if (j0 == 6) pobs%z = amr_grid%zmin
+
+          il_e = amr_find_leaf(pobs%x, pobs%y, pobs%z)
+          if (il_e <= 0) then
+             wgt = 1.0_wp/(fourpi*r2) * pobs%wgt
+          else
+             pobs%icell_amr = il_e
+             pobs%icell = 1; pobs%jcell = 1; pobs%kcell = 1
+             u2 = amr_grid%vfx(il_e)*pobs%kx + amr_grid%vfy(il_e)*pobs%ky + amr_grid%vfz(il_e)*pobs%kz
+             pobs%xfreq = xfreq_ref * amr_grid%Dfreq_ref/amr_grid%Dfreq(il_e) - u2
+             call raytrace_to_edge_amr(pobs, grid, tau)
+             wgt = exp(-tau)/(fourpi*r2) * pobs%wgt
+          endif
+       else
+          wgt = 1.0_wp/(fourpi*r2) * pobs%wgt
+       endif
+
+       if (par%save_peeloff_2D) then
+          !$OMP ATOMIC UPDATE
+          observer(i)%direc_2D(ix,iy) = observer(i)%direc_2D(ix,iy) + wgt
+          if (par%use_stokes) then
+             !$OMP ATOMIC UPDATE
+             observer(i)%I_2D(ix,iy) = observer(i)%I_2D(ix,iy) + wgt
+          endif
+       endif
+       if (par%save_peeloff_3D .and. ixf >= 1 .and. ixf <= amr_grid%nxfreq) then
+          !$OMP ATOMIC UPDATE
+          observer(i)%direc(ixf,ix,iy) = observer(i)%direc(ixf,ix,iy) + wgt
+          if (par%use_stokes) then
+             !$OMP ATOMIC UPDATE
+             observer(i)%I(ixf,ix,iy) = observer(i)%I(ixf,ix,iy) + wgt
+          endif
+       endif
+    endif
+  enddo
+  end subroutine peeling_direct_point_illumination_amr
   !================================================
 end module point_illumination_mod

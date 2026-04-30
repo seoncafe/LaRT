@@ -24,6 +24,9 @@ module peelingoff_amr_mod
   public :: peeling_dust_stokes_amr
   public :: peeling_resonance_nostokes_amr
   public :: peeling_resonance_stokes_amr
+  public :: peeling_direct_inside_amr
+  public :: peeling_dust_nostokes_inside_amr
+  public :: peeling_resonance_nostokes_inside_amr
 
 contains
 
@@ -479,5 +482,202 @@ contains
     end if
   end do
   end subroutine peeling_resonance_stokes_amr
+
+  !=========================================================================
+  ! HEALPix inside-observer AMR variants.
+  ! These mirror peelingoff_heal.f90's inside routines but use amr_grid leaf
+  ! arrays via photon%icell_amr.  Stokes is intentionally not supported (the
+  ! Cartesian _inside path does not support Stokes either).
+  ! raytrace_to_dist is a procedure pointer already routed to raytrace_to_dist_amr
+  ! when par%use_amr_grid is set, so those calls remain unchanged.
+  !=========================================================================
+  subroutine peeling_direct_inside_amr(photon,grid)
+  use healpix
+  implicit none
+  type(photon_type), intent(in) :: photon
+  type(grid_type),   intent(in) :: grid
+  type(photon_type) :: pobs
+  real(wp) :: r2, r, wgt, wgt0, tau
+  real(wp) :: xfreq_ref, u1, u2
+  integer  :: ipix, ixf, il, i
+
+  il = photon%icell_amr
+
+  do i = 1, par%nobs
+    pobs    = photon
+    pobs%kx = observer(i)%x - photon%x
+    pobs%ky = observer(i)%y - photon%y
+    pobs%kz = observer(i)%z - photon%z
+    r2      = pobs%kx**2 + pobs%ky**2 + pobs%kz**2
+    r       = sqrt(r2)
+    pobs%kx = pobs%kx / r
+    pobs%ky = pobs%ky / r
+    pobs%kz = pobs%kz / r
+
+    call vec2pix(observer(i)%nside, -pobs%kx, -pobs%ky, -pobs%kz, ipix)
+
+    if (.not. par%comoving_source) then
+       u1 = amr_grid%vfx(il)*photon%kx + amr_grid%vfy(il)*photon%ky + amr_grid%vfz(il)*photon%kz
+       xfreq_ref = photon%xfreq + u1
+       u2 = amr_grid%vfx(il)*pobs%kx + amr_grid%vfy(il)*pobs%ky + amr_grid%vfz(il)*pobs%kz
+       pobs%xfreq = xfreq_ref - u2
+    else
+       u1 = amr_grid%vfx(il)*pobs%kx + amr_grid%vfy(il)*pobs%ky + amr_grid%vfz(il)*pobs%kz
+       xfreq_ref = photon%xfreq + u1
+    endif
+
+    xfreq_ref = xfreq_ref * (amr_grid%Dfreq(il) / grid%Dfreq_ref)
+    ixf       = floor((xfreq_ref - grid%xfreq_min)/grid%dxfreq) + 1
+
+    if (ipix >= 1 .and. ipix <= observer(i)%npix) then
+       call raytrace_to_dist(pobs,grid,r,tau)
+       wgt0 = 1.0_wp/(fourpi*r2) * photon%wgt
+       wgt  = exp(-tau)*wgt0
+
+       if (par%save_peeloff_2D) then
+          !$OMP ATOMIC UPDATE
+          observer(i)%direc_heal_2D(ipix) = observer(i)%direc_heal_2D(ipix) + wgt
+          if (par%save_direc0) then
+             !$OMP ATOMIC UPDATE
+             observer(i)%direc0_heal_2D(ipix) = observer(i)%direc0_heal_2D(ipix) + wgt0
+          endif
+       endif
+
+       if (par%save_peeloff_3D .and. ixf >= 1 .and. ixf <= grid%nxfreq) then
+          !$OMP ATOMIC UPDATE
+          observer(i)%direc_heal(ixf,ipix) = observer(i)%direc_heal(ixf,ipix) + wgt
+          if (par%save_direc0) then
+             !$OMP ATOMIC UPDATE
+             observer(i)%direc0_heal(ixf,ipix) = observer(i)%direc0_heal(ixf,ipix) + wgt0
+          endif
+       endif
+    endif
+  end do
+  end subroutine peeling_direct_inside_amr
+
+  !=========================================================================
+  subroutine peeling_dust_nostokes_inside_amr(photon,grid)
+  use healpix
+  implicit none
+  type(photon_type), intent(in) :: photon
+  type(grid_type),   intent(in) :: grid
+  type(photon_type) :: pobs
+  real(wp) :: r2, r, cosa, wgt, peel, tau
+  real(wp) :: xfreq_ref, u1
+  integer  :: ipix, ixf, il, i
+
+  il = photon%icell_amr
+
+  do i = 1, par%nobs
+    pobs    = photon
+    pobs%kx = observer(i)%x - photon%x
+    pobs%ky = observer(i)%y - photon%y
+    pobs%kz = observer(i)%z - photon%z
+    r2      = pobs%kx**2 + pobs%ky**2 + pobs%kz**2
+    r       = sqrt(r2)
+    pobs%kx = pobs%kx / r
+    pobs%ky = pobs%ky / r
+    pobs%kz = pobs%kz / r
+
+    call vec2pix(observer(i)%nside, -pobs%kx, -pobs%ky, -pobs%kz, ipix)
+
+    if (ipix >= 1 .and. ipix <= observer(i)%npix) then
+       u1 = amr_grid%vfx(il)*pobs%kx + amr_grid%vfy(il)*pobs%ky + amr_grid%vfz(il)*pobs%kz
+       xfreq_ref = photon%xfreq + u1
+
+       xfreq_ref = xfreq_ref * (amr_grid%Dfreq(il) / grid%Dfreq_ref)
+       ixf       = floor((xfreq_ref - grid%xfreq_min)/grid%dxfreq) + 1
+
+       call raytrace_to_dist(pobs,grid,r,tau)
+       cosa = photon%kx*pobs%kx + photon%ky*pobs%ky + photon%kz*pobs%kz
+       peel = (1.0_wp - par%hgg**2)/((1.0_wp + par%hgg**2) - 2.0_wp*par%hgg*cosa)**1.5_wp / fourpi
+       wgt  = peel/r2 * exp(-tau) * photon%wgt
+
+       if (par%save_peeloff_2D) then
+          !$OMP ATOMIC UPDATE
+          observer(i)%scatt_heal_2D(ipix) = observer(i)%scatt_heal_2D(ipix) + wgt
+       endif
+       if (par%save_peeloff_3D .and. ixf >= 1 .and. ixf <= grid%nxfreq) then
+          !$OMP ATOMIC UPDATE
+          observer(i)%scatt_heal(ixf,ipix) = observer(i)%scatt_heal(ixf,ipix) + wgt
+       endif
+    endif
+  end do
+  end subroutine peeling_dust_nostokes_inside_amr
+
+  !=========================================================================
+  subroutine peeling_resonance_nostokes_inside_amr(photon,grid,xfreq_atom,vel_atom)
+  use healpix
+  use random
+  implicit none
+  type(photon_type), intent(in) :: photon
+  type(grid_type),   intent(in) :: grid
+  real(wp),          intent(in) :: xfreq_atom
+  real(wp),          intent(in) :: vel_atom(3)
+  type(photon_type) :: pobs
+  real(wp) :: r2, r, wgt, peel, tau
+  real(wp) :: cost, cost2, sint, cosp, sinp, rho1, rho
+  real(wp) :: xfreq_ref, xfreq, g_recoil, u1
+  integer  :: ipix, ixf, il, i
+
+  il = photon%icell_amr
+
+  do i = 1, par%nobs
+    pobs    = photon
+    pobs%kx = observer(i)%x - photon%x
+    pobs%ky = observer(i)%y - photon%y
+    pobs%kz = observer(i)%z - photon%z
+    r2      = pobs%kx**2 + pobs%ky**2 + pobs%kz**2
+    r       = sqrt(r2)
+    pobs%kx = pobs%kx / r
+    pobs%ky = pobs%ky / r
+    pobs%kz = pobs%kz / r
+
+    call vec2pix(observer(i)%nside, -pobs%kx, -pobs%ky, -pobs%kz, ipix)
+
+    if (ipix >= 1 .and. ipix <= observer(i)%npix) then
+       cost  = photon%kx*pobs%kx + photon%ky*pobs%ky + photon%kz*pobs%kz
+       cost2 = cost**2
+       sint  = sqrt(1.0_wp - cost2)
+       rho1  = sqrt(1.0_wp - photon%kz**2) * sint
+
+       if (rho1 == 0.0_wp) then
+          cosp  = 1.0_wp
+          sinp  = 0.0_wp
+          xfreq = xfreq_atom + (vel_atom(1)*cosp + vel_atom(2)*sinp)*sint + vel_atom(3)*cost
+       else
+          rho   = 1.0_wp/rho1
+          cosp  = rho * (cost*photon%kz - pobs%kz)
+          sinp  = rho * (photon%kx*pobs%ky - pobs%kx*photon%ky)
+          xfreq = xfreq_atom + (vel_atom(1)*cosp + vel_atom(2)*sinp)*sint + vel_atom(3)*cost
+       endif
+
+       if (par%recoil) then
+          g_recoil = line%g_recoil0 / amr_grid%Dfreq(il)
+          xfreq    = xfreq - g_recoil * (1.0_wp - cost)
+       endif
+
+       u1 = amr_grid%vfx(il)*pobs%kx + amr_grid%vfy(il)*pobs%ky + amr_grid%vfz(il)*pobs%kz
+       xfreq_ref = xfreq + u1
+
+       xfreq_ref = xfreq_ref * (amr_grid%Dfreq(il) / grid%Dfreq_ref)
+       ixf       = floor((xfreq_ref - grid%xfreq_min)/grid%dxfreq) + 1
+
+       pobs%xfreq = xfreq
+       call raytrace_to_dist(pobs,grid,r,tau)
+       peel = three_over_four * photon%E1 * (cost2 + 1.0_wp) + photon%E2
+       wgt  = peel/(fourpi*r2) * exp(-tau) * photon%wgt
+
+       if (par%save_peeloff_2D) then
+          !$OMP ATOMIC UPDATE
+          observer(i)%scatt_heal_2D(ipix) = observer(i)%scatt_heal_2D(ipix) + wgt
+       endif
+       if (par%save_peeloff_3D .and. ixf >= 1 .and. ixf <= grid%nxfreq) then
+          !$OMP ATOMIC UPDATE
+          observer(i)%scatt_heal(ixf,ipix) = observer(i)%scatt_heal(ixf,ipix) + wgt
+       endif
+    endif
+  end do
+  end subroutine peeling_resonance_nostokes_inside_amr
 
 end module peelingoff_amr_mod

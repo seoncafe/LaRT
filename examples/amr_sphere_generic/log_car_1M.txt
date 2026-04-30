@@ -1,0 +1,27 @@
+
++++++ sphere_car_inside_test1M.in +++++
+ >>> START @ 2026/04/30 17:10:42
+Use_Master_Slave          : T
+Line ID                   : ly_alpha
+Dust Parameters(a, g)     :  0.3253 0.6761
+Dust-to-Gas Ratio         :    0.000E+00
+Total number of photons   :    1.000E+06
+voigt_a          :        4.719E-04
+temperature (K)  :        1.000E+04
+N(H  I)_pole     :        1.695E+17
+N(H  I)_homo     :        1.695E+17
+tau_pole  (H  I) :        1.000E+04
+tau_homo  (H  I) :        1.000E+04
+tau_pole  (dust) :        0.000E+00
+tau_homo  (dust) :        0.000E+00
+---> Now starting simulation...  @    0.001 mins
+   2.00000E+05 photons calculated:    1.412 mins
+   4.00000E+05 photons calculated:    2.790 mins
+   6.00000E+05 photons calculated:    4.181 mins
+   8.00000E+05 photons calculated:    5.575 mins
+   1.00000E+06 photons calculated:    6.963 mins
+---> Now Gathering Results...
+Average Number of scattering :   2.8225E+04
+Nscatt_dust, Nscatt_gas      :   0.0000E+00  2.8225E+04
+Total Excution Time          :    6.963 mins
+ >>> STOP  @ 2026/04/30 17:17:40

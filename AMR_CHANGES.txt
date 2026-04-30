@@ -2,8 +2,182 @@
 LaRT_v2.00 AMR (Adaptive Mesh Refinement) Extension
 ================================================================================
 Date: 2026-04-18  (initial)
-Last updated: 2026-04-29
+Last updated: 2026-04-30
 Author: Kwang-Il Seon
+
+Update note (2026-04-30b) -- xy_periodic + xy/xyz_symmetry support in
+                               AMR raytrace:
+
+  raytrace_amr.f90 now handles the same boundary flags that the Cartesian
+  raytrace_to_tau_car_xyper / _xysym / _xyzsym variants handle:
+
+    par%xy_periodic   (e.g. plane_atmosphere): wrap photon at +/-x and
+                      +/-y faces using amr_grid%xrange / yrange, then
+                      re-locate the leaf via amr_find_leaf.
+    par%xy_symmetry   (mirror at xmin and ymin): specular reflection
+                      kx -> -kx (face -x) or ky -> -ky (face -y); photon
+                      stays in the same leaf.  Lab-frame frequency is
+                      preserved (Df ratio = 1 in same cell, so xfreq is
+                      shifted only by the new u1 - u2 in the same cell).
+    par%xyz_symmetry  (mirror at xmin, ymin, zmin): same as xy_symmetry
+                      with kz -> -kz on face -z added.
+
+  Reflection assumption: AMR leaves do NOT straddle the symmetry plane
+  (i.e. leaf faces coincide with amr_grid%xmin / ymin / zmin).  This
+  holds for all generic AMR datasets that are built on the centred
+  [-boxlen/2, +boxlen/2] octree root and refined uniformly.
+
+  Implementation details:
+
+    All 7 routines updated:
+      raytrace_to_tau_amr            (modifies photon)
+      raytrace_to_edge_amr           (read-only photon0)
+      raytrace_to_edge_tau_gas_amr
+      raytrace_to_edge_column_amr
+      raytrace_to_dist_amr
+      raytrace_to_dist_tau_gas_amr
+      raytrace_to_dist_column_amr
+
+    raytrace_to_tau_amr was also restructured to update the running
+    x/y/z position in place (advancing by t_exit at face crossings and
+    by d_step at the in-cell overshoot exit), instead of accumulating a
+    separate distance d and applying photon%x = photon%x_in + d*kx at
+    the end.  This avoids breaking the final-position update under
+    direction reflection.
+
+    The frequency-shift formula is unchanged for the cross-cell case:
+      xfreq_new = (xfreq + u1) * Df_old / Df_new - u2
+    The reflection branch reduces this to (Df ratio = 1 in same cell):
+      xfreq_new = (xfreq + u1) - u2,   u2 computed with reflected k.
+
+    For the read-only routines (raytrace_to_edge_*, raytrace_to_dist_*)
+    the local kx/ky/kz copies (initialised from photon0) are flipped on
+    reflection; photon0 itself is never modified.
+
+    Note: v2.00 still uses the global amr_grid (procedure-pointer
+    pattern); the routines therefore take type(grid_type) for the
+    placeholder grid argument and read amr_grid%xrange etc. directly.
+    v2.10 carries an equivalent set of changes against the explicit
+    type(amr_grid_type) arguments used by the class-based dispatch.
+
+  Setup interaction: par%geometry = 'plane_atmosphere' continues to set
+  par%xy_periodic = .true. (independent of par%use_amr_grid), so AMR
+  runs automatically pick up the new wrap path when the user requests
+  plane_atmosphere with par%use_amr_grid = .true.
+
+  Validation:
+    - Sphere regression (sphere_amr_tau2_point.in): NSC = 240.97,
+      Jout_max = 6.83e-3 at vel = +26.75 km/s, matching prior runs to
+      RNG noise (confirmed the new boundary code is non-disruptive when
+      xy_periodic / xy_symmetry / xyz_symmetry are all .false.).
+    - plane_atmosphere smoke test (boxlen = 2, level 3, T = 1e4,
+      tau = 1e3, voigt source at box centre): all 1e6 photons accounted
+      for (Jin sum = Jout sum), symmetric double-peak at +/- 33.97 km/s,
+      ~5912 mean scatterings.  Result agrees with the v2.10 sibling
+      (NSC = 5903, Jout sum identical to 4 sig figs).
+
+Update note (2026-04-30) -- HEALPix inside-observer support for AMR
+                            and Jin accumulation fix:
+
+  (1) HEALPix inside-observer (par%nside > 0) is now supported when
+      par%use_amr_grid = .true.  Previously setup.f90 aborted with
+        "ERROR: nside>0 (HEALPIX inside observer) is not supported with
+         AMR or clump mode"
+      The guard now blocks only the clumpy-medium path; the AMR path
+      goes through new _inside_amr peeling, output and sightline
+      routines that mirror the Cartesian _inside chain.
+
+      Source scope matches the Cartesian _inside path: internal
+      sources only (point, uniform, gaussian, exponential, sersic,
+      diffuse_emissivity).  Stokes is not supported on the _inside
+      path (mirroring Cartesian).
+
+      New routines (peelingoff_amr.f90):
+        peeling_direct_inside_amr      (point/uniform/... sources)
+        peeling_dust_nostokes_inside_amr
+        peeling_resonance_nostokes_inside_amr
+      All use observer(i)%direc_heal[_2D] / scatt_heal[_2D] HEALPix
+      maps (vec2pix(observer(i)%nside, ...)), per-cell Voigt scaling
+      via amr_grid%Dfreq(il)/Dfreq_ref, raytrace_to_dist for
+      attenuation along the line of sight to the inside observer.
+
+      New routines (output_sum_heal.f90):
+        output_reduce_inside_amr      reduces amr_grid%J{out,in,abs,mu}
+                                       and the HEALPix observer arrays
+        output_normalize_inside_amr   uses area = fourpi*distance2cm^2
+                                       (AMR convention; matches
+                                       output_normalize_amr) so Jout/Jin
+                                       are independent of L_box.
+
+      New routine (sightline_tau_heal.f90):
+        make_sightline_tau_inside_amr  walks from the observer to each
+                                        +x/-x/+y/-y/+z/-z box face along
+                                        a ray, accumulating tau/N(HI)
+                                        via raytrace_to_dist_tau_gas_amr
+                                        and raytrace_to_dist_column_amr.
+
+      Wiring (setup.f90 setup_procedure):
+        AMR + observer_located_inside ->
+          output_reduce              => output_reduce_inside_amr
+          output_normalize           => output_normalize_inside_amr
+          write_output               => write_output_inside
+          peeling_direct             => peeling_direct_inside_amr
+          peeling_dust_nostokes      => peeling_dust_nostokes_inside_amr
+          peeling_resonance_nostokes => peeling_resonance_nostokes_inside_amr
+          observer_create            => observer_create_inside
+          observer_destroy           => observer_destroy_inside
+          make_sightline_tau         => make_sightline_tau_inside_amr
+
+      Validation (1e6 photons, T=1e4 K, taumax=1e4, point source at
+      origin, observer at obsx=0.3, nside=8, uniform sphere AMR vs
+      nx=ny=nz=64 Cartesian):
+        Jout sum               AMR=8.5135e-2  CAR=8.5136e-2 (identical)
+        Jin  sum               AMR=8.5135e-2  CAR=8.5136e-2 (identical;
+                               see fix (2) below)
+        Scattered HEALPix sum  AMR=3021       CAR=3149 (~4% diff,
+                               consistent with octree volume averaging)
+        Direct HEALPix sum     AMR=0.0513     CAR=0.0452 (low-stat from
+                               very few unscattered photons at tau=1e4)
+
+      Mirrored to LaRT_v2.10 (class-based path).  In v2.10 the dispatch
+      lives in grid_class.f90 (amr_output_reduce / amr_output_normalize
+      / amr_write_output / amr_observer_create / amr_observer_destroy
+      / amr_make_sightline_tau each branch on
+      par%observer_located_inside), and the inside_amr peeling helpers
+      receive amr (type(amr_grid_type), intent(in)) as an explicit
+      parameter rather than reading the global amr_grid.
+
+  (2) Pre-existing Jin=0 bug in AMR mode fixed.
+
+      Symptom: after the 2026-04-30 inside_amr smoke test the AMR run
+      reported Spectrum/Jin sum = 0 while Jout was correct, in both
+      _outside and _inside variants.
+
+      Root cause: generate_photon.f90 wrote photon weight to grid%Jin
+      regardless of grid mode, but output_reduce_amr (line 555) and
+      output_reduce_inside_amr (line 364) overwrite grid%Jin with
+      amr_grid%Jin (which was never accumulated):
+        grid%Jin = amr_grid%Jin
+      grid%Jin and amr_grid%Jin are independent allocations
+      (amr_sync_to_grid allocates separate grid%Jin initialised to 0),
+      so the accumulated counts in grid%Jin were lost on reduce.
+
+      Fix: generate_photon.f90 -- in the par%save_Jin branch, dispatch
+      on par%use_amr_grid:
+        if (par%use_amr_grid) then
+           !$OMP ATOMIC UPDATE
+           amr_grid%Jin(ix) = amr_grid%Jin(ix) + photon%wgt
+        else
+           !$OMP ATOMIC UPDATE
+           grid%Jin(ix) = grid%Jin(ix) + photon%wgt
+        endif
+      This matches v2.10's design (generate_photon_amr.f90 already
+      writes to amr%Jin natively) and the existing Jabs/Jout/Jmu
+      accumulation pattern in raytrace_amr / scattering_amr (which
+      write to amr_grid%* directly).
+
+      Validation: post-fix v2.00 AMR Jin sum = 8.5135e-2 (matches CAR
+      to four digits; matches v2.10 AMR Jin to five digits).
 
 Update note (2026-04-29) -- new output: Jmu (escaped spectrum vs cos(theta_z)):
 Added a new output array Jmu(nxfreq, nmu) that records the escaped

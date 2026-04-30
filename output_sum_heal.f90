@@ -339,4 +339,109 @@ contains
 
   end subroutine output_normalize_inside
 !--------------------------------------------------------------
+  subroutine output_reduce_inside_amr(grid)
+  !-- AMR + inside-observer reduction.
+  !-- Reduces amr_grid%J* (then copies to grid%J*) plus HEALPix observer arrays.
+  use octree_mod, only: amr_grid
+  implicit none
+  type(grid_type), intent(inout) :: grid
+  integer :: k, ierr
+
+  call MPI_ALLREDUCE(MPI_IN_PLACE, par%nscatt_dust, 1, MPI_DOUBLE_PRECISION, MPI_SUM, MPI_COMM_WORLD, ierr)
+  call MPI_ALLREDUCE(MPI_IN_PLACE, par%nscatt_gas,  1, MPI_DOUBLE_PRECISION, MPI_SUM, MPI_COMM_WORLD, ierr)
+  call MPI_ALLREDUCE(MPI_IN_PLACE, par%nrejected,   1, MPI_DOUBLE_PRECISION, MPI_SUM, MPI_COMM_WORLD, ierr)
+
+  call MPI_ALLREDUCE(MPI_IN_PLACE, amr_grid%Jout(1), amr_grid%nxfreq, MPI_DOUBLE_PRECISION, MPI_SUM, MPI_COMM_WORLD, ierr)
+  if (allocated(amr_grid%Jin)) &
+     call MPI_ALLREDUCE(MPI_IN_PLACE, amr_grid%Jin(1),  amr_grid%nxfreq, MPI_DOUBLE_PRECISION, MPI_SUM, MPI_COMM_WORLD, ierr)
+  if (allocated(amr_grid%Jabs)) &
+     call MPI_ALLREDUCE(MPI_IN_PLACE, amr_grid%Jabs(1), amr_grid%nxfreq, MPI_DOUBLE_PRECISION, MPI_SUM, MPI_COMM_WORLD, ierr)
+  if (allocated(amr_grid%Jmu)) &
+     call MPI_ALLREDUCE(MPI_IN_PLACE, amr_grid%Jmu(1,1), amr_grid%nxfreq*size(amr_grid%Jmu,2), &
+                         MPI_DOUBLE_PRECISION, MPI_SUM, MPI_COMM_WORLD, ierr)
+
+  grid%Jout = amr_grid%Jout
+  if (allocated(amr_grid%Jin))  grid%Jin  = amr_grid%Jin
+  if (allocated(amr_grid%Jabs)) grid%Jabs = amr_grid%Jabs
+  if (allocated(amr_grid%Jmu))  grid%Jmu  = amr_grid%Jmu
+
+  if (par%save_peeloff_2D) then
+     do k = 1, par%nobs
+        call reduce_mem(observer(k)%scatt_heal_2D)
+        call reduce_mem(observer(k)%direc_heal_2D)
+        if (par%save_direc0) call reduce_mem(observer(k)%direc0_heal_2D)
+     enddo
+  endif
+  if (par%save_peeloff_3D) then
+     do k = 1, par%nobs
+        call reduce_mem(observer(k)%scatt_heal)
+        call reduce_mem(observer(k)%direc_heal)
+        if (par%save_direc0) call reduce_mem(observer(k)%direc0_heal)
+     enddo
+  endif
+  call MPI_BARRIER(MPI_COMM_WORLD, ierr)
+  end subroutine output_reduce_inside_amr
+!--------------------------------------------------------------
+  subroutine output_normalize_inside_amr(grid)
+  !-- AMR + inside-observer normalization.
+  !-- Uses the AMR-convention area = fourpi * distance2cm**2 (matches output_normalize_amr),
+  !-- so Jout/Jin are independent of L_box. HEALPix observer arrays are
+  !-- normalized identically to the Cartesian _inside path.
+  implicit none
+  type(grid_type), intent(inout) :: grid
+  real(wp) :: area, scale_factor, intensity_bin_unit
+  integer  :: k
+
+  par%nscatt_dust = par%nscatt_dust / par%nphotons
+  par%nscatt_gas  = par%nscatt_gas  / par%nphotons
+  par%nscatt_tot  = par%nscatt_gas  + par%nscatt_dust
+
+  if (par%intensity_unit == 1) then
+     intensity_bin_unit = grid%dwave
+  else
+     intensity_bin_unit = grid%dxfreq
+  endif
+
+  area = fourpi * par%distance2cm**2
+
+  grid%Jout(:) = grid%Jout(:) / (par%nphotons * intensity_bin_unit * twopi * area)
+  if (associated(grid%Jin)) &
+     grid%Jin(:)  = grid%Jin(:)  / (par%nphotons * intensity_bin_unit * twopi * area)
+  if (associated(grid%Jabs)) &
+     grid%Jabs(:) = grid%Jabs(:) / (par%nphotons * intensity_bin_unit * twopi * area)
+  if (associated(grid%Jmu)) &
+     grid%Jmu(:,:) = grid%Jmu(:,:) * par%nmu / (par%nphotons * intensity_bin_unit * twopi * area)
+
+  if (trim(par%spectral_type) == 'continuum' .and. par%continuum_normalize) then
+     if (.not. associated(grid%Jin)) then
+        if (mpar%p_rank == 0) write(*,*) 'ERROR: continuum_normalize=T requires save_Jin=T'
+        call MPI_ABORT(MPI_COMM_WORLD, 1, k)
+     endif
+     scale_factor = sum(grid%Jin)/size(grid%Jin)
+     grid%Jout(:) = grid%Jout(:)/scale_factor
+     grid%Jin(:)  = grid%Jin(:) /scale_factor
+     if (associated(grid%Jabs)) grid%Jabs(:) = grid%Jabs(:)/scale_factor
+     if (associated(grid%Jmu))  grid%Jmu(:,:) = grid%Jmu(:,:)/scale_factor
+  endif
+
+  if (par%save_peeloff_2D) then
+     do k = 1, par%nobs
+        scale_factor = par%no_photons*observer(k)%steradian_pix * par%distance2cm**2
+        observer(k)%scatt_heal_2D(:) = observer(k)%scatt_heal_2D(:) / scale_factor
+        observer(k)%direc_heal_2D(:) = observer(k)%direc_heal_2D(:) / scale_factor
+        if (par%save_direc0) &
+           observer(k)%direc0_heal_2D(:) = observer(k)%direc0_heal_2D(:) / scale_factor
+     enddo
+  endif
+  if (par%save_peeloff_3D) then
+     do k = 1, par%nobs
+        scale_factor = par%no_photons*observer(k)%steradian_pix * intensity_bin_unit * par%distance2cm**2
+        observer(k)%scatt_heal(:,:) = observer(k)%scatt_heal(:,:) / scale_factor
+        observer(k)%direc_heal(:,:) = observer(k)%direc_heal(:,:) / scale_factor
+        if (par%save_direc0) &
+           observer(k)%direc0_heal(:,:) = observer(k)%direc0_heal(:,:) / scale_factor
+     enddo
+  endif
+  end subroutine output_normalize_inside_amr
+!--------------------------------------------------------------
 end module output_sum_heal

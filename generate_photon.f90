@@ -108,26 +108,15 @@ contains
      call setup_isotropic_injection(grid,photon)
      if (par%sampling_method > 0) photon%wgt = star%wgt(idx)
   case ('plane_illumination')
-     if (par%use_amr_grid) then
-        photon%x = par%xs_point; photon%y = par%ys_point; photon%z = par%zs_point
-        call setup_isotropic_injection(grid,photon)
-     else
-        call random_plane_illumination(grid,photon)
-     endif
+     call random_plane_illumination(grid,photon)
   case ('stellar_illumination')
      if (par%use_amr_grid) then
-        photon%x = par%xs_point; photon%y = par%ys_point; photon%z = par%zs_point
-        call setup_isotropic_injection(grid,photon)
+        call random_stellar_illumination_amr(grid,photon)
      else
         call random_stellar_illumination(grid,photon)
      endif
   case ('point_illumination')
-     if (par%use_amr_grid) then
-        photon%x = par%xs_point; photon%y = par%ys_point; photon%z = par%zs_point
-        call setup_isotropic_injection(grid,photon)
-     else
-        call random_point_illumination(grid,photon)
-     endif
+     call random_point_illumination(grid,photon)
   case ('diffuse_emissivity')
      call setup_diffuse_emissivity(grid,photon)
   case default
@@ -276,8 +265,13 @@ contains
      xfreq_lab = (photon%xfreq + u1) * (Dfreq_local / grid%Dfreq_ref)
      ix        = floor((xfreq_lab - grid%xfreq_min)/grid%dxfreq)+1
      if (ix >= 1 .and. ix <= grid%nxfreq) then
-        !$OMP ATOMIC UPDATE
-        grid%Jin(ix) = grid%Jin(ix) + photon%wgt
+        if (par%use_amr_grid) then
+           !$OMP ATOMIC UPDATE
+           amr_grid%Jin(ix) = amr_grid%Jin(ix) + photon%wgt
+        else
+           !$OMP ATOMIC UPDATE
+           grid%Jin(ix) = grid%Jin(ix) + photon%wgt
+        endif
      endif
   endif
 
@@ -671,6 +665,7 @@ contains
   subroutine random_plane_illumination(grid,photon)
   use define
   use random
+  use octree_mod, only: amr_find_leaf
   implicit none
   type(grid_type),   intent(in)    :: grid
   type(photon_type), intent(inout) :: photon
@@ -697,7 +692,7 @@ contains
      photon%z = grid%zmin
   endif
 
-  if (par%xyz_symmetry) then
+  if (.not. par%use_amr_grid .and. par%xyz_symmetry) then
      if (photon%x < grid%xmin) photon%x = -photon%x
      if (photon%y < grid%ymin) photon%y = -photon%y
      if (photon%z < grid%zmin) photon%z = -photon%z
@@ -720,13 +715,20 @@ contains
   photon%kz = cost
 
   !--- Cell Index
-  photon%icell = floor((photon%x-grid%xmin)/grid%dx)+1
-  photon%jcell = floor((photon%y-grid%ymin)/grid%dy)+1
-  photon%kcell = floor((photon%z-grid%zmin)/grid%dz)+1
-  !--- This treatment is necessary for the external illuminating source (2021.04.25).
-  if (photon%kx < 0.0_wp .and. photon%icell == grid%nx+1) photon%icell = grid%nx
-  if (photon%ky < 0.0_wp .and. photon%jcell == grid%ny+1) photon%jcell = grid%ny
-  if (photon%kz < 0.0_wp .and. photon%kcell == grid%nz+1) photon%kcell = grid%nz
+  if (par%use_amr_grid) then
+     photon%icell_amr = amr_find_leaf(photon%x, photon%y, photon%z)
+     photon%icell = 1
+     photon%jcell = 1
+     photon%kcell = 1
+  else
+     photon%icell = floor((photon%x-grid%xmin)/grid%dx)+1
+     photon%jcell = floor((photon%y-grid%ymin)/grid%dy)+1
+     photon%kcell = floor((photon%z-grid%zmin)/grid%dz)+1
+     !--- This treatment is necessary for the external illuminating source (2021.04.25).
+     if (photon%kx < 0.0_wp .and. photon%icell == grid%nx+1) photon%icell = grid%nx
+     if (photon%ky < 0.0_wp .and. photon%jcell == grid%ny+1) photon%jcell = grid%ny
+     if (photon%kz < 0.0_wp .and. photon%kcell == grid%nz+1) photon%kcell = grid%nz
+  endif
 
   if (par%use_stokes) then
      !--- Set the reference normal vectors (m) and (n) perpendicular to the propagation direction.
