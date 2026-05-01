@@ -212,7 +212,11 @@ contains
        end if
 
        if (par%recoil) then
-          g_recoil = line%g_recoil0 / amr_grid%Dfreq(il)
+          if (line%line_type == 7 .and. line%selected_species_HD == 2) then
+             g_recoil = line%g_recoil0_D / amr_grid%Dfreq(il)
+          else
+             g_recoil = line%g_recoil0   / amr_grid%Dfreq(il)
+          endif
           xfreq    = xfreq - g_recoil * (1.0_wp - cost)
        end if
 
@@ -423,7 +427,11 @@ contains
 
        xfreq = xfreq_atom + (vel_atom(1)*cosp + vel_atom(2)*sinp)*sint + vel_atom(3)*cost
        if (par%recoil) then
-          g_recoil = line%g_recoil0 / amr_grid%Dfreq(il)
+          if (line%line_type == 7 .and. line%selected_species_HD == 2) then
+             g_recoil = line%g_recoil0_D / amr_grid%Dfreq(il)
+          else
+             g_recoil = line%g_recoil0   / amr_grid%Dfreq(il)
+          endif
           xfreq    = xfreq - g_recoil * (1.0_wp - cost)
        end if
 
@@ -653,7 +661,11 @@ contains
        endif
 
        if (par%recoil) then
-          g_recoil = line%g_recoil0 / amr_grid%Dfreq(il)
+          if (line%line_type == 7 .and. line%selected_species_HD == 2) then
+             g_recoil = line%g_recoil0_D / amr_grid%Dfreq(il)
+          else
+             g_recoil = line%g_recoil0   / amr_grid%Dfreq(il)
+          endif
           xfreq    = xfreq - g_recoil * (1.0_wp - cost)
        endif
 

@@ -1,0 +1,21 @@
+&parameters
+ par%no_photons      = 5e5
+ par%temperature     = 1.0e4
+ par%taumax          = 1.0e4
+ par%DGR             = 0.0
+ par%Vexp            = 0.0
+ par%xyz_symmetry    = .true.
+ par%comoving_source = .false.
+ par%save_all        = .false.
+ par%recoil          = .false.
+ par%spectral_type   = 'voigt'
+ par%line_id         = 'ly_alpha_HD'
+ par%D_to_H_ratio    = 0.0
+ par%nx              = 101
+ par%ny              = 101
+ par%nz              = 101
+ par%nxfreq          = 201
+ par%rmax            = 1.0
+ par%nprint          = 100000
+ par%out_file        = 'sphere_HD_zero.fits.gz'
+/

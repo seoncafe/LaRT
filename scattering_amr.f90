@@ -27,6 +27,7 @@ module scattering_amr_mod
   public :: do_resonance4_amr
   public :: do_resonance5_amr
   public :: do_resonance6_amr
+  public :: do_resonance_HD_amr
   public :: scattering_amr_dispatch
 
 contains
@@ -167,10 +168,20 @@ contains
       uxy  = sqrt(-log(rand_number()))
       ux   = uxy * cos(phi2);  uy = uxy * sin(phi2)
     end if
+    !-- For ly_alpha_HD D scatter: convert atom perpendicular velocity
+    !-- from D Doppler units to caller's H-Doppler convention.
+    !-- Same factor as for uz: divide by ratio_Dfreq_HD = Dfreq_H/Dfreq_D.
+    if (line%line_type == 7 .and. line%selected_species_HD == 2) then
+       ux = ux / line%ratio_Dfreq_HD
+       uy = uy / line%ratio_Dfreq_HD
+    endif
     photon%xfreq = xfreq_atom + uz*cost + (ux*cosp + uy*sinp)*sint
-
     if (par%recoil) then
-      g_recoil     = line%g_recoil0 / amr_grid%Dfreq(il)
+      if (line%line_type == 7 .and. line%selected_species_HD == 2) then
+         g_recoil = line%g_recoil0_D / amr_grid%Dfreq(il)
+      else
+         g_recoil = line%g_recoil0   / amr_grid%Dfreq(il)
+      endif
       photon%xfreq = photon%xfreq - g_recoil * (1.0_wp - cost)
     end if
 
@@ -331,15 +342,33 @@ contains
       phi2 = twopi * rand_number()
       uxy  = sqrt(amr_grid%xcrit2 - log(rand_number()))
       ux   = uxy * cos(phi2);  uy = uxy * sin(phi2)
+      !-- For ly_alpha_HD D scatter: convert atom perpendicular velocity
+      !-- from D Doppler units to caller's H-Doppler convention.
+      !-- Same factor as for uz: divide by ratio_Dfreq_HD = Dfreq_H/Dfreq_D.
+      if (line%line_type == 7 .and. line%selected_species_HD == 2) then
+         ux = ux / line%ratio_Dfreq_HD
+         uy = uy / line%ratio_Dfreq_HD
+      endif
       photon%xfreq = xfreq_atom + uz*cost + (ux*cosp + uy*sinp)*sint
     else
       ux   = rand_gauss() * one_over_sqrt2
       uy   = rand_gauss() * one_over_sqrt2
+      !-- For ly_alpha_HD D scatter: convert atom perpendicular velocity
+      !-- from D Doppler units to caller's H-Doppler convention.
+      !-- Same factor as for uz: divide by ratio_Dfreq_HD = Dfreq_H/Dfreq_D.
+      if (line%line_type == 7 .and. line%selected_species_HD == 2) then
+         ux = ux / line%ratio_Dfreq_HD
+         uy = uy / line%ratio_Dfreq_HD
+      endif
       photon%xfreq = xfreq_atom + uz*cost + (ux*cosp + uy*sinp)*sint
     end if
 
     if (par%recoil) then
-      g_recoil     = line%g_recoil0 / amr_grid%Dfreq(il)
+      if (line%line_type == 7 .and. line%selected_species_HD == 2) then
+         g_recoil = line%g_recoil0_D / amr_grid%Dfreq(il)
+      else
+         g_recoil = line%g_recoil0   / amr_grid%Dfreq(il)
+      endif
       photon%xfreq = photon%xfreq - g_recoil * (1.0_wp - cost)
     end if
 
@@ -633,5 +662,66 @@ contains
       S44 = three_over_two  * photon%E3 * cost
     end if
   end subroutine do_resonance6_amr
+
+  !=========================================================================
+  ! AMR do_resonance for line_type=7: combined H + D Lyman-α.
+  ! Mirrors line_mod::do_resonance_HD but reads voigt_a / Dfreq from amr_grid.
+  !=========================================================================
+  subroutine do_resonance_HD_amr(photon, grid, uz, xfreq_atom, cost, sint, &
+                                  S11, S22, S12, S33, S44)
+    use define
+    implicit none
+    type(photon_type), intent(inout) :: photon
+    type(grid_type),   intent(in)    :: grid
+    real(wp),          intent(out)   :: uz, xfreq_atom, cost, sint
+    real(wp), optional, intent(out)  :: S11, S22, S12, S33, S44
+
+    integer  :: il
+    real(wp) :: voigt_a_H, dx_HD, xfreq_D
+    real(wp) :: pH, pD_term, pH_norm
+    real(wp) :: uz_D
+    real(wp) :: cost2
+
+    il = photon%icell_amr
+    voigt_a_H = amr_grid%voigt_a(il)
+    dx_HD     = line%delta_nu_HD_Hz / amr_grid%Dfreq(il)
+    xfreq_D   = (photon%xfreq - dx_HD) * line%ratio_Dfreq_HD
+
+    pH      = voigt(photon%xfreq, voigt_a_H)
+    pD_term = line%nD_over_nH * line%ratio_Dfreq_HD * &
+              voigt(xfreq_D, voigt_a_H * line%ratio_voigta_HD)
+    pH_norm = pH / (pH + pD_term)
+
+    if (rand_number() < pH_norm) then
+       line%selected_species_HD = 1
+       uz         = rand_resonance_vz(photon%xfreq, voigt_a_H)
+       xfreq_atom = photon%xfreq - uz
+    else
+       !-- D scatter: convert uz from D Doppler units to caller's "uz"
+       !-- convention (cell-H Doppler units, weighted by ν_D/ν_H = λ_H/λ_D
+       !-- because the photon Doppler shift uses ν_D for D atoms).
+       !-- uz_caller = uz_D × (Δν_D/Δν_H) = uz_D / ratio_Dfreq_HD.
+       line%selected_species_HD = 2
+       uz_D         = rand_resonance_vz(xfreq_D, voigt_a_H * line%ratio_voigta_HD)
+       uz           = uz_D / line%ratio_Dfreq_HD
+       xfreq_atom   = photon%xfreq - uz
+    endif
+
+    photon%E1 = line%E1
+    photon%E2 = line%E2
+    photon%E3 = line%E3
+
+    cost  = rand_resonance(photon%E1)
+    cost2 = cost**2
+    sint  = sqrt(1.0_wp - cost2)
+
+    if (present(S44)) then
+      S22 = three_over_four * photon%E1 * (cost2 + 1.0_wp)
+      S11 = S22 + photon%E2
+      S12 = three_over_four * photon%E1 * (cost2 - 1.0_wp)
+      S33 = three_over_two  * photon%E1 * cost
+      S44 = three_over_two  * photon%E3 * cost
+    end if
+  end subroutine do_resonance_HD_amr
 
 end module scattering_amr_mod

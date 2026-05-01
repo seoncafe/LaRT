@@ -406,7 +406,7 @@ contains
   real(kind=wp), optional, intent(out) :: S11, S22, S12, S33, S44
   real(kind=wp) :: voigt_a_H, dx_HD, xfreq_D
   real(kind=wp) :: pH, pD_term, pH_norm
-  real(kind=wp) :: uz_D
+  real(kind=wp) :: uz_D, xfreq_atom_D
   real(kind=wp) :: cost2
 !DIR$ ATTRIBUTES INLINE :: voigt_mod_voigt
   voigt_a_H = grid%voigt_a(photon%icell,photon%jcell,photon%kcell)
@@ -421,21 +421,13 @@ contains
 
   if (rand_number() < pH_norm) then
      !--- Hydrogen scatter: identical to do_resonance1 path.
-     line%selected_species_HD = 1
      uz         = rand_resonance_vz(photon%xfreq, voigt_a_H)
      xfreq_atom = photon%xfreq - uz
   else
-     !--- Deuterium scatter: sample atom LOS velocity in D's Doppler frame,
-     !--   uz_D = v/v_th_D (D-normalized).
-     !-- Convert to the caller's "uz" convention: the photon-frequency
-     !-- shift contributed by this atom velocity, expressed in cell (=H)
-     !-- Doppler units. The shift in H-units is
-     !--   Δx_H = (ν_D × v/c) / Δν_H = u_H × (λ_H/λ_D),
-     !-- where u_H = v/v_th_H = uz_D × (v_th_D/v_th_H). Combining gives
-     !--   uz_caller = uz_D × (v_th_D/v_th_H) × (λ_H/λ_D)
-     !--             = uz_D × (Δν_D/Δν_H) = uz_D / ratio_Dfreq_HD.
-     line%selected_species_HD = 2
+     !--- Deuterium scatter: sample atom velocity in D's Doppler frame, then
+     !-- convert uz and xfreq_atom back to H-frame Doppler units for downstream.
      uz_D         = rand_resonance_vz(xfreq_D, voigt_a_H * line%ratio_voigta_HD)
+     xfreq_atom_D = xfreq_D - uz_D
      uz           = uz_D / line%ratio_Dfreq_HD
      xfreq_atom   = photon%xfreq - uz
   endif
@@ -721,7 +713,7 @@ contains
      line%b(2)%Elow_Hz(1:2) = [0.0_wp,    287.24_wp] * speedc_cm
      line%b(2)%E1(1:2)      = [1.0_wp/2.0_wp, -2.0_wp/5.0_wp]
      line%b(2)%E2(1:2)      = [1.0_wp/2.0_wp,  7.0_wp/5.0_wp]
-     line%b(2)%E3(1:2)      = [5.0_wp/6.0_wp,  1.0_wp/3.0_wp]
+     line%b(2)%E3(1:2)      = [5.0_wp/6.0_wp, -1.0_wp/3.0_wp]
 
      do i=1, line%nup
         line%b(i)%damping = sum(line%b(i)%A21(:))
@@ -901,7 +893,7 @@ contains
      line%b(2)%E2(1:3)      = [1.0_wp, 1.0_wp,  1.0_wp]
      line%b(2)%E3(1:3)      = [0.0_wp, 0.0_wp,  0.0_wp]
 #else
-     line%b(1)%A21(1:2)     = [2.35e8_wp,   3.52e7_wp]
+     line%b(1)%A21(1:2)     = [2.35e8_wp,   3.52e8_wp]
      line%b(1)%Elow_Hz(1:2) = [0.0_wp,    384.7872_wp] * speedc_cm
      line%b(1)%E1(1:2)      = [64.0_wp/165.0_wp,  -4.0_wp/15.0_wp]
      line%b(1)%E2(1:2)      = [101.0_wp/165.0_wp, 19.0_wp/15.0_wp]
@@ -953,7 +945,7 @@ contains
      line%b(1)%Elow_Hz(1:1) = [0.0_wp] * speedc_cm
      line%b(1)%E1(1:1)      = [91.0_wp/550.0_wp]
      line%b(1)%E2(1:1)      = [459.0_wp/550.0_wp]
-     line%b(1)%E3(1:1)      = [13.0_wp/22.0_wp]
+     line%b(1)%E3(1:1)      = [12.0_wp/22.0_wp]
 
      line%b(2)%A21(1:2)     = [4.25e7_wp,   2.59e8_wp]
      line%b(2)%Elow_Hz(1:2) = [0.0_wp,    384.7872_wp] * speedc_cm

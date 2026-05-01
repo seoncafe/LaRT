@@ -386,7 +386,11 @@ contains
        !--- frequency in the fluid frame (comoving frame).
        xfreq = xfreq_atom + (vel_atom(1)*cosp + vel_atom(2)*sinp)*sint + vel_atom(3)*cost
        if (par%recoil) then
-          g_recoil = line%g_recoil0 /grid%Dfreq(photon%icell,photon%jcell,photon%kcell)
+          if (line%line_type == 7 .and. line%selected_species_HD == 2) then
+             g_recoil = line%g_recoil0_D / grid%Dfreq(photon%icell,photon%jcell,photon%kcell)
+          else
+             g_recoil = line%g_recoil0   / grid%Dfreq(photon%icell,photon%jcell,photon%kcell)
+          endif
           xfreq    = xfreq - g_recoil * (1.0_wp - cost)
        endif
 
@@ -641,7 +645,11 @@ contains
        endif
 
        if (par%recoil) then
-          g_recoil = line%g_recoil0 /grid%Dfreq(photon%icell,photon%jcell,photon%kcell)
+          if (line%line_type == 7 .and. line%selected_species_HD == 2) then
+             g_recoil = line%g_recoil0_D / grid%Dfreq(photon%icell,photon%jcell,photon%kcell)
+          else
+             g_recoil = line%g_recoil0   / grid%Dfreq(photon%icell,photon%jcell,photon%kcell)
+          endif
           xfreq    = xfreq - g_recoil * (1.0_wp - cost)
        endif
 

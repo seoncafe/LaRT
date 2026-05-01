@@ -1,0 +1,27 @@
+! Same as sphere_HD_dijkstra2006.in but with par%recoil = .true.
+! Used to assess the impact of atomic recoil on the emergent H+D Lyα spectrum
+! after the species-aware recoil fix (line_mod / scattering / peelingoff use
+! line%g_recoil0_D for D scatters via last_species_HD flag).
+&parameters
+ par%no_photons      = 5e4
+ par%temperature     = 1.0e4
+ par%N_HImax         = 1.2e19
+ par%DGR             = 0.0
+ par%Vexp            = 0.0
+ par%xyz_symmetry    = .true.
+ par%comoving_source = .false.
+ par%save_all        = .false.
+ par%recoil          = .true.
+ par%spectral_type   = 'monochromatic'
+ par%line_id         = 'ly_alpha_HD'
+ par%D_to_H_ratio    = 3.0e-5
+ par%nx              = 101
+ par%ny              = 101
+ par%nz              = 101
+ par%nxfreq          = 201
+ par%xfreq_min       = -16.0
+ par%xfreq_max       =  16.0
+ par%rmax            = 1.0
+ par%nprint          = 100000
+ par%out_file        = 'sphere_HD_dijkstra2006_recoil.fits.gz'
+/

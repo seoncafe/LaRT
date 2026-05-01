@@ -203,6 +203,10 @@ public
      !--- tau0 and N_gas are reagared to be taumax and N_gasmax, respectively.
      character(len=20) :: line_id  = 'ly_alpha'
      logical       :: fine_structure = .false.
+     !-- Hydrogen + Deuterium combined Ly-α (line_id = 'ly_alpha_HD').
+     !-- include_deuterium=.true. with line_id='ly_alpha' is promoted to 'ly_alpha_HD'.
+     logical       :: include_deuterium = .false.
+     real(kind=wp) :: D_to_H_ratio      = 1.5e-5_wp   ! cosmic primordial number ratio n_D/n_H
      real(kind=wp) :: taumax       = -999.0
      real(kind=wp) :: tauhomo      = -999.0
      real(kind=wp) :: tau0         = -999.0
@@ -507,6 +511,24 @@ public
      real(kind=wp) :: delE_Hz(3)   = [0.0_wp,     0.0_wp, 0.0_wp]
      !-- to define multiple downward transitions followed by each upward transition.
      type(branch_type), allocatable :: b(:)
+     !-- For line_type = 7 ('ly_alpha_HD'): atomic data of the secondary species (deuterium).
+     !-- These are populated only when line_id = 'ly_alpha_HD'; otherwise unused.
+     real(kind=wp) :: wavelength0_D    = 0.0_wp     ! D Lyα rest wavelength [um]
+     real(kind=wp) :: mass_amu_D       = 0.0_wp     ! D mass [amu]
+     real(kind=wp) :: vtherm1_D        = 0.0_wp     ! D thermal velocity at 1 K [km/s]
+     real(kind=wp) :: damping_D        = 0.0_wp     ! D damping constant [Hz]
+     real(kind=wp) :: f12_D            = 0.0_wp     ! D oscillator strength (sum over fine structure)
+     real(kind=wp) :: cross0_D         = 0.0_wp     ! D line-center cross section [cm^2 Hz]
+     real(kind=wp) :: g_recoil0_D      = 0.0_wp     ! D recoil parameter
+     !-- Cross-species precomputed constants:
+     real(kind=wp) :: nD_over_nH       = 0.0_wp     ! n_D / n_H number ratio
+     real(kind=wp) :: delta_nu_HD_Hz   = 0.0_wp     ! ν_D − ν_H [Hz], positive (D is bluer)
+     real(kind=wp) :: ratio_Dfreq_HD   = 1.0_wp     ! Dfreq_H / Dfreq_D
+     real(kind=wp) :: ratio_voigta_HD  = 1.0_wp     ! a_D / a_H
+     !-- Selected species in the most recent do_resonance_HD call:
+     !-- 1 = H (default), 2 = D. Read by recoil and perpendicular-velocity
+     !-- corrections in scattering_*/peelingoff_* to apply species-correct factors.
+     integer       :: selected_species_HD = 1
   end type line_type
 
 ! line-profile related global variables
@@ -724,5 +746,6 @@ public
      type(grid_type),     intent(inout) :: grid
      end subroutine write_out
   end interface
+
   !------------------------------------------------------------
 end module define

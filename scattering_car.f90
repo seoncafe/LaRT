@@ -240,15 +240,33 @@ contains
        uxy  = sqrt(grid%xcrit2 - log(rand_number()))
        ux   = uxy * cos(phi2)
        uy   = uxy * sin(phi2)
+       !-- For ly_alpha_HD D scatter: convert atom perpendicular velocity
+       !-- from D Doppler units to caller's H-Doppler convention.
+       !-- Same factor as for uz: divide by ratio_Dfreq_HD = Dfreq_H/Dfreq_D.
+       if (line%line_type == 7 .and. line%selected_species_HD == 2) then
+          ux = ux / line%ratio_Dfreq_HD
+          uy = uy / line%ratio_Dfreq_HD
+       endif
        photon%xfreq = xfreq_atom + uz*cost + (ux*cosp + uy*sinp)*sint
     else
        ux   = rand_gauss()*one_over_sqrt2
        uy   = rand_gauss()*one_over_sqrt2
+       !-- For ly_alpha_HD D scatter: convert atom perpendicular velocity
+       !-- from D Doppler units to caller's H-Doppler convention.
+       !-- Same factor as for uz: divide by ratio_Dfreq_HD = Dfreq_H/Dfreq_D.
+       if (line%line_type == 7 .and. line%selected_species_HD == 2) then
+          ux = ux / line%ratio_Dfreq_HD
+          uy = uy / line%ratio_Dfreq_HD
+       endif
        photon%xfreq = xfreq_atom + uz*cost + (ux*cosp + uy*sinp)*sint
     endif
 
     if (par%recoil) then
-       g_recoil     = line%g_recoil0 /grid%Dfreq(photon%icell,photon%jcell,photon%kcell)
+       if (line%line_type == 7 .and. line%selected_species_HD == 2) then
+          g_recoil = line%g_recoil0_D / grid%Dfreq(photon%icell,photon%jcell,photon%kcell)
+       else
+          g_recoil = line%g_recoil0   / grid%Dfreq(photon%icell,photon%jcell,photon%kcell)
+       endif
        photon%xfreq = photon%xfreq - g_recoil * (1.0_wp - cost)
     endif
 
@@ -436,17 +454,35 @@ contains
      uxy  = sqrt(grid%xcrit2 - log(rand_number()))
      ux   = uxy * cos(phi2)
      uy   = uxy * sin(phi2)
+     !-- For ly_alpha_HD D scatter: convert atom perpendicular velocity
+     !-- from D Doppler units to caller's H-Doppler convention.
+     !-- Same factor as for uz: divide by ratio_Dfreq_HD = Dfreq_H/Dfreq_D.
+     if (line%line_type == 7 .and. line%selected_species_HD == 2) then
+        ux = ux / line%ratio_Dfreq_HD
+        uy = uy / line%ratio_Dfreq_HD
+     endif
      photon%xfreq = xfreq_atom + uz*cost + (ux*cosp + uy*sinp)*sint
   else
      phi2 = twopi * rand_number()
      uxy  = sqrt(-log(rand_number()))
      ux   = uxy * cos(phi2)
      uy   = uxy * sin(phi2)
+     !-- For ly_alpha_HD D scatter: convert atom perpendicular velocity
+     !-- from D Doppler units to caller's H-Doppler convention.
+     !-- Same factor as for uz: divide by ratio_Dfreq_HD = Dfreq_H/Dfreq_D.
+     if (line%line_type == 7 .and. line%selected_species_HD == 2) then
+        ux = ux / line%ratio_Dfreq_HD
+        uy = uy / line%ratio_Dfreq_HD
+     endif
      photon%xfreq = xfreq_atom + uz*cost + (ux*cosp + uy*sinp)*sint
   endif
 
   if (par%recoil) then
-     g_recoil     = line%g_recoil0 /grid%Dfreq(i1,i2,i3)
+     if (line%line_type == 7 .and. line%selected_species_HD == 2) then
+        g_recoil = line%g_recoil0_D / grid%Dfreq(i1,i2,i3)
+     else
+        g_recoil = line%g_recoil0   / grid%Dfreq(i1,i2,i3)
+     endif
      photon%xfreq = photon%xfreq - g_recoil * (1.0_wp - cost)
   endif
   if (par%save_peeloff) call peeling_resonance_nostokes(photon,grid,xfreq_atom,[ux,uy,uz])

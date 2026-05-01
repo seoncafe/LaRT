@@ -591,6 +591,9 @@ contains
   case (6)
      calc_voigt      => calc_voigt3
      do_resonance    => do_resonance6
+  case (7)
+     calc_voigt      => calc_voigt_HD
+     do_resonance    => do_resonance_HD
   case default
      calc_voigt      => calc_voigt1
      do_resonance    => do_resonance1
@@ -664,6 +667,7 @@ contains
      case (4);   do_resonance => do_resonance4_amr
      case (5);   do_resonance => do_resonance5_amr
      case (6);   do_resonance => do_resonance6_amr
+     case (7);   do_resonance => do_resonance_HD_amr
      case default; do_resonance => do_resonance1_amr
      end select
      ! Photon loop
