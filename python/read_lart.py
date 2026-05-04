@@ -71,6 +71,96 @@ class PeelObservation:
         """1D spectrum: mean specific intensity over the 2D image pixels."""
         return self.cube.mean(axis=(0, 1))
 
+    def velocity_moment_map(self,
+                            velocity: np.ndarray,
+                            order: int = 1,
+                            component: str = 'all',
+                            vel_range: Optional[Tuple[float, float]] = None
+                            ) -> np.ndarray:
+        r"""Velocity moment map, one value per spatial image pixel.
+
+        For each pixel the spectrum :math:`I(v)` is integrated along the
+        velocity axis.  Higher moments (order >= 1) are always
+        intensity-normalized -- the raw, unnormalized integrals carry
+        units that depend on the spectral binning and have no
+        intuitive interpretation, so the helper does not return them.
+
+        ======  =================================================================
+        order   result for each pixel
+        ======  =================================================================
+        0       :math:`\int I\,dv`  (integrated intensity / mom-0)
+        1       :math:`\langle v\rangle = \int I\,v\,dv \,/\, \int I\,dv`
+                  intensity-weighted mean velocity [km/s]
+        2       :math:`\sigma_v = \sqrt{\int I (v-\langle v\rangle)^2 dv
+                  \,/\, \int I\,dv}` velocity dispersion [km/s]
+        ======  =================================================================
+
+        Parameters
+        ----------
+        velocity : (nxfreq,) array, km/s
+            Velocity grid -- typically pass ``LaRTOutput.velocity``.
+        order : {0, 1, 2}
+            Moment order (default 1).
+        component : {'all', 'scatt', 'direct'}
+            Which spectrum to integrate.  ``'all'`` (default) is
+            scattered + direct, matching ``self.cube``.
+        vel_range : (lo, hi), optional
+            Restrict integration to ``lo <= v <= hi`` (km/s).  Either
+            bound may be None to leave it unbounded.
+
+        Returns
+        -------
+        (nyim, nxim) ndarray
+            Pixels with zero integrated intensity are returned as NaN
+            for order >= 1.
+        """
+        if component == 'all':
+            cube = self.cube
+        elif component == 'scatt':
+            cube = self.scatt
+        elif component == 'direct':
+            cube = self.direc
+        else:
+            raise ValueError(f"component must be 'all', 'scatt', or "
+                             f"'direct', got {component!r}")
+        if order not in (0, 1, 2):
+            raise ValueError(f"order must be 0, 1, or 2, got {order}")
+
+        v = np.asarray(velocity, dtype=float)
+        if v.ndim != 1 or v.size != cube.shape[-1]:
+            raise ValueError(
+                f"velocity shape {v.shape} does not match cube nxfreq "
+                f"axis {cube.shape[-1]}")
+
+        if vel_range is not None:
+            lo, hi = vel_range
+            if lo is None: lo = -np.inf
+            if hi is None: hi = +np.inf
+            mask = (v >= lo) & (v <= hi)
+            v = v[mask]
+            cube = cube[..., mask]
+            if v.size == 0:
+                raise ValueError("vel_range excluded every velocity bin")
+
+        dv = float(np.abs(v[1] - v[0])) if v.size >= 2 else 1.0
+        m0 = cube.sum(axis=-1) * dv
+        if order == 0:
+            return m0
+
+        m1 = (cube * v).sum(axis=-1) * dv
+        with np.errstate(invalid='ignore', divide='ignore'):
+            vmean = np.where(m0 > 0, m1 / m0, np.nan)
+        if order == 1:
+            return vmean
+
+        # order == 2
+        with np.errstate(invalid='ignore', divide='ignore'):
+            m2c = (cube * (v - np.nan_to_num(vmean)[..., None])**2
+                   ).sum(axis=-1) * dv
+            return np.where(m0 > 0,
+                            np.sqrt(np.maximum(m2c / m0, 0.0)),
+                            np.nan)
+
 
 @dataclass
 class LaRTOutput:
@@ -453,6 +543,205 @@ class LaRTOutput:
 
         fig.suptitle(f'{os.path.basename(self.fits_file)}  [{geom_label}]',
                      fontsize=11)
+        fig.tight_layout(rect=(0, 0, 1, 0.96))
+        if savefig:
+            fig.savefig(savefig, dpi=150)
+        if show:
+            plt.show()
+        return fig, axes
+
+    # ------------------------------------------------------------------
+    # Plotting: velocity moment map(s) of peel-off image(s)
+    # ------------------------------------------------------------------
+    def plot_velocity_moment_map(self,
+                                 observer: Optional[int] = None,
+                                 order: int = 1,
+                                 component: str = 'all',
+                                 vel_range: Optional[Tuple[float, float]] = None,
+                                 cmap: Optional[str] = None,
+                                 vmin: Optional[float] = None,
+                                 vmax: Optional[float] = None,
+                                 symmetric: Optional[bool] = None,
+                                 share_color: bool = True,
+                                 transpose: bool = False,
+                                 ncols: Optional[int] = None,
+                                 figsize: Optional[Tuple[float, float]] = None,
+                                 title: Optional[str] = None,
+                                 show: bool = False,
+                                 savefig: Optional[str] = None):
+        r"""Plot velocity moment map(s) of the peel-off observer image(s).
+
+        For every spatial pixel of each peel-off cube ``I(x, y, v)`` this
+        computes the velocity moment via
+        :py:meth:`PeelObservation.velocity_moment_map`.  Order 1 (default)
+        produces the intensity-weighted mean velocity field
+        :math:`\langle v\rangle = \int I\,v\,dv / \int I\,dv` [km/s];
+        order 2 produces the velocity dispersion :math:`\sigma_v` [km/s];
+        order 0 produces the integrated intensity :math:`\int I\,dv`.
+
+        Parameters
+        ----------
+        observer : int, optional
+            Index into ``self.peelings``.  If None (default), every
+            peel-off observer is drawn as a subplot panel.
+        order, component, vel_range :
+            Forwarded to ``PeelObservation.velocity_moment_map``.
+        cmap : str, optional
+            Default 'RdBu_r' for order=1, 'inferno' for order=0/2.
+        vmin, vmax : float, optional
+            Color-scale bounds.  When both are None and
+            ``symmetric=True`` (auto for order=1), a symmetric range
+            about zero is chosen.
+        symmetric : bool, optional
+            Force symmetric color limits about 0.  Auto-set to True
+            for order=1, otherwise False.
+        share_color : bool
+            Multi-observer mode: share one color scale across panels
+            (default True).
+        transpose : bool
+            If True, swap image x and y axes (transpose the map and
+            swap the extent + labels).  Default False.
+        ncols, figsize, title, show, savefig : convenience options.
+
+        Returns
+        -------
+        fig, axes : matplotlib.figure.Figure, Axes (or array of Axes)
+        """
+        if not self.peelings:
+            raise RuntimeError("No peel-off observers were found for this run.")
+        if self.velocity is None:
+            raise RuntimeError(
+                "velocity grid not available -- the FITS Spectrum table "
+                "has no 'velocity' column.")
+
+        import matplotlib.pyplot as plt
+        from mpl_toolkits.axes_grid1 import make_axes_locatable
+
+        def _attach_cbar(im, ax, label):
+            """Append a colorbar matched to the image axes height."""
+            divider = make_axes_locatable(ax)
+            cax     = divider.append_axes('right', size='4%', pad=0.08)
+            return ax.figure.colorbar(im, cax=cax, label=label)
+
+        if cmap is None:
+            cmap = 'RdBu_r' if order == 1 else 'inferno'
+        if symmetric is None:
+            symmetric = (order == 1)
+
+        if order == 0:
+            cbar_label = r'$\int I\,dv$'
+        elif order == 1:
+            cbar_label = r'$\langle v\rangle$ [km s$^{-1}$]'
+        else:
+            cbar_label = r'$\sigma_v$ [km s$^{-1}$]'
+
+        def _extent(p: PeelObservation):
+            h   = p.header
+            cd1 = abs(float(h.get('CD2_2', 1.0)))
+            cd2 = abs(float(h.get('CD3_3', cd1)))
+            cx  = float(h.get('CRPIX2', 0.5*(p.nxim + 1)))
+            cy  = float(h.get('CRPIX3', 0.5*(p.nyim + 1)))
+            xlo = (0.5         - cx) * cd1
+            xhi = (p.nxim + 0.5 - cx) * cd1
+            ylo = (0.5         - cy) * cd2
+            yhi = (p.nyim + 0.5 - cy) * cd2
+            return (xlo, xhi, ylo, yhi)
+
+        xlabel_str = 'image y' if transpose else 'image x'
+        ylabel_str = 'image x' if transpose else 'image y'
+
+        def _imshow_one(ax, mmap, peel, vmin_, vmax_):
+            xlo, xhi, ylo, yhi = _extent(peel)
+            if transpose:
+                arr = mmap.T
+                ext = (ylo, yhi, xlo, xhi)
+            else:
+                arr = mmap
+                ext = (xlo, xhi, ylo, yhi)
+            return ax.imshow(arr, origin='lower', extent=ext,
+                             cmap=cmap, vmin=vmin_, vmax=vmax_,
+                             interpolation='nearest', aspect='equal')
+
+        def _auto_limits(maps):
+            if not symmetric:
+                lo = min(float(np.nanmin(m)) for m in maps)
+                hi = max(float(np.nanmax(m)) for m in maps)
+                return lo, hi
+            vabs = max(float(np.nanmax(np.abs(m))) for m in maps)
+            if not np.isfinite(vabs) or vabs == 0:
+                vabs = 1.0
+            return -vabs, +vabs
+
+        # --- single observer path --------------------------------------
+        if observer is not None:
+            peel = self.peelings[observer]
+            mmap = peel.velocity_moment_map(self.velocity, order=order,
+                                            component=component,
+                                            vel_range=vel_range)
+            lo_auto, hi_auto = _auto_limits([mmap])
+            if vmin is None: vmin = lo_auto
+            if vmax is None: vmax = hi_auto
+            if figsize is None:
+                figsize = (5.5, 4.6)
+            fig, ax = plt.subplots(figsize=figsize)
+            im = _imshow_one(ax, mmap, peel, vmin, vmax)
+            _attach_cbar(im, ax, cbar_label)
+            ax.set_xlabel(xlabel_str); ax.set_ylabel(ylabel_str)
+            if title is None:
+                title = (f"{os.path.basename(peel.file_name)}\n"
+                         f"$\\alpha$={peel.alpha:+.1f}, "
+                         f"$\\beta$={peel.beta:+.1f}, "
+                         f"$\\gamma$={peel.gamma:+.1f}")
+            ax.set_title(title, fontsize=11)
+            fig.tight_layout()
+            if savefig:
+                fig.savefig(savefig, dpi=150)
+            if show:
+                plt.show()
+            return fig, ax
+
+        # --- multi-observer grid ---------------------------------------
+        nobs = len(self.peelings)
+        if ncols is None:
+            ncols = int(np.ceil(np.sqrt(nobs)))
+        nrows = int(np.ceil(nobs / ncols))
+        if figsize is None:
+            figsize = (4.6 * ncols, 3.9 * nrows)
+
+        maps = [p.velocity_moment_map(self.velocity, order=order,
+                                      component=component,
+                                      vel_range=vel_range)
+                for p in self.peelings]
+
+        if share_color:
+            lo_auto, hi_auto = _auto_limits(maps)
+            vmin_eff = lo_auto if vmin is None else vmin
+            vmax_eff = hi_auto if vmax is None else vmax
+        else:
+            vmin_eff = vmax_eff = None  # per-panel auto
+
+        fig, axes = plt.subplots(nrows, ncols, figsize=figsize, squeeze=False)
+        axes_flat = axes.ravel()
+
+        for i, (peel, mmap) in enumerate(zip(self.peelings, maps)):
+            ax = axes_flat[i]
+            if share_color:
+                im = _imshow_one(ax, mmap, peel, vmin_eff, vmax_eff)
+            else:
+                lo, hi = _auto_limits([mmap])
+                im = _imshow_one(ax, mmap, peel, lo, hi)
+            _attach_cbar(im, ax, cbar_label)
+            ax.set_title(f'$\\alpha$={peel.alpha:+.1f}, '
+                         f'$\\beta$={peel.beta:+.1f}, '
+                         f'$\\gamma$={peel.gamma:+.1f}', fontsize=10)
+            ax.set_xlabel(xlabel_str); ax.set_ylabel(ylabel_str)
+
+        for j in range(nobs, nrows * ncols):
+            axes_flat[j].axis('off')
+
+        if title is None:
+            title = os.path.basename(self.fits_file)
+        fig.suptitle(title, fontsize=11)
         fig.tight_layout(rect=(0, 0, 1, 0.96))
         if savefig:
             fig.savefig(savefig, dpi=150)
