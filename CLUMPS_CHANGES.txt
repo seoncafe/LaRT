@@ -1,11 +1,533 @@
 ================================================================================
-CLUMPY MEDIUM EXTENSION — CHANGE LOG
-LaRT_v2.00
+LaRT_v2.10 Clumpy-Medium Extension
+================================================================================
+Date  : 2026-04-26
 Author: Kwang-Il Seon
+
+================================================================================
+Overview
 ================================================================================
 
-DATE: 2026-04-27 (later)
---------------------------------------------------------------------------------
+This document describes the addition of a clumpy-medium (discrete-clump)
+radiative transfer model to LaRT_v2.10.
+
+The medium consists of N non-overlapping spherical clumps of radius
+clump_radius placed at random inside an outer sphere of radius rmax.  Between
+the clumps the medium is vacuum.  Each clump is uniform in opacity, temperature,
+and can carry an independent bulk velocity (random or systematic).
+
+The clump model was first implemented in LaRT_v2.00 (procedure-pointer
+architecture).  LaRT_v2.10 ports it into the OOP class hierarchy introduced by
+the v2.10 refactoring, adding a new concrete type grid_clump_type that extends
+grid_base_type and encapsulates all clump-specific operations.
+
+================================================================================
+Physical Model
+================================================================================
+
+Geometry
+--------
+  * Outer sphere of radius par%rmax centred at the origin.
+  * N non-overlapping spherical clumps of radius par%clump_radius.
+  * Clumps are placed by Random Sequential Adsorption (RSA).
+  * Outside the clumps: vacuum (no gas, no dust).
+  * Point source at the origin (par%source_geometry = 'point').
+
+Key dimensionless parameters
+-----------------------------
+  f_cov  = (3/4) * N_clumps * (clump_radius / rmax)^2
+            line-of-sight covering factor (mean number of clumps intersected
+            by a ray from the centre to the sphere edge)
+
+  f_vol  = N_clumps * (clump_radius / rmax)^3
+            volume filling factor
+
+  tau0   = par%clump_tau0
+            line-centre optical depth from the clump centre to its surface
+
+  Effective tau through the sphere ≈ f_cov * tau0  (for f_cov not too large)
+
+Opacity inside a clump
+-----------------------
+  kappa = cl_rhokap * H(x, cl_voigt_a)
+
+  where H is the Voigt function, x = (nu - nu0) / Delta_nu_D is the
+  dimensionless frequency offset, and cl_rhokap is derived from either
+  par%clump_tau0 (then cl_rhokap = tau0 / (H(0,a)*clump_radius)) or
+  par%clump_nH (then cl_rhokap = nH * sigma_0 * distance2cm).
+
+Velocity field
+--------------
+  Clumps may carry a Gaussian random bulk velocity (par%clump_sigma_v [km/s])
+  and/or a systematic component specified by par%velocity_type:
+    'hubble'            -- linear expansion: v_i = Vexp * r_i / rmax
+    'constant_radial'   -- uniform outflow at Vexp km/s
+    'parallel_velocity' -- uniform bulk (Vx, Vy, Vz)
+    'ssh'               -- Song, Seon & Hwang (2020) galaxy model
+    'rotating_solid_body'    -- solid-body rotation about z (Vrot, rmax)
+    'rotating_galaxy_halo'   -- flat rotation curve (Vrot, rinner)
+
+  Photon frequency is shifted into the clump rest frame at entry and restored
+  at exit, so that the Voigt profile is always evaluated in the clump frame.
+
+================================================================================
+Algorithms
+================================================================================
+
+RSA Placement
+-------------
+  Clumps are placed one-by-one by drawing a uniform random point inside the
+  sphere (box rejection) and accepting it only if it does not overlap any
+  already-placed clump.  A linked-list acceleration grid (~1 clump per cell)
+  reduces the average overlap check from O(N) to O(1).
+
+  Expected time: O(N_clumps) for f_vol < 35%.
+
+CSR Acceleration Grid
+----------------------
+  After placement, all clumps are indexed into a Compressed Sparse Row (CSR)
+  grid that maps each Cartesian cell to the list of clumps whose bounding box
+  overlaps it.  The grid has ~1 clump per cell (same resolution as the RSA
+  grid).  CSR arrays (cg_start, cg_list) are allocated in MPI shared memory
+  so that all ranks on a node share one copy.
+
+DDA Raytrace (Amanatides & Woo 1987)
+--------------------------------------
+  Each photon trajectory in the inter-clump vacuum is advanced by a
+  Digital Differential Analyser (DDA) that traverses the CSR grid one cell at
+  a time, testing only the clumps registered in each cell.  Once the nearest
+  hit along the current ray segment is found, the DDA stops -- O(1) per cell
+  step.
+
+  Ray-sphere intersection uses the standard geometric formula.  A "skip_icl"
+  index prevents immediate re-entry into the clump just exited.
+
+Photon transport loop
+----------------------
+  The standard LaRT forced-first-scattering loop is used unchanged:
+
+    1. raytrace_to_edge -- integrate tau0 from source to sphere edge
+                           (calls raytrace_to_edge_clump)
+    2. add_escaped_to_jout -- accumulate wgt * exp(-tau0) into Jout
+    3. raytrace_to_tau  -- advance photon until tau_in is exhausted or
+                           photon exits sphere (calls raytrace_to_tau_clump)
+       * inside a clump: kap = cl_rhokap * H(xfreq, cl_voigt_a)
+       * in vacuum: DDA to next clump or sphere boundary
+       * on exit: photon%wgt added to Jout
+    4. scattering       -- resonance scattering (same as Cartesian;
+                           uses grid%Dfreq = cl_Dfreq, grid%voigt_a = cl_voigt_a)
+
+Output & normalization
+-----------------------
+  Jout is normalised by the standard Cartesian formula:
+    J_norm = Jout / (nphotons * dxfreq * 4*pi*rmax^2)
+  which is correct because the outer boundary is a sphere of radius rmax,
+  matching the Cartesian convention.
+
+================================================================================
+New Parameters (namelist)
+================================================================================
+
+  par%grid_type = 'clump'
+    Selects the clump-medium grid.  (LaRT_v2.10 OOP interface.)
+    The legacy flag par%use_clump_medium = .true. maps to this automatically.
+
+  par%clump_radius    real(wp), default = -1.0
+    Radius of each clump in code units.  Required.
+
+  --- specify exactly one of the following three: ---
+
+  par%clump_N_clumps  real(wp), default = -1.0
+    Number of clumps (takes priority if > 0).
+
+  par%clump_f_vol     real(wp), default = -1.0
+    Volume filling factor f_vol = N * (r_cl/R)^3.
+
+  par%clump_f_cov     real(wp), default = -1.0
+    Line-of-sight covering factor f_cov = (3/4)*N*(r_cl/R)^2.
+
+  --- specify exactly one of the following two for opacity: ---
+
+  par%clump_tau0      real(wp), default = -1.0
+    Line-centre optical depth from clump centre to its surface.
+    cl_rhokap = tau0 / (H(0,a) * clump_radius)   [code_unit^-1]
+
+  par%clump_NHI       real(wp), default = -1.0
+    Per-clump HI column density [cm^-2] from the individual clump centre to
+    its surface.  Distinct from the total system column density par%N_HImax.
+    Does NOT require par%distance_unit.
+    cl_rhokap = clump_NHI * (line%cross0/cl_Dfreq) / clump_radius   [code_unit^-1]
+    (line%cross0 [cm^2*Hz]; line%cross0/cl_Dfreq is the physical cross-section [cm^2])
+
+  par%clump_nH        real(wp), default = -1.0
+    HI number density inside clumps [cm^-3].
+    Requires par%distance_unit to be set (e.g. 'kpc').
+    cl_rhokap = clump_nH * (line%cross0/cl_Dfreq) * distance2cm   [code_unit^-1]
+
+  --- optional: ---
+
+  par%clump_temperature  real(wp), default = -1.0
+    Clump temperature [K].  If <= 0, uses par%temperature.
+
+  par%clump_sigma_v   real(wp), default = 0.0
+    Gaussian sigma of random clump bulk velocity [km/s].
+
+  par%save_clump_info  logical, default = .false.
+    If .true., writes clump positions, velocities, and physical parameters
+    to <out_file_base>_clumps.fits.gz after RSA placement.
+
+================================================================================
+New Source Files
+================================================================================
+
+1. clump_mod.f90  (module: clump_mod)
+   -----------------------------------------------------------------------
+   Core data and algorithms for the clump population.
+
+   Module-level state (MPI shared memory):
+     N_clumps             -- number of clumps placed
+     sphere_R             -- outer sphere radius [code units]
+     cl_radius, cl_radius2-- clump radius and its square
+     cl_rhokap            -- opacity per code unit inside clumps
+     cl_voigt_a           -- Voigt damping parameter
+     cl_Dfreq             -- Doppler frequency width [Hz]
+     cl_vtherm            -- thermal velocity [km/s]
+     cl_temperature       -- actual clump temperature [K]
+     cl_x(:), cl_y(:), cl_z(:)   -- clump centre positions [code units]
+     cl_vx(:),cl_vy(:),cl_vz(:)  -- clump bulk velocities [km/s]
+     cg_start(:), cg_list(:)     -- CSR acceleration grid (int32)
+     cgx, cgy, cgz, cg_dx, ...   -- CSR grid geometry
+
+   Public subroutines / functions:
+     init_clumps(R_sphere)
+       Entry point: derive N_clumps, compute cl_rhokap/cl_Dfreq/cl_voigt_a,
+       allocate shared memory, run RSA (rank 0 only), broadcast positions to
+       all h_rank=0 nodes, build CSR grid.
+
+     destroy_clumps()
+       Frees all MPI shared windows.
+
+     find_next_clump(...)
+       DDA traversal to find nearest clump hit along a ray segment.
+
+     ray_sphere_isect(...)
+       Ray-sphere intersection returning entry/exit distances.
+
+     clump_exit_dist(...)
+       Distance from current position to exit of the clump currently occupied.
+
+     sphere_exit_dist(...)
+       Distance to the outer sphere boundary.
+
+     write_clumps_fits(fname)
+       Writes a FITS BinTable with clump positions/velocities and a header
+       containing all physical parameters.  Called on p_rank=0 only.
+
+   Multi-node consistency
+   ----------------------
+   RSA is executed exclusively on global rank 0 (p_rank == 0).  Positions
+   and velocities are then broadcast via MPI_BCAST over SAME_HRANK_COMM
+   (the communicator connecting all h_rank=0 processes, one per node) so
+   that every node's shared memory holds the same clump layout.
+
+     if (mpar%h_rank == 0) then
+        if (mpar%p_rank == 0) call generate_clumps()
+        call MPI_BCAST(cl_x, N_clumps, MPI_DOUBLE_PRECISION, 0,
+                       mpar%SAME_HRANK_COMM, ierr)
+        ... (y, z, vx, vy, vz likewise)
+     end if
+     call MPI_BARRIER(mpar%hostcomm, ierr)
+
+2. raytrace_clump.f90  (module: raytrace_clump_mod)
+   -----------------------------------------------------------------------
+   Photon-propagation routines for the clump medium.
+
+   photon%icell_clump  (integer, added to photon_type):
+     0       -- photon is in inter-clump vacuum
+     > 0     -- index of the clump the photon currently occupies
+
+   Public subroutines (signatures match the abstract interfaces in grid_class.f90):
+
+     raytrace_to_tau_clump(photon, grid, tau_in)
+       Advance photon until tau_in is accumulated or the outer sphere is
+       reached.  Handles clump entry/exit with frequency shifts.
+       Adds photon%wgt to grid%Jout when sphere exit occurs.
+
+     raytrace_to_edge_clump(photon0, grid, tau)
+       Accumulate total optical depth from photon0 to the sphere edge.
+       Read-only photon; used for the forced-first-scattering peel-off.
+
+     raytrace_to_edge_tau_gas_clump     -- alias for raytrace_to_edge_clump
+     raytrace_to_edge_column_clump      -- returns N_HI and tau_dust
+     raytrace_to_dist_clump             -- integrate tau to a fixed distance
+     raytrace_to_dist_tau_gas_clump     -- alias for raytrace_to_dist_clump
+     raytrace_to_dist_column_clump      -- returns N_HI and tau_dust to distance
+
+3. grid_mod_clump.f90  (module: grid_mod_clump)
+   -----------------------------------------------------------------------
+   Grid setup for the clump medium.
+
+   grid_create_clump(grid)
+     * Forces box to [-rmax, +rmax]^3, disables all symmetries.
+     * Calls grid_create (Cartesian) to allocate shared arrays and set
+       up the frequency axis, Jout/Jin arrays, etc.
+     * Calls init_clumps(par%rmax) to run RSA and build the CSR grid.
+     * Overrides grid arrays:
+         grid%rhokap    = 0 everywhere  (opacity handled in raytrace_clump)
+         grid%Dfreq     = cl_Dfreq      (uniform thermal Doppler)
+         grid%voigt_a   = cl_voigt_a    (uniform damping)
+         grid%vfx/y/z   = 0             (no background bulk velocity)
+         grid%Dfreq_ref = cl_Dfreq
+     * Writes _clumps.fits.gz if par%save_clump_info = .true.
+
+   grid_destroy_clump(grid)
+     Calls grid_destroy then destroy_clumps.
+
+================================================================================
+Modified Files
+================================================================================
+
+define.f90
+----------
+  photon_type: added
+    integer :: icell_clump = 0
+    -- tracks which clump the photon currently occupies (0 = vacuum).
+    -- Initialised to 0 by default; explicitly reset in clump_generate_photon.
+
+  params_type: added
+    logical       :: use_clump_medium  = .false.
+    real(kind=wp) :: clump_radius      = -1.0_wp
+    real(kind=wp) :: clump_N_clumps    = -1.0_wp
+    real(kind=wp) :: clump_f_vol       = -1.0_wp
+    real(kind=wp) :: clump_f_cov       = -1.0_wp
+    real(kind=wp) :: clump_tau0        = -1.0_wp
+    real(kind=wp) :: clump_nH          = -1.0_wp
+    real(kind=wp) :: clump_temperature = -1.0_wp
+    real(kind=wp) :: clump_sigma_v     =  0.0_wp
+    logical       :: save_clump_info   = .false.
+
+grid_class.f90
+--------------
+  Added grid_clump_type to the public export list.
+
+  New concrete type:
+    type, extends(grid_base_type) :: grid_clump_type
+      type(grid_type) :: g
+    contains
+      procedure :: raytrace_to_tau     => clump_raytrace_to_tau
+      procedure :: raytrace_to_edge    => clump_raytrace_to_edge
+      procedure :: add_escaped_to_jout => clump_add_escaped_to_jout
+      procedure :: generate_photon     => clump_generate_photon
+      procedure :: scattering          => clump_scattering
+      procedure :: output_reduce       => clump_output_reduce
+      procedure :: output_normalize    => clump_output_normalize
+      procedure :: write_output        => clump_write_output
+      procedure :: observer_create     => clump_observer_create
+      procedure :: observer_destroy    => clump_observer_destroy
+      procedure :: make_sightline_tau  => clump_make_sightline_tau
+      procedure :: grid_init           => clump_grid_init
+      procedure :: grid_destroy        => clump_grid_destroy
+    end type grid_clump_type
+
+  Dispatch notes:
+    clump_raytrace_to_tau     -> raytrace_to_tau_clump(photon, self%g, tau_in)
+    clump_raytrace_to_edge    -> raytrace_to_edge_clump(photon, self%g, tau_out)
+    clump_add_escaped_to_jout -> Jout += wgt * exp(-tau0)  (same as Cartesian)
+    clump_generate_photon     -> sets icell_clump=0, then generate_photon_car
+    clump_scattering          -> scattering(photon, self%g)  [Cartesian routine;
+                                 valid because grid%Dfreq=cl_Dfreq, voigt_a=cl_voigt_a]
+    clump_output_*            -> Cartesian output routines (normalisation uses rmax)
+    clump_observer_*          -> observer_create/destroy_outside (rectangular grid)
+    clump_make_sightline_tau  -> make_sightline_tau_outside (gives tau=0 since
+                                 grid%rhokap=0; sightline tau not supported in
+                                 clump mode -- returns immediately if .not. save_sightline_tau)
+    clump_grid_init           -> grid_create_clump(self%g)
+    clump_grid_destroy        -> grid_destroy_clump(self%g)
+
+main.f90
+--------
+  Added 'clump' case in select case (par%grid_type):
+    case ('clump')
+      allocate(grid_clump_type :: grid)
+
+setup.f90
+---------
+  Added backward-compatibility mapping in read_input():
+    if (par%use_clump_medium .and. trim(par%grid_type) == 'car') &
+       par%grid_type = 'clump'
+
+Makefile
+--------
+  Added to OBJSB (in dependency order, after generate_photon_amr.o):
+    clump_mod.o
+    raytrace_clump.o
+    grid_mod_clump.o
+
+================================================================================
+Change Log
+================================================================================
+
+Date: 2026-04-27
+-----------------
+
+BUG FIX: cl_rhokap wrong for clump_NHI and clump_nH paths (missing / cl_Dfreq)
+
+  In init_clumps(), the opacity derivation for the clump_NHI and clump_nH
+  input paths produced cl_rhokap in [Hz/code_unit] instead of [code_unit^-1]:
+
+    line%cross0 = sigma_0 * f_osc / sqrt(pi)   [cm^2*Hz]   (NOT [cm^2])
+
+  The actual line-centre cross-section [cm^2] is  line%cross0 / cl_Dfreq.
+  Both paths were missing a division by cl_Dfreq:
+
+  WRONG:
+    clump_NHI:  cl_rhokap = par%clump_NHI * line%cross0 / cl_radius
+    clump_nH:   cl_rhokap = par%clump_nH  * line%cross0 * par%distance2cm
+
+  CORRECT:
+    clump_NHI:  cl_rhokap = par%clump_NHI * line%cross0 / (cl_Dfreq * cl_radius)
+    clump_nH:   cl_rhokap = par%clump_nH  * line%cross0 * par%distance2cm / cl_Dfreq
+
+  Effect of the bug: cl_rhokap was ~cl_Dfreq (~10^11) times too large, making
+  the per-clump tau0 effectively infinite.  Photons could never escape
+  individual clumps.  The clump_tau0 path was unaffected.
+
+  Files modified: clump_mod.f90  (v2.00 and v2.10)
+
+================================================================================
+Bug Fixes Also Applied to LaRT_v2.10
+================================================================================
+
+These bugs were identified during the LaRT_v2.00 full code review and fixed in
+both v2.00 and v2.10 in the same session.
+
+1. Stokes peel-off: sinp = 1 when sint == 0  (BUG-5)
+   Files: peelingoff_rect.f90, peelingoff_amr.f90
+   When sint == 0 (photon direction exactly aligned with observer), phi = 0 by
+   convention.  Previously sinp and sin2p were incorrectly set to 1.0 instead
+   of sin(0) = 0.  This corrupts the Q and U Stokes rotation in the sint=0
+   degenerate case.
+   Fix: sinp = 0.0_wp, sin2p = 0.0_wp.
+
+2. Bare stop in MPI code
+   File: memory_mod_mpi.f90
+   22 occurrences of  stop 'Please increase MAX_NUM_WINDOWS'
+   replaced with:
+     write(*,'(a)') 'ERROR: Please increase MAX_NUM_WINDOWS in memory_mod_mpi.f90'
+     call MPI_ABORT(MPI_COMM_WORLD, 1, ierr)
+   Bare stop only terminates one rank; MPI_ABORT terminates all ranks cleanly.
+
+3. sqrt(det) with potentially negative argument
+   Files: run_simulation_mod.f90, stellar_illumination.f90
+   Several locations guard by  if (det < 0)  but floating-point rounding can
+   produce det = -epsilon after subtraction even when the ray is geometrically
+   tangent.  Fixed by:
+     sqrt(det)  ->  sqrt(max(0.0_wp, det))
+   (7 occurrences total across the two files)
+
+4. HEALPix iring formula: sqrt of potentially negative argument
+   File: healpix.f90
+   In pix2vec(), the north and south polar-cap branches compute:
+     iring = int( sqrt( hip - sqrt(fihip) ) ) + 1
+   When ipix is exactly at the cap boundary, hip - sqrt(fihip) can be tiny
+   negative due to rounding.  Fixed by:
+     sqrt( max(0.0_wp, hip - sqrt(fihip)) )
+   (2 occurrences: north cap, south cap)
+
+5. Missing temperature validation
+   File: setup.f90
+   par%temperature and par%temperature0 are used as arguments to sqrt() for
+   the thermal velocity.  A zero or negative value causes sqrt of a negative
+   number (NaN / signal).  Added:
+     if (par%temperature  <= 0.0_wp) -> MPI_ABORT with clear message
+     if (par%temperature0 <= 0.0_wp) -> MPI_ABORT with clear message
+
+================================================================================
+Example
+================================================================================
+
+  examples/clump_sphere/
+    clump_tau3_fcov5.in         static, tau0=1e3, f_cov=5
+    clump_tau4_fcov5.in         static, tau0=1e4, f_cov=5
+    clump_tau3_fcov20.in        static, tau0=1e3, f_cov=20
+    clump_tau3_fcov5_hubble.in  Hubble expansion Vexp=200 km/s
+    clump_tau3_fcov5_sigv.in    random sigma_v=50 km/s
+    clump_tau3_fcov5_peel.in    with peel-off observer (129x129 image)
+    run.sh                      convenience run script
+    plot_clump.py               Python analysis and plotting script
+    README                      full description and parameter reference
+
+Minimal input file
+------------------
+
+  &parameters
+   par%grid_type       = 'clump'   ! or par%use_clump_medium = .true.
+   par%rmax            = 1.0
+   par%clump_radius    = 0.01
+   par%clump_f_cov     = 5.0
+   par%clump_tau0      = 1.0e3
+   par%temperature     = 1.0e4
+   par%no_photons      = 1e6
+   par%spectral_type   = 'voigt'
+   par%nxfreq          = 301
+   par%velocity_min    = -100.0
+   par%velocity_max    =  100.0
+   par%nx = 11, par%ny = 11, par%nz = 11
+  /
+
+  mpirun -np 4 ../../LaRT.x clump_tau3_fcov5.in
+
+================================================================================
+Documentation
+================================================================================
+
+  docs/LaRT_clump_description.tex
+    Full algorithm description for LaRT_v2.10:
+      - OOP architecture: grid_clump_type extending grid_base_type (§2)
+      - Physical setup: geometry, clump count, opacity, velocities (§3)
+      - RSA placement with hash-grid acceleration (§4)
+      - CSR acceleration grid construction (§5)
+      - DDA raytrace: ray-sphere intersection, vacuum advance, clump traverse (§6)
+      - Peel-off observations (§7)
+      - FITS output format with BinTable columns and header keywords (§8)
+      - Input parameter reference table with defaults (§9)
+      - Example input files and post-processing instructions (§10)
+      - Known limitations (sightline tau, RSA density limit, dust) (§10)
+
+================================================================================
+Change Log
+================================================================================
+
+2026-04-26  NEW FEATURE: clump_NHI — per-clump HI column density input
+  - Added par%clump_NHI (real, default -1; units: cm^-2).
+
+    Specifies the HI column density of an INDIVIDUAL CLUMP from its centre to
+    its surface.  This must be clearly distinguished from the total SYSTEM
+    column density (par%N_HImax), which is the average HI column density along
+    a radial sightline through the entire clumpy sphere (centre to outer
+    boundary, averaged over the random clump population).
+
+    The per-clump opacity is derived as:
+      cl_rhokap = clump_NHI * line%cross0 / cl_radius          [code_unit^-1]
+    which is equivalent to:
+      tau0 = clump_NHI * cross0 * phi(0, a_V^cl)
+    where cross0 is the reference line-centre cross-section [cm^2] and phi is
+    the Voigt profile value at x=0.
+
+    Unlike clump_nH (which requires par%distance_unit to convert number density
+    [cm^-3] to opacity per code unit), clump_NHI [cm^-2] is a physical column
+    density and does NOT require distance_unit.
+
+    Priority order when deriving cl_rhokap (first positive value wins):
+      clump_tau0  > clump_NHI  > clump_nH
+
+  - FITS keyword IN_NHI added to write_clumps_fits (BinTable HDU).
+
+  Files modified: define.f90, clump_mod.f90
+
+================================================================================
+Updates 2026-04-27 (clump-mode peel-off, FITS, tauhomo, internal velocity units)
+================================================================================
 
 REFACTOR: cl_vx/y/z stored as v / cl_vtherm (dimensionless), matching the
           Cartesian/AMR grid%vfx convention.
@@ -26,9 +548,9 @@ REFACTOR: cl_vx/y/z stored as v / cl_vtherm (dimensionless), matching the
     - raytrace_clump.f90: removed `/ cl_vtherm` from all 6 occurrences of
       `u_los = (cl_vx*kx + cl_vy*ky + cl_vz*kz) / cl_vtherm` patterns.
       Updated the frequency-convention comment block.
-    - peelingoff_rect.f90 (v2.00 + v2.10): removed `/ cl_vtherm` from all
-      4 occurrences in the clump-aware u1 expressions; removed cl_vtherm
-      from the `use clump_mod, only:` clause.
+    - peelingoff_rect.f90: removed `/ cl_vtherm` from all 4 occurrences in
+      the clump-aware u1 expressions; removed cl_vtherm from the
+      `use clump_mod, only:` clause.
 
   Effect: small per-call savings in tight loops; no change in physics.
   cl_vtherm is a scalar so the previous division was already nearly free
@@ -36,9 +558,6 @@ REFACTOR: cl_vx/y/z stored as v / cl_vtherm (dimensionless), matching the
   of "forgot to divide by cl_vtherm" bugs.  Verified with fcov=1 and fcov=5
   rotating-galaxy-halo cases (Direct/Jin within statistical agreement of
   the Poisson exp(-fcov) expectation).
-
-  Files modified: clump_mod.f90, raytrace_clump.f90, peelingoff_rect.f90
-                  (v2.00 and v2.10)
 
 
 BUG FIX (A): FITS WCS axis labels swapped in the 3D peel-off cube.
@@ -70,8 +589,6 @@ BUG FIX (A): FITS WCS axis labels swapped in the 3D peel-off cube.
   Verified: astropy.wcs.WCS(header).wcs.ctype now returns
             ['WAVE', 'RA--TAN', 'DEC-TAN']; pixel ~200 maps to 1215.67 A
             (Lyalpha vacuum wavelength) for the fcov1 test.
-
-  Files modified: write_output_rect.f90 (v2.00 and v2.10)
 
 
 BUG FIX (B): par%tauhomo / par%taumax / par%N_gashomo / par%N_gasmax were
@@ -121,8 +638,6 @@ BUG FIX (B): par%tauhomo / par%taumax / par%N_gashomo / par%N_gasmax were
       ATAU3   = 3.03     (consistent with auto-detected xfreq_max ~ 16,
                            covering the +/- 200 km/s rotation range)
 
-  Files modified: grid_mod_clump.f90 (v2.00 and v2.10)
-
 
 BUG FIX (C): Peel-off frame inconsistency for clump mode with non-zero
              clump bulk velocities.
@@ -163,286 +678,196 @@ BUG FIX (C): Peel-off frame inconsistency for clump mode with non-zero
             matching the angular structure expected from the rotating-halo
             velocity field.
 
-  Files modified: peelingoff_rect.f90, setup.f90 (clump-mode comment update)
-                  (v2.00 and v2.10)
+================================================================================
+Known Limitations
+================================================================================
+
+* Sightline tau (par%save_sightline_tau) is not meaningful in clump mode:
+  the Cartesian grid has rhokap = 0 everywhere, so tau = 0 is returned for all
+  pixels.  A proper implementation would require calling raytrace_to_edge_clump
+  for each sightline -- not yet implemented.
+
+* RSA efficiency drops significantly for f_vol > ~35%.  For dense media,
+  specify par%clump_N_clumps directly and accept some slow placement.
+
+* Dust scattering inside clumps is not implemented (par%DGR > 0 is silently
+  ignored in the clump raytrace).  The Cartesian scattering routine is used
+  for any scattering event inside a clump, but since grid%rhokap = 0, the
+  dust probability p_dust = 0 and only resonance scattering occurs.
+
+================================================================================
+
+================================================================================
+2026-05-04: Spatially-Varying Clump Properties (Phases 1-7)
+================================================================================
+
+This change set extends the clumpy medium so that the clump radius, internal
+density, and spatial number density can vary with distance from the box
+centre. When all profiles are 'constant' the previous uniform behaviour is
+reproduced exactly (Phase 1 byte-identical regression on
+clump_tau3_fcov5.in).
+
+New input parameters (in `par%`):
+  clump_radius_profile  = 'constant' | 'powerlaw' | 'gaussian' | 'exponential' | 'file'
+  clump_density_profile = same options ; controls n_H(r) inside each clump
+  clump_number_profile  = same options ; controls spatial n_cl(r)
+  clump_radius_alpha,    clump_radius_r0
+  clump_density_alpha,   clump_density_r0
+  clump_number_alpha,    clump_number_r0
+  clump_profile_file = ''   ! optional 5-column tabulated profile
+
+Profile shape conventions:
+  'constant'    : f(r) = 1
+  'powerlaw'    : f(r) = (max(r, r_floor)/max(r0, r_floor))^(-alpha)
+                  with r_floor = 0.05 * r0 (prevents divergence at r=0).
+  'gaussian'    : f(r) = exp(-(r/r0)^2)
+  'exponential' : f(r) = exp(-r/r0)
+  'file'        : linear interpolation from clump_profile_file with columns
+                  r, r_cl_factor, n_H_factor, T[K], n_cl_shape
+
+f_cov definition for non-uniform profiles:
+  f_cov = ∫₀ᴿ n_cl(r) * π * r_cl(r)² dr   (radial line-of-sight integral)
+  See docs/covering_factor_definitions.tex for derivation and alternatives.
+
+Implementation details:
+  * Per-clump arrays (cl_radius, cl_radius2, cl_rhokap, cl_voigt_a, cl_Dfreq,
+    cl_vtherm, cl_temperature) replace the previous module-level scalars.
+    Reference scalars (cl_*_ref) are kept for grid setup / FITS headers.
+  * Inverse-CDF sampling for the clump-centre radius, isotropic angles for
+    direction.  RSA overlap test is per-pair (cl_radius(i)+cl_radius(j))² so
+    non-uniform clump radii are handled correctly.
+  * N_clumps derivation: closed-form for the uniform case, numerical
+    quadrature otherwise.  The user can specify any one of clump_N_clumps,
+    clump_f_vol, clump_f_cov; the other two are computed by inversion of
+    the relevant integrals.
+  * FITS clump table now has 9 columns:
+      X, Y, Z, VX, VY, VZ, R_CLUMP, RHOKAP, TEMP
+    plus stdout diagnostics for realised f_vol, f_cov, r_cl range, mean
+    tau-per-clump, and integrated HI mass.
+
+Examples:
+  examples/clump_sphere/clump_powerlaw_density.in  (Gaussian n_cl(r))
+  examples/clump_sphere/clump_radius_powerlaw.in   (r_cl ∝ r)
+
+Backward compatibility:
+  Default profile values are 'constant' on every axis.  All existing input
+  files therefore continue to use the legacy uniform-clump path and
+  reproduce previous results.
 
 
-DATE: 2026-04-27
---------------------------------------------------------------------------------
-
-BUG FIX: cl_rhokap wrong for clump_NHI and clump_nH paths (missing / cl_Dfreq)
-
-  In init_clumps(), the opacity derivation for the clump_NHI and clump_nH
-  input paths produced cl_rhokap with units of [Hz/code_unit] instead of the
-  required [code_unit^-1]:
-
-    line%cross0 = sigma_0 * f_osc / sqrt(pi)   [cm^2*Hz]   (NOT [cm^2])
-
-  The actual line-center cross-section [cm^2] is  line%cross0 / cl_Dfreq.
-  Both paths were missing a division by cl_Dfreq:
-
-  WRONG:
-    clump_NHI:  cl_rhokap = par%clump_NHI * line%cross0 / cl_radius
-    clump_nH:   cl_rhokap = par%clump_nH  * line%cross0 * par%distance2cm
-
-  CORRECT:
-    clump_NHI:  cl_rhokap = par%clump_NHI * line%cross0 / (cl_Dfreq * cl_radius)
-    clump_nH:   cl_rhokap = par%clump_nH  * line%cross0 * par%distance2cm / cl_Dfreq
-
-  Effect of the bug: cl_rhokap was ~cl_Dfreq (~10^11) times too large, making
-  the per-clump tau0 effectively infinite (e.g. ~4.7e15 instead of ~4.4e4 for
-  clump_NHI=7.5e17 cm^-2, r_c=0.001, T=1e4 K).  Photons could never escape
-  individual clumps, causing the simulation to stall indefinitely.
-
-  Note: the clump_tau0 path was unaffected (it derives cl_rhokap from a
-  dimensionless tau directly and uses no cross0).
-
-  Files modified: clump_mod.f90  (v2.00 and v2.10)
-
-DATE: 2026-04-26
---------------------------------------------------------------------------------
-
-NEW FEATURE: clump_NHI — per-clump HI column density input
-  - Added par%clump_NHI (real, default -1; units: cm^-2).
-
-    Specifies the HI column density of an INDIVIDUAL CLUMP from its centre to
-    its surface.  This quantity must be carefully distinguished from the total
-    SYSTEM column density (par%N_HImax), which is the average HI column density
-    along a radial sightline through the entire clumpy sphere (centre to outer
-    boundary, averaged over the random clump population).
-
-    The per-clump opacity is derived as:
-      cl_rhokap = clump_NHI * (line%cross0/cl_Dfreq) / cl_radius   [code_unit^-1]
-    which is equivalent to:
-      tau0 = clump_NHI * sigma0 * phi(0, a_V^cl)
-    where sigma0 = line%cross0/cl_Dfreq is the line-centre cross-section [cm^2]
-    and phi is the Voigt profile value at x=0.
-    (Note: line%cross0 has units [cm^2*Hz]; the physical cross-section [cm^2]
-     is line%cross0 / cl_Dfreq.)
-
-    Unlike clump_nH (which requires par%distance_unit to convert number density
-    [cm^-3] to opacity per code unit), clump_NHI [cm^-2] is a physical column
-    density and does NOT require distance_unit.
-
-    Priority order when deriving cl_rhokap (first positive value wins):
-      clump_tau0  > clump_NHI  > clump_nH
-
-  - FITS keyword IN_NHI added to write_clumps_fits (BinTable HDU).
-
-  Files modified: define.f90, clump_mod.f90  (v2.00 and v2.10)
-
-DATE: 2026-04-24
---------------------------------------------------------------------------------
-
-OVERVIEW
---------
-Added a clumpy medium radiative transfer mode (par%use_clump_medium = .true.).
-The medium consists of N non-overlapping spherical clumps of radius r_c placed
-uniformly at random inside a sphere of radius R.  Inter-clump space is vacuum.
-Clumps have uniform opacity, temperature, and bulk velocities that are the sum
-of (1) a position-dependent systematic flow (par%velocity_type) and (2) an
-independent Gaussian random component (par%clump_sigma_v).  Either may be zero.
+================================================================================
+2026-05-04  Standalone clump generator + LaRT FITS read-back
+================================================================================
 
 NEW FILES
 ---------
-  clump_mod.f90
-    - Module clump_mod: all clump physics and data.
-    - init_clumps(R_sphere): derives N_clumps from input (f_cov / f_vol /
-      N_clumps direct), computes cl_Dfreq / cl_voigt_a / cl_rhokap, allocates
-      MPI-3 shared memory, runs RSA placement, builds CSR grid.
-    - generate_clumps(): RSA with linked-list hash grid (O(N) expected).
-      Assigns Gaussian random velocity per component if par%clump_sigma_v > 0.
-    - assign_clump_velocities_from_type(): adds systematic flow velocity
-      (from par%velocity_type) to each clump's existing velocity.
-      Called after generate_clumps() when par%velocity_type is non-empty.
-      Supported types: 'hubble', 'constant_radial', 'parallel_velocity',
-      'ssh', 'rotating_solid_body', 'rotating_galaxy_halo'.
-      Uses same parameter names (Vexp, Vpeak, rpeak, DeltaV, Vrot, rinner,
-      Vx/Vy/Vz) as the Cartesian grid velocity assignment in grid_mod_car.f90.
-    - build_clump_csr(): two-pass CSR construction in MPI shared memory.
-    - find_next_clump(): DDA (Amanatides & Woo 1987) through CSR grid;
-      returns nearest clump hit along the ray.
-    - ray_sphere_isect(): ray–sphere intersection test.
-    - clump_exit_dist(): distance to clump exit from interior point.
-    - sphere_exit_dist(): distance to outer sphere exit.
-    - destroy_clumps(): collective MPI_WIN_FREE + nullify.
-    - write_clumps_fits(fname): writes clump positions/velocities/parameters
-      to a FITS binary table (called when par%save_clump_info = .true.).
-    - Module-level scalars: N_clumps, sphere_R, cl_radius, cl_rhokap,
-      cl_voigt_a, cl_Dfreq, cl_vtherm, cl_temperature.
-    - Shared-memory arrays: cl_x/y/z, cl_vx/vy/vz (positions/velocities),
-      cg_start/cg_list (CSR acceleration grid).
+  make_clumps.f90                 standalone Fortran driver (~80 lines)
+  examples/clump_sphere/clump_make_test.in
+  examples/clump_sphere/clump_make_test_load.in
+  examples/clump_sphere/clump_make_test_native.in
 
-  raytrace_clump.f90
-    - Module raytrace_clump_mod: photon propagation through the clump medium.
-    - raytrace_to_tau_clump: advances photon until tau_in is reached or photon
-      exits outer sphere. Handles photon inside/outside clump states, frequency
-      shifts at clump entry/exit, and Jout accumulation upon sphere exit.
-    - raytrace_to_edge_clump: computes tau from current position to sphere
-      boundary without moving the photon (read-only, used by peel-off and
-      forced-first-scatter).
-    - raytrace_to_edge_tau_gas_clump, raytrace_to_edge_column_clump,
-      raytrace_to_dist_clump, raytrace_to_dist_tau_gas_clump,
-      raytrace_to_dist_column_clump: additional raytrace variants for column
-      density and sightline calculations.
-    - update_cell_idx: internal helper to update photon%icell/jcell/kcell
-      from photon position using floor() mapping.
-
-  grid_mod_clump.f90
-    - Module grid_mod_clump.
-    - grid_create_clump(grid): forces bounding box to [-rmax, rmax]^3,
-      calls grid_create(), then init_clumps(), sets grid%rhokap=0 /
-      Dfreq=cl_Dfreq / voigt_a=cl_voigt_a / vf=0.
-    - grid_destroy_clump(grid): calls grid_destroy() + destroy_clumps().
-
-MODIFIED FILES
---------------
-  define.f90
-    - Added to params_type:
-        logical :: use_clump_medium  = .false.
-        real    :: clump_radius      = 0.0
-        real    :: clump_f_cov       = 0.0
-        real    :: clump_f_vol       = 0.0
-        real    :: clump_N_clumps    = 0.0
-        real    :: clump_tau0        = 0.0
-        real    :: clump_nH          = 0.0
-        real    :: clump_temperature = -1.0
-        real    :: clump_sigma_v     = 0.0
-        logical :: save_clump_info   = .false.
-    - photon_type: added icell_clump (integer) to track current clump index
-      (0 = vacuum, > 0 = inside clump icl).
-
-  setup.f90
-    - read_input: added namelist entries for all par%clump_* parameters and
-      par%save_clump_info.
-    - setup_procedure: when par%use_clump_medium = .true., redirects
-      raytrace_to_tau / raytrace_to_edge / raytrace_to_dist (all variants)
-      to the clump raytrace routines, and sets scatter_resonance /
-      scatter_dust / peeling_* to the standard Cartesian routines (since
-      grid arrays are uniformly initialised to clump values).
-
-  main.f90
-    - Added branch: if par%use_clump_medium, call grid_create_clump /
-      grid_destroy_clump instead of grid_create / grid_destroy.
-
-  Makefile
-    - Added clump_mod.o, raytrace_clump.o, grid_mod_clump.o to OBJSB.
-    - Added -ffree-line-length-none (allow source lines > 132 chars).
-    - Added -fallow-argument-mismatch (suppress GFortran 13 MPI type warnings).
-
-ALGORITHMS
-----------
-  Placement (RSA):
-    Random Sequential Addition with linked-list hash grid.
-    Grid size: M = min(512, floor(N^{1/3}) + 1) per dimension.
-    Each candidate is drawn uniformly inside the sphere; accepted if no
-    existing clump within 2*r_c.  27-neighbour cell search ensures O(1)
-    expected cost per attempt for f_vol < 35%.
-
-  Acceleration grid (CSR):
-    Two-pass construction (count then fill).
-    Cell size: (2*(R+r_c)) / M.
-    Each clump registered in all cells whose AABB overlaps the clump sphere.
-    Arrays in MPI-3 shared memory.
-
-  Raytrace (DDA):
-    Amanatides & Woo (1987) traversal of CSR grid.
-    For each cell, test all registered clumps with ray–sphere intersection.
-    Stop when cell entry distance > best hit distance (early termination).
-    Frequency shifts applied at clump entry (subtract v_los/v_th) and exit
-    (add v_los/v_th) to maintain correct rest-frame opacity.
-
-BUGS FIXED
-----------
-  2026-04-24  generate_clumps called independently on each node (multi-node bug)
-    - init_clumps guarded clump generation with h_rank==0.  h_rank is the
-      rank within a node (hostcomm), so each node had its own h_rank=0 running
-      an independent RSA pass with different random numbers.  On a multi-node
-      run (e.g. lart1 + lart2 + lart3) this produced a different clump layout
-      per node, corrupting photon transport.
-    - Fix: only p_rank==0 (the single global rank 0) generates clumps.
-      The resulting cl_x/y/z and cl_vx/vy/vz arrays are then broadcast from
-      rank 0 of SAME_HRANK_COMM (= p_rank==0) to all other h_rank=0 processes
-      (one per node) via six MPI_BCAST calls on mpar%SAME_HRANK_COMM.
-      The subsequent CSR build is deterministic from positions, so every node
-      constructs the same acceleration grid without any additional broadcast.
-    - File: clump_mod.f90
-
-  2026-04-24  Jout accumulation missing in raytrace_to_tau_clump
-    - raytrace_to_tau_car accumulates grid%Jout(ix) += photon%wgt when the
-      photon exits the grid boundary.  The clump version lacked this.
-    - Result: Jout only received the direct (unscattered) contribution from
-      add_escaped_fraction_to_Jout in run_simulation_mod; scattered-then-
-      escaped photons were not counted.
-    - Fix: added Jout += photon%wgt at all three exit paths in
-      raytrace_to_tau_clump (clump-then-sphere exit, already-outside-sphere,
-      no-clump-found-skip-to-sphere).
-    - File: raytrace_clump.f90
-
-  2026-04-24  FITS keyword names > 8 characters in write_clumps_fits
-    - CFITSIO silently fails (non-zero status) on keyword names > 8 chars.
-      Once status becomes non-zero, all subsequent CFITSIO calls are skipped,
-      producing an unreadable FITS file.
-    - Offending names: CL_RHOKAP (9 chars) -> RHOKAP (6),
-                       CL_VTHERM (9 chars) -> VTHERM (6).
-    - File: clump_mod.f90
-
-  2026-04-24  Keywords written before BinTable HDU existed
-    - fits_put_keyword was called on the primary HDU before
-      fits_write_table_column had created the BinTable extension.
-    - Fix: write all table columns first (creating the BinTable HDU), then
-      write keywords into that same HDU.
-    - File: clump_mod.f90
-
-  2026-04-24  f_cov formula missing factor 3/4 in write_clumps_fits
-    - The correct formula is f_cov = (3/4) * N * (r_c/R)^2 (radial path from
-      center to surface).  The realised f_cov stored in the FITS header was
-      missing the 3/4 factor.
-    - Fix: f_cov_actual = 0.75 * real(ncl) * (cl_radius/sphere_R)**2.
-    - File: clump_mod.f90
-
-  2026-04-24  Unnecessary fourpi_over3 variable in write_clumps_fits
-    - f_vol = N * (4pi/3 * r_c^3) / (4pi/3 * R^3) = N * (r_c/R)^3.
-      Simplified to: f_vol_actual = real(ncl) * (cl_radius/sphere_R)**3.
-    - File: clump_mod.f90
-
-  2026-04-24  destroy_clumps used destroy_mem on non-root MPI ranks
-    - destroy_mem uses MPI_WIN_SHARED_QUERY with rank=0 to find the base
-      address, which differs from the local pointer on non-root ranks,
-      causing a segfault on exit.
-    - Fix: use destroy_shared_mem_all() (collective MPI_WIN_FREE) then
-      nullify all pointers manually.
-    - File: clump_mod.f90
-
-  2026-04-24  use memory_mod_mpi instead of use memory_mod
-    - The memory module is named memory_mod (not memory_mod_mpi).
-    - File: clump_mod.f90
-
-EXAMPLES
---------
-  examples/clump_sphere/
-    A suite of six reference runs covering the key parameter space.
-    All use par%use_clump_medium = .true. with R=1, r_c=0.01, 1e6 photons.
-
-    clump_tau3_fcov5.in         tau0=1e3, f_cov=5,  static (reference)
-    clump_tau4_fcov5.in         tau0=1e4, f_cov=5,  static (high tau)
-    clump_tau3_fcov20.in        tau0=1e3, f_cov=20, static (dense covering)
-    clump_tau3_fcov5_hubble.in  tau0=1e3, f_cov=5,  Hubble flow Vexp=200 km/s
-    clump_tau3_fcov5_sigv.in    tau0=1e3, f_cov=5,  sigma_v=50 km/s
-    clump_tau3_fcov5_peel.in    tau0=1e3, f_cov=5,  peel-off 129x129 image
-
-    Support scripts:
-      run.sh          -- runs all six named cases with NP=4
-      plot_clump.py   -- per-run spectrum + peel-off image + clump positions PDF;
-                         comparison spectrum PDF for all runs
-      README          -- full parameter and output format reference
-
-DOCUMENTATION
+NEW PARAMETER
 -------------
-  docs/LaRT_clump_description.tex
-    - Full algorithm description: geometry, RSA, CSR, raytrace (DDA), peel-off,
-      FITS output, input parameter reference.
+  par%clump_input_file (character(len=256), default '')
+    If non-empty, init_clumps reads the clump population from this FITS
+    file (X, Y, Z, VX, VY, VZ, R_CLUMP, RHOKAP, TEMP columns) and skips
+    the internal RSA generation. The schema matches the file written by
+    write_clumps_fits when par%save_clump_info = .true.
+
+NEW SUBROUTINE (clump_mod.f90)
+------------------------------
+  read_clumps_fits(fname, R_sphere)
+    - opens FITS, moves to BinTable HDU 2, reads N_CLUMPS keyword
+    - allocates the same MPI-3 shared-memory arrays as the generate path
+    - reads all 9 columns on p_rank=0, broadcasts via SAME_HRANK_COMM
+    - converts FITS km/s velocities to dimensionless v / cl_vtherm(icl)
+    - re-derives per-clump cl_Dfreq / cl_voigt_a / cl_vtherm from TEMP so
+      that the line atomic data used in the LaRT run can differ from the
+      one that produced the file
+    - sets cl_radius_max + reference scalars and builds the CSR grid
+    - sets module flag clumps_from_file = .true. so write_clumps_fits and
+      diagnostic branches can detect this case (per-clump f_vol/f_cov sums)
+
+INIT_CLUMPS BRANCH
+------------------
+  Early return: if len_trim(par%clump_input_file) > 0, call
+  read_clumps_fits and skip profile detection + RSA generation.
+
+STANDALONE DRIVER (make_clumps.f90)
+-----------------------------------
+  Workflow:
+    MPI_INIT
+    read_input(<input.in>)        ! same namelist syntax as LaRT.x
+    init_random_seed(par%iseed)
+    init_clumps(par%rmax)
+    if (rank==0) write_clumps_fits(<base_name>_clumps.fits.gz)
+    MPI_FINALIZE
+
+  Build:
+    make make_clumps
+
+  Run:
+    mpirun -np N make_clumps.x clumps_input.in
+    -> writes <base_name>_clumps.fits.gz which can then be consumed by
+       LaRT via par%clump_input_file = '<file>'.
+
+BYTE-IDENTICAL ROUND-TRIP
+-------------------------
+  With par%iseed = 12345 and identical physics inputs, make_clumps.x and
+  a regular LaRT.x run with par%save_clump_info = .true. produce
+  byte-identical *_clumps.fits.gz tables (X/Y/Z/VX/VY/VZ/R_CLUMP/RHOKAP
+  /TEMP all match to 0.000e+00).  The transport-stage Nscatt_gas can
+  differ at the 0.4% RNG-noise level because the load path consumes
+  fewer RNG draws before photon launch.
+
+BACKWARD COMPATIBILITY
+----------------------
+  par%clump_input_file defaults to ''.  All existing input files
+  therefore continue to use the legacy generate path.
 
 ================================================================================
-END
+2026-05-04  Skip constant per-clump columns in the FITS file
 ================================================================================
+
+write_clumps_fits no longer always writes the R_CLUMP / RHOKAP / TEMP
+columns.  For each one independently the relative spread
+
+    spread = (max - min) / |mean|
+
+is computed; if spread < 1e-3 the column is dropped because it is fully
+captured by the corresponding header keyword (CL_RAD / RHOKAP / TEMP_CL).
+The diagnostic line printed by write_clumps_fits now reports which of the
+three columns were saved, e.g.
+
+    Clumps: per-clump columns saved (R_CLUMP/RHOKAP/TEMP) =  T F F
+
+read_clumps_fits gained a small helper, read_perclump_or_keyword(), that
+tries the column first and falls back to the named header keyword when
+the column is absent.  This makes the load path work for:
+  - new files where one or more columns were skipped because they are
+    constant (the most common case for legacy uniform-clump runs),
+  - pre-Phase-6 files which never carried these columns to begin with.
+
+Backward compatibility: the FITS schema is now a strict superset of the
+pre-Phase-6 schema.  The only required columns are X, Y, Z, VX, VY, VZ;
+any of R_CLUMP / RHOKAP / TEMP may be absent and is read as a constant
+from the header.
+
+================================================================================
+2026-05-04  Accept DENSITY / DENS as aliases for the RHOKAP column
+================================================================================
+
+read_clumps_fits now tries multiple column names when looking for the
+per-clump opacity proxy.  The RHOKAP slot accepts (in priority order):
+
+    RHOKAP  →  DENSITY  →  DENS
+
+Whichever column is present first is read and stored into cl_rhokap.  If
+none of the three are present the helper falls back to the RHOKAP header
+keyword exactly as before.  This lets externally produced clump files
+(e.g. from a non-LaRT analysis pipeline) be consumed without renaming
+columns: a column literally called DENSITY (or DENS) is accepted as the
+opacity input.
+
+The other two slots are unchanged: R_CLUMP must be R_CLUMP, TEMP must be
+TEMP.  Their header-keyword fallbacks are CL_RAD and TEMP_CL.

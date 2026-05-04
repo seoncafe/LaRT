@@ -1,0 +1,26 @@
+!------------------------------------------------------------------------
+! Companion to clump_make_test.in: loads the FITS file produced by
+! make_clumps.x and runs the photon transport.  Compare the diagnostic
+! header (N_clumps, f_cov, f_vol, r_cl) against the make_clumps.x output
+! and against a normal LaRT.x run that regenerates clumps internally
+! (clump_make_test_native.in).
+!------------------------------------------------------------------------
+&parameters
+ par%use_clump_medium     = .true.
+ par%rmax                 = 1.0
+ par%clump_radius         = 0.01
+ par%clump_tau0           = 1.0e3
+ par%temperature          = 1.0e4
+ par%no_photons           = 1e5
+ par%spectral_type        = 'voigt'
+ par%nxfreq               = 301
+ par%velocity_min         = -100.0
+ par%velocity_max         =  100.0
+ par%nx = 11, par%ny = 11, par%nz = 11
+ par%save_clump_info      = .false.
+ par%iseed                = 12345
+ par%out_file             = 'clump_make_test_load.fits.gz'
+
+ ! Reuse the population produced by make_clumps.x
+ par%clump_input_file     = 'clump_make_test_clumps.fits.gz'
+/

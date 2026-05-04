@@ -3,7 +3,7 @@
 ! H cloud with center-to-edge column density N_HI = 1.2e19 cm^-2, T = 1e4 K,
 ! and D/H = 3e-5.  Source: central, monochromatic at line center.
 &parameters
- par%no_photons      = 5e4
+ par%no_photons      = 1e6
  par%temperature     = 1.0e4
  par%N_HImax         = 1.2e19
  par%DGR             = 0.0
@@ -23,5 +23,5 @@
  par%xfreq_max       =  16.0
  par%rmax            = 1.0
  par%nprint          = 100000
- par%out_file        = 'sphere_HD_dijkstra2006.fits.gz'
+ !par%out_file        = 'sphere_HD_dijkstra2006.fits.gz'
 /

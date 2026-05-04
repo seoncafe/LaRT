@@ -305,6 +305,32 @@ public
      real(kind=wp) :: clump_temperature = -1.0_wp  ! clump temperature [K] (default: par%temperature)
      real(kind=wp) :: clump_sigma_v     =  0.0_wp  ! Gaussian sigma of clump bulk velocity [km/s]
      logical       :: save_clump_info   = .false.  ! save clump positions/velocities to FITS
+     !--- radial-profile inputs (Phase 2 onwards). When all three profiles
+     !    are 'constant' (default), the legacy uniform clump behaviour is
+     !    reproduced exactly. Each axis selects its own shape independently:
+     !       'constant'    : value uniform in r (default)
+     !       'powerlaw'    : f(r) = (r/r0)**(-alpha) for r >= r0; = 1 for r < r0
+     !       'gaussian'    : f(r) = exp(-(r/r0)**2)
+     !       'exponential' : f(r) = exp(-r/r0)
+     !       'file'        : interpolated from clump_profile_file
+     character(len=32) :: clump_radius_profile  = 'constant'
+     character(len=32) :: clump_density_profile = 'constant'   ! n_H(r) inside clump
+     character(len=32) :: clump_number_profile  = 'constant'   ! n_cl(r) (spatial number density)
+     real(kind=wp)     :: clump_radius_alpha    = 0.0_wp
+     real(kind=wp)     :: clump_radius_r0       = 0.0_wp
+     real(kind=wp)     :: clump_density_alpha   = 0.0_wp
+     real(kind=wp)     :: clump_density_r0      = 0.0_wp
+     real(kind=wp)     :: clump_number_alpha    = 0.0_wp
+     real(kind=wp)     :: clump_number_r0       = 0.0_wp
+     real(kind=wp)     :: clump_radius_min      = -1.0_wp  ! optional clamp on r_cl(r); <0 = unset
+     real(kind=wp)     :: clump_radius_max_in   = -1.0_wp  ! optional clamp on r_cl(r); <0 = unset
+     character(len=256):: clump_profile_file    = ''       ! tabulated profile (when any axis = 'file')
+     !--- if non-empty, init_clumps reads the clump population from this FITS
+     !    file (typically produced by the standalone make_clumps.x driver) and
+     !    skips internal RSA generation. The file must have the same column
+     !    layout as `_clumps.fits.gz`: X/Y/Z [code units], VX/VY/VZ [km/s],
+     !    R_CLUMP, RHOKAP, TEMP. Header keyword SPHERE_R must match par%rmax.
+     character(len=256):: clump_input_file      = ''
      !--- AMR grid parameters
      logical            :: use_amr_grid    = .false.
      character(len=128) :: amr_type        = 'ramses'  ! 'ramses' or 'generic'

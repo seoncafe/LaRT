@@ -1,0 +1,23 @@
+!------------------------------------------------------------------------
+! Loads the non-constant radius profile FITS produced by
+! clump_radius_powerlaw.in to confirm the column-skipping read path
+! handles a partial column set (R_CLUMP present, RHOKAP/TEMP absent).
+!------------------------------------------------------------------------
+&parameters
+ par%use_clump_medium     = .true.
+ par%rmax                 = 1.0
+ par%clump_radius         = 0.01
+ par%clump_tau0           = 1.0e3
+ par%temperature          = 1.0e4
+ par%no_photons           = 1e5
+ par%spectral_type        = 'voigt'
+ par%nxfreq               = 301
+ par%velocity_min         = -100.0
+ par%velocity_max         =  100.0
+ par%nx = 11, par%ny = 11, par%nz = 11
+ par%save_clump_info      = .false.
+ par%iseed                = 12345
+ par%out_file             = 'clump_radius_powerlaw_load.fits.gz'
+
+ par%clump_input_file     = 'clump_radius_powerlaw_clumps.fits.gz'
+/

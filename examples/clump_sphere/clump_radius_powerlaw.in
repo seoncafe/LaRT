@@ -1,0 +1,36 @@
+!------------------------------------------------------------------------
+! Demonstration: clump radius grows linearly with distance from the centre.
+!   - Number density of clumps: uniform
+!   - Per-clump opacity:        constant
+!   - Per-clump radius:         r_cl(r) = par%clump_radius * (r/r0)^(-alpha)
+!     With alpha = -1 and r0 = 0.5 R_box, r_cl ∝ r so outer clumps are
+!     larger than inner ones.
+!
+! NOTE: when the radius profile is non-constant the closed-form
+! f_cov <-> N relation does not hold (it assumes uniform r_cl).  In that
+! case the profile-aware quadrature back-solves the normalisation so that
+! the LOS-integrated covering factor equals par%clump_f_cov; N_clumps is
+! then derived from the integral and is generally non-trivial.  Below we
+! ask for f_cov = 1, and the code reports the realised N_clumps.
+!------------------------------------------------------------------------
+&parameters
+ par%use_clump_medium     = .true.
+ par%rmax                 = 1.0
+ par%clump_radius         = 0.01
+ par%clump_f_cov          = 1.0
+ par%clump_tau0           = 1.0e3
+ par%temperature          = 1.0e4
+ par%clump_sigma_v        = 0.0
+ par%no_photons           = 1e6
+ par%spectral_type        = 'voigt'
+ par%nxfreq               = 301
+ par%velocity_min         = -100.0
+ par%velocity_max         =  100.0
+ par%nx = 11, par%ny = 11, par%nz = 11
+ par%save_clump_info      = .true.
+ par%out_file             = 'clump_radius_powerlaw.fits.gz'
+
+ par%clump_radius_profile = 'powerlaw'
+ par%clump_radius_alpha   = -1.0
+ par%clump_radius_r0      = 0.5
+/

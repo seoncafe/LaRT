@@ -12,10 +12,10 @@ module grid_mod_clump
 !
 ! After grid_create_clump returns:
 !   grid%rhokap      = 0 everywhere (opacity only inside clumps via clump_mod)
-!   grid%voigt_a     = cl_voigt_a everywhere (for do_resonance compatibility)
-!   grid%Dfreq       = cl_Dfreq everywhere (for frequency calculations)
+!   grid%voigt_a     = cl_voigt_a_ref everywhere (for do_resonance compatibility)
+!   grid%Dfreq       = cl_Dfreq_ref everywhere (for frequency calculations)
 !   grid%vfx/vfy/vfz = 0 everywhere
-!   grid%Dfreq_ref   = cl_Dfreq
+!   grid%Dfreq_ref   = cl_Dfreq_ref
 !   par%rmax         = outer sphere radius (from input)
 !   par%xmax = par%ymax = par%zmax = par%rmax (box enclosing sphere)
 !---------------------------------------------------------------------------
@@ -63,7 +63,7 @@ contains
   par%xy_periodic  = .false.
   par%z_symmetry   = .false.
 
-  !--- Initialize clumps FIRST: computes cl_Dfreq, cl_voigt_a, cl_rhokap,
+  !--- Initialize clumps FIRST: computes cl_Dfreq_ref, cl_voigt_a_ref, cl_rhokap_ref,
   !    determines N_clumps, places clumps via RSA, builds CSR acceleration grid.
   !    Done before grid_create so that par%tauhomo can be set correctly for
   !    the auto-detection of the frequency range inside car_setup_freq_grid.
@@ -76,32 +76,32 @@ contains
   !    optical depth of a uniform medium of the same total HI mass spread
   !    over the sphere volume:
   !
-  !        tauhomo = f_vol * cl_rhokap * voigt(0, cl_voigt_a) * R_max
+  !        tauhomo = f_vol * cl_rhokap_ref * voigt(0, cl_voigt_a_ref) * R_max
   !                = (4/3) * f_cov * tau_per_clump
   !
   !    where f_vol = N_clumps * (R_cl/R_max)^3 (volume filling fraction),
   !          f_cov = (3/4) * N_clumps * (R_cl/R_max)^2 (covering factor;
   !                  expected number of clump crossings per radial path),
-  !          tau_per_clump = cl_rhokap * voigt(0, cl_voigt_a) * R_cl
+  !          tau_per_clump = cl_rhokap_ref * voigt(0, cl_voigt_a_ref) * R_cl
   !                        (line-center tau from clump center to surface).
   !
   !    For a clumpy medium the EXPECTED radial taumax along a random LOS
   !    equals tauhomo, although a specific realization can deviate widely
   !    (no clumps -> 0; many clumps stacked -> >> tauhomo).
   !    N_gashomo and N_gasmax are set similarly via N_HI_per_clump =
-  !        cl_rhokap / line%cross0 * cl_Dfreq * R_cl  (column from clump
+  !        cl_rhokap_ref / line%cross0 * cl_Dfreq_ref * R_cl  (column from clump
   !        center to surface; reduces to par%clump_NHI when that input is used).
-  voigt0           = voigt(0.0_wp, cl_voigt_a)
+  voigt0           = voigt(0.0_wp, cl_voigt_a_ref)
   f_vol_realized   = real(N_clumps, wp) * (par%clump_radius / par%rmax)**3
   f_cov_realized   = 0.75_wp * real(N_clumps, wp) * (par%clump_radius / par%rmax)**2
-  tau_per_clump_lc = cl_rhokap * voigt0 * par%clump_radius
+  tau_per_clump_lc = cl_rhokap_ref * voigt0 * par%clump_radius
 
   if (par%tauhomo  <= 0.0_wp) par%tauhomo  = (4.0_wp/3.0_wp) * f_cov_realized * tau_per_clump_lc
   if (par%taumax   <= 0.0_wp) par%taumax   = (4.0_wp/3.0_wp) * f_cov_realized * tau_per_clump_lc
   if (par%N_gashomo <= 0.0_wp) &
-       par%N_gashomo = (4.0_wp/3.0_wp) * f_cov_realized * (cl_rhokap / line%cross0) * cl_Dfreq * par%clump_radius
+       par%N_gashomo = (4.0_wp/3.0_wp) * f_cov_realized * (cl_rhokap_ref / line%cross0) * cl_Dfreq_ref * par%clump_radius
   if (par%N_gasmax  <= 0.0_wp) &
-       par%N_gasmax  = (4.0_wp/3.0_wp) * f_cov_realized * (cl_rhokap / line%cross0) * cl_Dfreq * par%clump_radius
+       par%N_gasmax  = (4.0_wp/3.0_wp) * f_cov_realized * (cl_rhokap_ref / line%cross0) * cl_Dfreq_ref * par%clump_radius
 
   if (mpar%p_rank == 0) then
      write(*,'(a,es14.5)') ' Clump derived: tauhomo  = ', par%tauhomo
@@ -118,8 +118,8 @@ contains
   !--- Override grid arrays with uniform clump values (h_rank=0 only).
   if (mpar%h_rank == 0) then
      grid%rhokap(:,:,:)   = 0.0_wp    ! opacity is only inside clumps
-     grid%Dfreq(:,:,:)    = cl_Dfreq  ! uniform thermal Doppler frequency
-     grid%voigt_a(:,:,:)  = cl_voigt_a  ! uniform Voigt damping parameter
+     grid%Dfreq(:,:,:)    = cl_Dfreq_ref  ! uniform thermal Doppler frequency
+     grid%voigt_a(:,:,:)  = cl_voigt_a_ref  ! uniform Voigt damping parameter
      grid%vfx(:,:,:)      = 0.0_wp    ! no background bulk velocity
      grid%vfy(:,:,:)      = 0.0_wp
      grid%vfz(:,:,:)      = 0.0_wp
@@ -127,16 +127,16 @@ contains
   call MPI_BARRIER(mpar%hostcomm, ierr)
 
   !--- Update scalar reference values to clump Doppler frequency
-  grid%Dfreq_ref   = cl_Dfreq
-  grid%voigt_amean = cl_voigt_a
-  grid%Dfreq_mean  = cl_Dfreq
+  grid%Dfreq_ref   = cl_Dfreq_ref
+  grid%voigt_amean = cl_voigt_a_ref
+  grid%Dfreq_mean  = cl_Dfreq_ref
 
   if (mpar%p_rank == 0) then
      write(*,'(a,f12.5)')  ' Clump grid: rmax      = ', par%rmax
      write(*,'(a,3i5)')    ' Clump grid: nx,ny,nz  = ', grid%nx, grid%ny, grid%nz
-     write(*,'(a,es12.4)') ' Clump grid: cl_Dfreq  = ', cl_Dfreq
-     write(*,'(a,f12.5,a)')' Clump grid: cl_vtherm = ', cl_vtherm, ' km/s'
-     write(*,'(a,f12.5)')  ' Clump grid: voigt_a   = ', cl_voigt_a
+     write(*,'(a,es12.4)') ' Clump grid: cl_Dfreq_ref  = ', cl_Dfreq_ref
+     write(*,'(a,f12.5,a)')' Clump grid: cl_vtherm_ref = ', cl_vtherm_ref, ' km/s'
+     write(*,'(a,f12.5)')  ' Clump grid: voigt_a   = ', cl_voigt_a_ref
   end if
 
   !--- Optionally save clump positions/velocities to FITS (p_rank=0 only)

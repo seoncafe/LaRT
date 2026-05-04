@@ -21,6 +21,7 @@
  par%nx = 11, par%ny = 11, par%nz = 11
  par%save_clump_info  = .true.
  par%save_Jmu         = .true.
+ par%nmu = 101
 
  !--- make peeling-off 3D images to compare with Jmu data.
  par%nxim             = 129

@@ -1,0 +1,26 @@
+!------------------------------------------------------------------------
+! Standalone clump-generator round-trip test.
+!
+! Same physical setup as clump_tau3_fcov5.in plus a fixed RNG seed so
+! make_clumps.x and LaRT.x produce byte-identical clump positions when
+! invoked with this input.
+!
+! Workflow:
+!     mpirun -np N ../../make_clumps.x clump_make_test.in
+!         -> writes clump_make_test_clumps.fits.gz
+!     mpirun -np N ../../LaRT.x clump_make_test_load.in
+!         -> reads clump_make_test_clumps.fits.gz back via
+!            par%clump_input_file
+!------------------------------------------------------------------------
+&parameters
+ par%use_clump_medium     = .true.
+ par%rmax                 = 1.0
+ par%clump_radius         = 0.01
+ par%clump_f_cov          = 5.0
+ par%clump_tau0           = 1.0e3
+ par%temperature          = 1.0e4
+ par%clump_sigma_v        = 0.0
+ par%save_clump_info      = .true.
+ par%iseed                = 12345
+ par%out_file             = 'clump_make_test.fits.gz'
+/

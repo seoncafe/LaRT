@@ -162,6 +162,15 @@ default: clean main
 main:$(OBJSB) $(MAIN).o
 	$(FC) $(MAIN).o $(OBJSB) $(LDFLAGS) -o $(exec)
 
+# Standalone clump generator. Same OBJSB list as LaRT.x; only the program
+# entry point differs (make_clumps.f90 instead of main.f90). Build via:
+#     make make_clumps
+make_clumps: clean make_clumps_link
+	/bin/rm -rf *.o *.mod
+
+make_clumps_link: $(OBJSB) make_clumps.o
+	$(FC) make_clumps.o $(OBJSB) $(LDFLAGS) -o make_clumps.x
+
 ramses2fits:
 	$(FC) -O3 -cpp -DMPI -c define.f90
 	$(FC) -O3 -cpp -DMPI -c fitsio_mod.f90

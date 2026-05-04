@@ -2,13 +2,16 @@ module raytrace_clump_mod
 !---------------------------------------------------------------------------
 ! Raytrace routines for the clump medium.
 !
-! The medium consists of N spherical clumps (radius cl_radius) placed inside
+! The medium consists of N spherical clumps (radii cl_radius(:)) placed inside
 ! a sphere of radius sphere_R. Outside the clumps the medium is vacuum.
-! Each clump has uniform opacity cl_rhokap and Voigt parameter cl_voigt_a.
+! Each clump has its own opacity cl_rhokap(icl), Voigt parameter cl_voigt_a(icl),
+! Doppler frequency cl_Dfreq(icl), and thermal velocity cl_vtherm(icl).
+! Phase 1: every entry is uniform (filled in init_clumps); later phases set
+! these from radial profiles.
 !
 ! Frequency convention (same as Cartesian):
-!   photon%xfreq is in units of cl_Dfreq (= Dfreq_ref).
-!   cl_vx/y/z are stored as v / cl_vtherm (dimensionless), set in init_clumps.
+!   photon%xfreq is in units of cl_Dfreq_ref (= grid%Dfreq_ref).
+!   cl_vx/y/z are stored as v / cl_vtherm(icl) (dimensionless), set in init_clumps.
 !   At clump entry: xfreq -= v_los_clump   (v already in vtherm units)
 !   At clump exit:  xfreq += v_los_clump
 !
@@ -79,7 +82,7 @@ contains
         icl   = int(photon%icell_clump, int64)
         t_seg = clump_exit_dist(photon%x, photon%y, photon%z, kx, ky, kz, icl)
 
-        kap = cl_rhokap * voigt(photon%xfreq, cl_voigt_a)
+        kap = cl_rhokap(icl) * voigt(photon%xfreq, cl_voigt_a(icl))
 
         if (tau_rem <= kap * t_seg) then
            !--- scatter inside this clump
@@ -199,7 +202,7 @@ contains
   !--- first, if photon starts inside a clump, traverse it
   if (icl_cur > 0) then
      t_seg = clump_exit_dist(xp, yp, zp, kx, ky, kz, icl_cur)
-     kap   = cl_rhokap * voigt(xfreq_loc, cl_voigt_a)
+     kap   = cl_rhokap(icl_cur) * voigt(xfreq_loc, cl_voigt_a(icl_cur))
      tau   = tau + kap * t_seg
      xp    = xp + t_seg * kx
      yp    = yp + t_seg * ky
@@ -229,7 +232,7 @@ contains
 
      !--- tau through this clump
      t_seg = clump_exit_dist(xp, yp, zp, kx, ky, kz, icl_found)
-     kap   = cl_rhokap * voigt(xfreq_loc, cl_voigt_a)
+     kap   = cl_rhokap(icl_found) * voigt(xfreq_loc, cl_voigt_a(icl_found))
      tau   = tau + kap * t_seg
      xp    = xp + t_seg * kx;  yp = yp + t_seg * ky;  zp = zp + t_seg * kz
      xfreq_loc = xfreq_loc + u_los  ! restore global frame
@@ -274,7 +277,7 @@ contains
 
   if (icl_cur > 0) then
      t_seg = clump_exit_dist(xp, yp, zp, kx, ky, kz, icl_cur)
-     N_gas = N_gas + (cl_rhokap / line%cross0) * cl_Dfreq * t_seg
+     N_gas = N_gas + (cl_rhokap(icl_cur) / line%cross0) * cl_Dfreq(icl_cur) * t_seg
      xp = xp + t_seg*kx;  yp = yp + t_seg*ky;  zp = zp + t_seg*kz
      ! keep icl_cur as skip for first find_next_clump
      if (xp**2 + yp**2 + zp**2 >= sphere_R**2) return
@@ -289,7 +292,7 @@ contains
      te = max(0.0_wp, te)
      xp = xp + te*kx;  yp = yp + te*ky;  zp = zp + te*kz
      t_seg = clump_exit_dist(xp, yp, zp, kx, ky, kz, icl_found)
-     N_gas = N_gas + (cl_rhokap / line%cross0) * cl_Dfreq * t_seg
+     N_gas = N_gas + (cl_rhokap(icl_found) / line%cross0) * cl_Dfreq(icl_found) * t_seg
      xp = xp + t_seg*kx;  yp = yp + t_seg*ky;  zp = zp + t_seg*kz
      icl_cur = icl_found
      if (xp**2 + yp**2 + zp**2 >= sphere_R**2) exit
@@ -325,7 +328,7 @@ contains
 
   if (icl_cur > 0) then
      t_seg = min(clump_exit_dist(xp, yp, zp, kx, ky, kz, icl_cur), t_rem)
-     kap   = cl_rhokap * voigt(xfreq_loc, cl_voigt_a)
+     kap   = cl_rhokap(icl_cur) * voigt(xfreq_loc, cl_voigt_a(icl_cur))
      tau   = tau + kap * t_seg
      t_rem = t_rem - t_seg
      if (t_rem <= 0.0_wp) return
@@ -348,7 +351,7 @@ contains
      xfreq_loc = xfreq_loc - u_los
 
      t_seg = min(clump_exit_dist(xp, yp, zp, kx, ky, kz, icl_found), t_rem)
-     kap   = cl_rhokap * voigt(xfreq_loc, cl_voigt_a)
+     kap   = cl_rhokap(icl_found) * voigt(xfreq_loc, cl_voigt_a(icl_found))
      tau   = tau + kap * t_seg
      t_rem = t_rem - t_seg
      if (t_rem <= 0.0_wp) return
@@ -396,7 +399,7 @@ contains
 
   if (icl_cur > 0) then
      t_seg = min(clump_exit_dist(xp, yp, zp, kx, ky, kz, icl_cur), t_rem)
-     N_gas = N_gas + (cl_rhokap / line%cross0) * cl_Dfreq * t_seg
+     N_gas = N_gas + (cl_rhokap(icl_cur) / line%cross0) * cl_Dfreq(icl_cur) * t_seg
      t_rem = t_rem - t_seg
      if (t_rem <= 0.0_wp) return
      xp = xp + t_seg*kx;  yp = yp + t_seg*ky;  zp = zp + t_seg*kz
@@ -411,7 +414,7 @@ contains
      xp = xp + te*kx;  yp = yp + te*ky;  zp = zp + te*kz
      t_rem = t_rem - te
      t_seg = min(clump_exit_dist(xp, yp, zp, kx, ky, kz, icl_found), t_rem)
-     N_gas = N_gas + (cl_rhokap / line%cross0) * cl_Dfreq * t_seg
+     N_gas = N_gas + (cl_rhokap(icl_found) / line%cross0) * cl_Dfreq(icl_found) * t_seg
      t_rem = t_rem - t_seg
      if (t_rem <= 0.0_wp) return
      xp = xp + t_seg*kx;  yp = yp + t_seg*ky;  zp = zp + t_seg*kz
