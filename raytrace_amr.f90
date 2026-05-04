@@ -324,7 +324,8 @@ contains
       call amr_cell_exit(icell, x, y, z, kx, ky, kz, t_exit, iface)
       rhokap  = amr_grid%rhokap(il) * voigt(xfreq_loc, amr_grid%voigt_a(il))
       tau_gas = tau_gas + t_exit * rhokap
-      if (tau_gas >= tau_huge) return
+      ! Note: no tau_huge early-out here — sightline tau output must be the
+      ! full integrated value, not capped at exp(-tau)≈0.
 
       x = x + t_exit * kx
       y = y + t_exit * ky

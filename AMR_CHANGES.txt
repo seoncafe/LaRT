@@ -2,8 +2,54 @@
 LaRT_v2.00 AMR (Adaptive Mesh Refinement) Extension
 ================================================================================
 Date: 2026-04-18  (initial)
-Last updated: 2026-04-30
+Last updated: 2026-05-04
 Author: Kwang-Il Seon
+
+Update note (2026-05-04) -- AMR sight-line tau bug fixes, missing
+                              outside-observer variant added, example pack:
+
+  Three bugs were exposed by the new examples/sightline_tau/ pack and
+  have been fixed.
+
+  (1) raytrace_amr.f90 :: raytrace_to_edge_tau_gas_amr no longer
+      early-exits when the running tau crosses the double-precision
+      exp(-tau) underflow point (tau_huge = 745.2).  That guard belongs
+      in photon-transport raytraces -- once exp(-tau) is zero in double
+      precision, further accumulation only burns CPU -- but in the
+      sight-line code path we *want* the full integrated tau, however
+      large.  Cartesian's raytrace_to_edge_tau_gas in raytrace_car.f90
+      was already uncapped; AMR now matches.  Validation: AMR
+      outside-observer central-pixel TAU = 2.000e+04 (Cartesian sphere
+      reference); sky-mean TAU agrees with Cartesian to <2 % (residual
+      is octree boundary volume-averaging, geometric).
+
+  (2) grid_mod_amr.f90 :: grid_destroy_amr now follows the same
+      convention as grid_destroy (Cartesian) and observer cleanup paths:
+      call destroy_shared_mem_all() once and nullify each shared-memory
+      pointer field; deallocate only the genuinely-allocatable per-rank
+      output arrays (Jout / Jin / Jabs / Jmu).  The previous code
+      iterated over every shared-memory pointer calling destroy_mem on
+      each.  Whenever another module (typically observer_destroy_outside
+      or grid_destroy_clump) had run first and zeroed the global
+      MPI-window registry, every per-array destroy_mem fell through to
+      a Fortran deallocate() of MPI-window memory and tripped ifort
+      severe (173).
+
+  (3) sightline_tau_rect.f90 + setup.f90 :: added
+      make_sightline_tau_outside_amr.  v2.00 previously dispatched
+      AMR + outside-observer to make_sightline_tau_outside (the
+      Cartesian routine), which reads grid%rhokap -- empty in AMR mode
+      -- so the tau output was uniformly zero.  The new routine mirrors
+      the v2.10 implementation (sightline_tau_amr.f90 :: make_sightline_tau_amr)
+      and v2.00's own make_sightline_tau_inside_amr in sightline_tau_heal.f90:
+      uses amr_grid (octree_mod) for per-cell quantities and
+      raytrace_to_edge_*_amr for the integrals.  setup.f90 (the AMR +
+      outside branch around the make_sightline_tau pointer assignment)
+      was updated to point at the new routine.
+
+  examples/sightline_tau/ added (Cartesian, AMR, clumpy sphere; outside
+  rectangular observer plus inside HEALPix observer).  See README_HISTORY
+  for the full file list.
 
 Update note (2026-04-30b) -- xy_periodic + xy/xyz_symmetry support in
                                AMR raytrace:

@@ -6,6 +6,7 @@ module peelingoff_rect
   use mathlib
   use utility
   use line_mod
+  use raytrace_clump_mod, only: raytrace_to_edge_clump_capped, tau_huge_clump
   !--- Clump-mode bulk velocity: when photon is inside a clump
   !    (par%use_clump_medium .and. photon%icell_clump > 0), grid%vfx/y/z = 0
   !    and the photon's xfreq is in the clump's rest frame. We must add the
@@ -84,7 +85,7 @@ contains
      ixf       = floor((xfreq_ref - grid%xfreq_min)/grid%dxfreq)+1
 
      if (ix >= 1 .and. ix <= observer(i)%nxim .and. iy >= 1 .and. iy <= observer(i)%nyim) then
-        call raytrace_to_edge(pobs,grid,tau)
+        call peel_raytrace_to_edge(pobs, grid, tau)
         !-- bug-fixed (2022.04.26), direc was the same as direc0 when par%save_direc0 = .true.
         wgt0 = 1.0_wp/(fourpi*r2) * photon%wgt
         wgt  = exp(-tau)*wgt0
@@ -255,7 +256,7 @@ contains
 
        !--- Place a fraction to be peeled off to the output Stokes images.
        !--- note the angle-dependent, peeled fraction is took into account in Idet, Qdet, Udet, and Vdet.
-       call raytrace_to_edge(pobs,grid,tau)
+       call peel_raytrace_to_edge(pobs, grid, tau)
        wgt  = 1.0_wp/r2 * exp(-tau) * photon%wgt
 
        !--- 2D image
@@ -444,7 +445,7 @@ contains
        !--- Place a fraction to be peeled off to the output Stokes images.
        !--- note the angle-dependent, peeled fraction is took into account in Idet, Qdet, Udet, and Vdet.
        pobs%xfreq = xfreq
-       call raytrace_to_edge(pobs,grid,tau)
+       call peel_raytrace_to_edge(pobs, grid, tau)
        wgt  = 1.0_wp/r2 * exp(-tau) * photon%wgt
 
        !--- 2D image
@@ -547,7 +548,7 @@ contains
        xfreq_ref = xfreq_ref * (grid%Dfreq(photon%icell,photon%jcell,photon%kcell) / grid%Dfreq_ref)
        ixf       = floor((xfreq_ref - grid%xfreq_min)/grid%dxfreq)+1
 
-       call raytrace_to_edge(pobs,grid,tau)
+       call peel_raytrace_to_edge(pobs, grid, tau)
        cosa = photon%kx*pobs%kx+photon%ky*pobs%ky+photon%kz*pobs%kz
        peel = (1.0_wp - par%hgg**2)/((1.0_wp + par%hgg**2)-2.0_wp*par%hgg*cosa)**1.5_wp/fourpi
        !--- albedo was already multiplied before this routine is called.
@@ -671,7 +672,7 @@ contains
 
        !----------------------------------------------------------------------------------
        pobs%xfreq = xfreq
-       call raytrace_to_edge(pobs,grid,tau)
+       call peel_raytrace_to_edge(pobs, grid, tau)
        peel = three_over_four * photon%E1 * (cost2 + 1.0_wp) + photon%E2
        wgt  = peel/(fourpi*r2) * exp(-tau) * photon%wgt
 
@@ -689,5 +690,30 @@ contains
     endif
   enddo
   end subroutine peeling_resonance_nostokes_outside
+  !--------------------------------------------------
+  subroutine peel_raytrace_to_edge(pobs, grid, tau)
+  !---------------------------------------------------------------------------
+  ! Mode-aware tau-to-edge raytrace used by every peel-off routine in this
+  ! module.  In Cartesian / AMR mode the raytrace_to_edge procedure pointer
+  ! (assigned by setup_procedure to one of the _car / _amr variants) handles
+  ! the integral correctly.  In clump mode that pointer is set to
+  ! raytrace_to_edge_clump, but the procedure-pointer interface has no
+  ! tau_max argument -- so the integration runs uncapped and wastes CPU on
+  ! photons whose contribution exp(-tau) has long underflowed.  Bypass the
+  ! pointer in clump mode and call raytrace_to_edge_clump_capped directly.
+  ! (The cap is correct here because peel-off only needs tau accurately up
+  ! to the exp(-tau) underflow point; the cap is ABSENT in
+  ! raytrace_to_edge_tau_gas_clump where the sight-line FITS output
+  ! requires the full integrated tau.)
+  !---------------------------------------------------------------------------
+  type(photon_type), intent(in)  :: pobs
+  type(grid_type),   intent(in)  :: grid
+  real(kind=wp),     intent(out) :: tau
+  if (par%use_clump_medium) then
+     call raytrace_to_edge_clump_capped(pobs, grid, tau, tau_max=tau_huge_clump)
+  else
+     call raytrace_to_edge(pobs, grid, tau)
+  end if
+  end subroutine peel_raytrace_to_edge
   !--------------------------------------------------
 end module peelingoff_rect

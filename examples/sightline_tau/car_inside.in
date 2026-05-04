@@ -1,0 +1,21 @@
+!------------------------------------------------------------------------
+! Cartesian uniform sphere — INSIDE observer at sphere centre.
+! Produces a HEALPix all-sky tau cube (tau_gas[nxfreq, npix]) and
+! N_gas[npix].  Observer position defaults to (0,0,0) when nside > 0.
+!
+! Run:
+!     mpirun -np N ../../make_sightline_tau.x car_inside.in
+! Output: car_inside_tau.fits.gz
+!------------------------------------------------------------------------
+&parameters
+ par%temperature      = 1.0e4
+ par%taumax           = 1.0e4
+ par%DGR              = 0.0
+ par%spectral_type    = 'voigt'
+ par%nx = 101, par%ny = 101, par%nz = 101
+ par%nxfreq           = 121
+ par%rmax             = 1.0
+ par%xyz_symmetry     = .false.
+ par%nside            = 16
+ par%out_file         = 'car_inside.fits.gz'
+/

@@ -1,0 +1,29 @@
+&parameters
+ par%use_clump_medium = .true.
+ par%rmax             = 1.0
+ par%clump_radius     = 0.001
+ par%clump_f_cov      = 5.0
+ par%clump_NHI        = 7.5e17
+ par%temperature      = 1.0e4
+ par%clump_sigma_v    = 0.0
+ par%no_photons       = 1e5
+ par%spectral_type    = 'monochromatic'
+
+ par%geometry      = 'sphere'
+ !--- velocity_type intentionally omitted (no flow)
+
+ par%nxfreq           = 500
+ par%velocity_min     = -1000.0
+ par%velocity_max     =  1000.0
+ par%nx = 11, par%ny = 11, par%nz = 11
+ par%save_clump_info  = .true.
+ par%save_Jmu         = .true.
+
+ par%nxim             = 129
+ par%nyim             = 129
+ par%distance         = 1e4
+
+ par%alpha = -90.0, -90.0, -90.0, -90.0
+ par%beta  =   0.0,  30.0,  60.0,  90.0
+ par%gamma =   0.0,   0.0,   0.0,   0.0
+/

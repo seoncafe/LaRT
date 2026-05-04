@@ -1,0 +1,27 @@
+!------------------------------------------------------------------------
+! AMR uniform sphere — INSIDE observer at sphere centre.
+! Same uniform-sphere setup as amr_sightline.in but the observer sits at
+! the sphere centre and emits HEALPix all-sky tau / column-density maps.
+!
+! Generate the AMR data file once with:
+!     python make_amr_sphere_data.py
+! Then run:
+!     mpirun -np N ../../make_sightline_tau.x amr_inside.in
+! Output: amr_inside_tau.fits.gz
+!------------------------------------------------------------------------
+&parameters
+ par%use_amr_grid     = .true.
+ par%amr_type         = 'generic'
+ par%amr_file         = 'amr_sphere.fits.gz'
+ par%temperature      = 1.0e4
+ par%taumax           = 1.0e4
+ par%DGR              = 0.0
+ par%spectral_type    = 'voigt'
+ par%nxfreq           = 121
+ par%nside            = 16
+ par%source_geometry  = 'point'
+ par%xs_point         = 0.0
+ par%ys_point         = 0.0
+ par%zs_point         = 0.0
+ par%out_file         = 'amr_inside.fits.gz'
+/

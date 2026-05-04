@@ -566,6 +566,7 @@ contains
   use write_output_heal
   use sightline_tau_rect
   use sightline_tau_heal
+  use sightline_tau_clump_mod
   use stellar_illumination_mod
   use point_illumination_mod
   implicit none
@@ -639,7 +640,11 @@ contains
      peeling_resonance_stokes   => peeling_resonance_stokes_outside
      observer_create            => observer_create_outside
      observer_destroy           => observer_destroy_outside
-     make_sightline_tau         => make_sightline_tau_outside
+     !--- The default sightline_tau path in sightline_tau_rect uses box-face
+     !    geometry and would step through the empty Cartesian grid for clump
+     !    mode (rhokap = 0).  Use the clump-aware variant that intersects
+     !    the bounding sphere and traverses the CSR clump grid.
+     make_sightline_tau         => make_sightline_tau_clump
      return
   end if
 
@@ -706,7 +711,7 @@ contains
         peeling_resonance_stokes   => peeling_resonance_stokes_amr
         observer_create            => observer_create_outside
         observer_destroy           => observer_destroy_outside
-        make_sightline_tau         => make_sightline_tau_outside
+        make_sightline_tau         => make_sightline_tau_outside_amr
      endif
      return
   end if

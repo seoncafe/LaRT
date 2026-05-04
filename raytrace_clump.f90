@@ -18,6 +18,7 @@ module raytrace_clump_mod
 ! photon%icell_clump: 0 = in vacuum; > 0 = index of current clump (1-based).
 ! photon%icell/jcell/kcell: maintained using floor() map from position.
 !---------------------------------------------------------------------------
+  use define,    only: wp
   use clump_mod
   use voigt_mod
   use line_mod
@@ -31,6 +32,21 @@ module raytrace_clump_mod
   public :: raytrace_to_dist_clump
   public :: raytrace_to_dist_tau_gas_clump
   public :: raytrace_to_dist_column_clump
+  public :: tau_huge_clump
+  ! Capped variants: same algorithm as raytrace_to_edge_clump /
+  ! raytrace_to_dist_clump but exit early once tau >= tau_max.  Use these
+  ! from photon-transport callers (peeling-off) where exp(-tau) underflows
+  ! above ~745; the uncapped originals stay around because their signature
+  ! is locked by the raytrace_to_edge / raytrace_to_dist procedure-pointer
+  ! interface in define.f90.
+  public :: raytrace_to_edge_clump_capped
+  public :: raytrace_to_dist_clump_capped
+
+  ! Default early-exit threshold for photon-transport callers (peeling, ...):
+  ! once tau exceeds this, exp(-tau) is zero in double precision so further
+  ! accumulation only burns CPU.  Sight-line callers DO NOT pass tau_max --
+  ! they need the full integrated tau, however large.
+  real(kind=wp), parameter :: tau_huge_clump = 745.2_wp
 
 contains
 
@@ -441,5 +457,128 @@ contains
   !$OMP ATOMIC UPDATE
   grid%Jmu(ix, imu) = grid%Jmu(ix, imu) + photon%wgt
   end subroutine add_to_Jmu_clump
+  !===========================================================================
+
+  !===========================================================================
+  ! Capped variant of raytrace_to_edge_clump for photon-transport callers
+  ! (peeling-off).  Same algorithm; bails out as soon as the running tau
+  ! exceeds tau_max, since exp(-tau) underflows in double precision above
+  ! tau_max ~ 745 and any further accumulation contributes nothing.  The
+  ! uncapped raytrace_to_edge_clump above keeps its 3-arg signature so that
+  ! the raytrace_to_edge procedure pointer (define.f90 :: raytrace_edge
+  ! interface) still matches.
+  !===========================================================================
+  subroutine raytrace_to_edge_clump_capped(photon0, grid, tau, tau_max)
+  use define
+  implicit none
+  type(photon_type), intent(in)  :: photon0
+  type(grid_type),   intent(in)  :: grid
+  real(kind=wp),     intent(out) :: tau
+  real(kind=wp),     intent(in)  :: tau_max
+
+  real(kind=wp)  :: xp, yp, zp, kx, ky, kz
+  real(kind=wp)  :: xfreq_loc
+  real(kind=wp)  :: t_sp, t_seg, te, tx2, u_los, kap
+  integer(int64) :: icl_cur, icl_found
+  logical        :: found
+
+  tau      = 0.0_wp
+  xp       = photon0%x;  yp = photon0%y;  zp = photon0%z
+  kx       = photon0%kx; ky = photon0%ky; kz = photon0%kz
+  xfreq_loc = photon0%xfreq
+  icl_cur   = int(photon0%icell_clump, int64)
+
+  if (icl_cur > 0) then
+     t_seg = clump_exit_dist(xp, yp, zp, kx, ky, kz, icl_cur)
+     kap   = cl_rhokap(icl_cur) * voigt(xfreq_loc, cl_voigt_a(icl_cur))
+     tau   = tau + kap * t_seg
+     if (tau >= tau_max) return
+     xp    = xp + t_seg * kx
+     yp    = yp + t_seg * ky
+     zp    = zp + t_seg * kz
+     u_los = cl_vx(icl_cur)*kx + cl_vy(icl_cur)*ky + cl_vz(icl_cur)*kz
+     xfreq_loc = xfreq_loc + u_los
+     if (xp**2 + yp**2 + zp**2 >= sphere_R**2) return
+  end if
+
+  do
+     t_sp = sphere_exit_dist(xp, yp, zp, kx, ky, kz)
+     if (t_sp <= 0.0_wp) exit
+     call find_next_clump(xp, yp, zp, kx, ky, kz, icl_cur, t_sp, &
+                           te, tx2, icl_found, found)
+     if (.not. found) exit
+     te = max(0.0_wp, te)
+     xp = xp + te * kx;  yp = yp + te * ky;  zp = zp + te * kz
+     u_los = cl_vx(icl_found)*kx + cl_vy(icl_found)*ky + cl_vz(icl_found)*kz
+     xfreq_loc = xfreq_loc - u_los
+     t_seg = clump_exit_dist(xp, yp, zp, kx, ky, kz, icl_found)
+     kap   = cl_rhokap(icl_found) * voigt(xfreq_loc, cl_voigt_a(icl_found))
+     tau   = tau + kap * t_seg
+     if (tau >= tau_max) return
+     xp    = xp + t_seg * kx;  yp = yp + t_seg * ky;  zp = zp + t_seg * kz
+     xfreq_loc = xfreq_loc + u_los
+     icl_cur = icl_found
+     if (xp**2 + yp**2 + zp**2 >= sphere_R**2) exit
+  end do
+  end subroutine raytrace_to_edge_clump_capped
+  !===========================================================================
+
+  !===========================================================================
+  ! Capped variant of raytrace_to_dist_clump (same conventions as
+  ! raytrace_to_edge_clump_capped above).
+  !===========================================================================
+  subroutine raytrace_to_dist_clump_capped(photon0, grid, dist_in, tau, tau_max)
+  use define
+  implicit none
+  type(photon_type), intent(in)  :: photon0
+  type(grid_type),   intent(in)  :: grid
+  real(kind=wp),     intent(in)  :: dist_in
+  real(kind=wp),     intent(out) :: tau
+  real(kind=wp),     intent(in)  :: tau_max
+
+  real(kind=wp)  :: xp, yp, zp, kx, ky, kz, xfreq_loc
+  real(kind=wp)  :: t_rem, t_seg, te, tx2, u_los, kap
+  integer(int64) :: icl_cur, icl_found
+  logical        :: found
+
+  tau = 0.0_wp
+  xp  = photon0%x;  yp = photon0%y;  zp = photon0%z
+  kx  = photon0%kx; ky = photon0%ky; kz = photon0%kz
+  xfreq_loc = photon0%xfreq
+  icl_cur   = int(photon0%icell_clump, int64)
+  t_rem     = dist_in
+
+  if (icl_cur > 0) then
+     t_seg = min(clump_exit_dist(xp, yp, zp, kx, ky, kz, icl_cur), t_rem)
+     kap   = cl_rhokap(icl_cur) * voigt(xfreq_loc, cl_voigt_a(icl_cur))
+     tau   = tau + kap * t_seg
+     if (tau >= tau_max) return
+     t_rem = t_rem - t_seg
+     if (t_rem <= 0.0_wp) return
+     xp = xp + t_seg*kx;  yp = yp + t_seg*ky;  zp = zp + t_seg*kz
+     u_los = cl_vx(icl_cur)*kx + cl_vy(icl_cur)*ky + cl_vz(icl_cur)*kz
+     xfreq_loc = xfreq_loc + u_los
+  end if
+
+  do while (t_rem > 0.0_wp)
+     call find_next_clump(xp, yp, zp, kx, ky, kz, icl_cur, t_rem, &
+                           te, tx2, icl_found, found)
+     if (.not. found) exit
+     te = max(0.0_wp, te)
+     xp = xp + te*kx;  yp = yp + te*ky;  zp = zp + te*kz
+     t_rem = t_rem - te
+     u_los = cl_vx(icl_found)*kx + cl_vy(icl_found)*ky + cl_vz(icl_found)*kz
+     xfreq_loc = xfreq_loc - u_los
+     t_seg = min(clump_exit_dist(xp, yp, zp, kx, ky, kz, icl_found), t_rem)
+     kap   = cl_rhokap(icl_found) * voigt(xfreq_loc, cl_voigt_a(icl_found))
+     tau   = tau + kap * t_seg
+     if (tau >= tau_max) return
+     t_rem = t_rem - t_seg
+     if (t_rem <= 0.0_wp) return
+     xp = xp + t_seg*kx;  yp = yp + t_seg*ky;  zp = zp + t_seg*kz
+     xfreq_loc = xfreq_loc + u_los
+     icl_cur = icl_found
+  end do
+  end subroutine raytrace_to_dist_clump_capped
 
 end module raytrace_clump_mod

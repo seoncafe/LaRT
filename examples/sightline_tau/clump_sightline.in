@@ -1,0 +1,26 @@
+!------------------------------------------------------------------------
+! Clumpy sphere: sight-line tau and column-density maps.
+! Run with the standalone driver:
+!     mpirun -np N ../../make_sightline_tau.x clump_sightline.in
+! Output: clump_sightline_tau.fits.gz
+!------------------------------------------------------------------------
+&parameters
+ par%use_clump_medium = .true.
+ par%rmax             = 1.0
+ par%clump_radius     = 0.01
+ par%clump_f_cov      = 5.0
+ par%clump_tau0       = 1.0e3
+ par%temperature      = 1.0e4
+ par%spectral_type    = 'voigt'
+ par%nxfreq           = 121
+ par%velocity_min     = -100.0
+ par%velocity_max     =  100.0
+ par%nx = 11, par%ny = 11, par%nz = 11
+ par%nxim             = 65
+ par%nyim             = 65
+ par%alpha            = 0.0
+ par%beta             = 0.0
+ par%distance         = 100.0
+ par%iseed            = 12345
+ par%out_file         = 'clump_sightline.fits.gz'
+/

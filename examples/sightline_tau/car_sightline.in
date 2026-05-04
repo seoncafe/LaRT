@@ -1,0 +1,22 @@
+!------------------------------------------------------------------------
+! Cartesian uniform sphere: sight-line tau and column-density maps.
+! Run with the standalone driver:
+!     mpirun -np N ../../make_sightline_tau.x car_sightline.in
+! Output: car_sightline_tau.fits.gz
+!------------------------------------------------------------------------
+&parameters
+ par%temperature      = 1.0e4
+ par%taumax           = 1.0e4
+ par%DGR              = 0.0
+ par%spectral_type    = 'voigt'
+ par%nx = 101, par%ny = 101, par%nz = 101
+ par%nxfreq           = 121
+ par%rmax             = 1.0
+ par%xyz_symmetry     = .false.
+ par%nxim             = 65
+ par%nyim             = 65
+ par%alpha            = 0.0
+ par%beta             = 0.0
+ par%distance         = 100.0
+ par%out_file         = 'car_sightline.fits.gz'
+/

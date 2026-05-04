@@ -1,0 +1,30 @@
+!------------------------------------------------------------------------
+! Standalone sight-line tau / column-density map test (clump mode).
+!
+! Run with:
+!     mpirun -np N ../../make_sightline_tau.x clump_sightline_test.in
+!
+! Output:  clump_sightline_test_tau.fits.gz containing
+!     TAU_gas  (xfreq, nxim, nyim)   gas optical depth as f(velocity)
+!     N_gas    (nxim,  nyim)         gas (HI) column density
+! Add par%DGR > 0 to also produce TAU_dust.
+!------------------------------------------------------------------------
+&parameters
+ par%use_clump_medium = .true.
+ par%rmax             = 1.0
+ par%clump_radius     = 0.01
+ par%clump_f_cov      = 5.0
+ par%clump_tau0       = 1.0e3
+ par%temperature      = 1.0e4
+ par%nxfreq           = 301
+ par%velocity_min     = -100.0
+ par%velocity_max     =  100.0
+ par%nx = 11, par%ny = 11, par%nz = 11
+ par%nxim             = 65
+ par%nyim             = 65
+ par%alpha            = 0.0
+ par%beta             = 0.0
+ par%distance         = 100.0
+ par%iseed            = 12345
+ par%out_file         = 'clump_sightline_test.fits.gz'
+/

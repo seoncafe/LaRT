@@ -189,6 +189,154 @@ contains
   enddo
   end subroutine make_sightline_tau_outside
   !-------------------------------------------------------
+  subroutine make_sightline_tau_outside_amr(grid)
+  !--- AMR equivalent of make_sightline_tau_outside.  Iterates over the
+  !--- pixel grid of an outside (rectangular) observer, integrates the
+  !--- gas tau and column density along each sight-line through the AMR
+  !--- octree, and writes the result via write_sightline_tau_outside.
+  !--- The Cartesian `grid` argument is required by the procedure-pointer
+  !--- interface; per-cell quantities come from the global `amr_grid` in
+  !--- octree_mod (already populated by grid_create_amr + amr_sync_to_grid).
+  use mpi
+  use octree_mod,       only: amr_grid, amr_find_leaf
+  use raytrace_amr_mod, only: raytrace_to_edge_tau_gas_amr, raytrace_to_edge_column_amr
+  implicit none
+  type(grid_type), intent(in) :: grid
+  type(photon_type) :: pobs
+  real(kind=wp) :: delt(6), dist
+  real(kind=wp) :: tau_gas, N_gas, tau_dust
+  real(kind=wp) :: kx, ky, kz, kr, u1
+  real(kind=wp) :: eps_pos
+  integer       :: ix, iy
+  integer       :: loop, loop1, loop2, nsize
+  integer       :: i, jj, kk, j0, il
+  character(len=4) :: filename_end
+
+  ! Small inward nudge to avoid t_exit=0 at exact box boundaries.
+  eps_pos = 1.0e-9_wp * amr_grid%L_box
+
+  do i = 1, par%nobs
+     call create_shared_mem(observer(i)%tau_gas, [par%nxfreq, par%nxim, par%nyim])
+     call create_shared_mem(observer(i)%N_gas,   [par%nxim,   par%nyim])
+     if (par%DGR > 0.0_wp) &
+        call create_shared_mem(observer(i)%tau_dust, [par%nxim, par%nyim])
+  enddo
+
+  do i = 1, par%nobs
+     nsize = observer(i)%nxim * observer(i)%nyim
+     call loop_divide(nsize, mpar%nproc, mpar%p_rank, loop1, loop2)
+     do loop = loop1, loop2
+        call array_2D_indices(observer(i)%nxim, observer(i)%nyim, loop, ix, iy)
+
+        kx = tan((ix - (observer(i)%nxim + 1.0_wp)/2.0_wp) * observer(i)%dxim / rad2deg)
+        ky = tan((iy - (observer(i)%nyim + 1.0_wp)/2.0_wp) * observer(i)%dyim / rad2deg)
+        kz = -1.0_wp
+        kr = sqrt(kx*kx + ky*ky + kz*kz)
+        kx = kx/kr;  ky = ky/kr;  kz = kz/kr
+
+        pobs%kx = observer(i)%rmatrix(1,1)*kx + observer(i)%rmatrix(2,1)*ky + observer(i)%rmatrix(3,1)*kz
+        pobs%ky = observer(i)%rmatrix(1,2)*kx + observer(i)%rmatrix(2,2)*ky + observer(i)%rmatrix(3,2)*kz
+        pobs%kz = observer(i)%rmatrix(1,3)*kx + observer(i)%rmatrix(2,3)*ky + observer(i)%rmatrix(3,3)*kz
+
+        if (pobs%kx == 0.0_wp) then
+           delt(1) = hugest;  delt(2) = hugest
+        else
+           delt(1) = (amr_grid%xmax - observer(i)%x) / pobs%kx
+           delt(2) = (amr_grid%xmin - observer(i)%x) / pobs%kx
+        endif
+        if (pobs%ky == 0.0_wp) then
+           delt(3) = hugest;  delt(4) = hugest
+        else
+           delt(3) = (amr_grid%ymax - observer(i)%y) / pobs%ky
+           delt(4) = (amr_grid%ymin - observer(i)%y) / pobs%ky
+        endif
+        if (pobs%kz == 0.0_wp) then
+           delt(5) = hugest;  delt(6) = hugest
+        else
+           delt(5) = (amr_grid%zmax - observer(i)%z) / pobs%kz
+           delt(6) = (amr_grid%zmin - observer(i)%z) / pobs%kz
+        endif
+
+        !-- Farthest valid box-face intersection = entry from the far side.
+        dist = -999.9_wp
+        j0   = 0
+        do jj = 1, 6
+           if (delt(jj) > 0.0_wp .and. delt(jj) < hugest) then
+              pobs%x = observer(i)%x + pobs%kx * delt(jj)
+              pobs%y = observer(i)%y + pobs%ky * delt(jj)
+              pobs%z = observer(i)%z + pobs%kz * delt(jj)
+              if (pobs%x >= amr_grid%xmin - eps_pos .and. pobs%x <= amr_grid%xmax + eps_pos .and. &
+                  pobs%y >= amr_grid%ymin - eps_pos .and. pobs%y <= amr_grid%ymax + eps_pos .and. &
+                  pobs%z >= amr_grid%zmin - eps_pos .and. pobs%z <= amr_grid%zmax + eps_pos) then
+                 if (delt(jj) > dist) then
+                    dist = delt(jj)
+                    j0   = jj
+                 endif
+              endif
+           endif
+        enddo
+
+        if (dist <= 0.0_wp .or. dist >= hugest .or. j0 == 0) cycle
+
+        pobs%x = observer(i)%x + pobs%kx * dist
+        pobs%y = observer(i)%y + pobs%ky * dist
+        pobs%z = observer(i)%z + pobs%kz * dist
+        pobs%x = max(amr_grid%xmin, min(amr_grid%xmax, pobs%x))
+        pobs%y = max(amr_grid%ymin, min(amr_grid%ymax, pobs%y))
+        pobs%z = max(amr_grid%zmin, min(amr_grid%zmax, pobs%z))
+
+        !-- Reverse direction so the ray points inward toward the observer.
+        pobs%kx = -pobs%kx
+        pobs%ky = -pobs%ky
+        pobs%kz = -pobs%kz
+
+        !-- Nudge inward so amr_find_leaf returns a valid leaf.
+        pobs%x = pobs%x + eps_pos * pobs%kx
+        pobs%y = pobs%y + eps_pos * pobs%ky
+        pobs%z = pobs%z + eps_pos * pobs%kz
+
+        il = amr_find_leaf(pobs%x, pobs%y, pobs%z)
+        pobs%icell_amr = il
+        pobs%icell = 1; pobs%jcell = 1; pobs%kcell = 1
+        if (il <= 0) cycle
+
+        u1 = amr_grid%vfx(il)*pobs%kx + amr_grid%vfy(il)*pobs%ky + amr_grid%vfz(il)*pobs%kz
+
+        do kk = 1, observer(i)%nxfreq
+           pobs%xfreq = grid%xfreq(kk) * grid%Dfreq_ref / amr_grid%Dfreq(il) - u1
+           call raytrace_to_edge_tau_gas_amr(pobs, grid, tau_gas)
+           observer(i)%tau_gas(kk, ix, iy) = tau_gas
+        enddo
+
+        call raytrace_to_edge_column_amr(pobs, grid, N_gas, tau_dust)
+        observer(i)%N_gas(ix, iy) = N_gas
+        if (par%DGR > 0.0_wp) observer(i)%tau_dust(ix, iy) = tau_dust
+     enddo
+
+     call reduce_mem(observer(i)%tau_gas, shared_memory=.true.)
+     call reduce_mem(observer(i)%N_gas,   shared_memory=.true.)
+     if (par%DGR > 0.0_wp) call reduce_mem(observer(i)%tau_dust, shared_memory=.true.)
+  enddo
+
+  if (mpar%p_rank == 0) then
+     do i = 1, par%nobs
+        if (par%nobs == 1) then
+           filename_end = ''
+        else
+           write(filename_end,'(a,i3.3)') '_', i
+        endif
+        call write_sightline_tau_outside(trim(par%out_file), grid, observer(i), &
+                                          suffix=trim(filename_end))
+     enddo
+  endif
+
+  do i = 1, par%nobs
+     call destroy_mem(observer(i)%tau_gas)
+     call destroy_mem(observer(i)%N_gas)
+     if (par%DGR > 0.0_wp) call destroy_mem(observer(i)%tau_dust)
+  enddo
+  end subroutine make_sightline_tau_outside_amr
+  !-------------------------------------------------------
   subroutine write_sightline_tau_outside(filename,grid,obs,suffix)
   implicit none
   character(len=*),    intent(in) :: filename

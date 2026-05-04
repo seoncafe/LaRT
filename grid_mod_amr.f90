@@ -555,30 +555,20 @@ contains
     use define
     use memory_mod
     implicit none
-    ! Shared-memory (pointer) arrays: freed via destroy_mem (MPI window release)
-    if (associated(amr_grid%neighbor))      call destroy_mem(amr_grid%neighbor)
-    if (associated(amr_grid%parent))        call destroy_mem(amr_grid%parent)
-    if (associated(amr_grid%children))      call destroy_mem(amr_grid%children)
-    if (associated(amr_grid%level))         call destroy_mem(amr_grid%level)
-    if (associated(amr_grid%cx))            call destroy_mem(amr_grid%cx)
-    if (associated(amr_grid%cy))            call destroy_mem(amr_grid%cy)
-    if (associated(amr_grid%cz))            call destroy_mem(amr_grid%cz)
-    if (associated(amr_grid%ch))            call destroy_mem(amr_grid%ch)
-    if (associated(amr_grid%ileaf))         call destroy_mem(amr_grid%ileaf)
-    if (associated(amr_grid%icell_of_leaf)) call destroy_mem(amr_grid%icell_of_leaf)
-    if (associated(amr_grid%rhokap))        call destroy_mem(amr_grid%rhokap)
-    if (associated(amr_grid%rhokapD))       call destroy_mem(amr_grid%rhokapD)
-    if (associated(amr_grid%Dfreq))         call destroy_mem(amr_grid%Dfreq)
-    if (associated(amr_grid%voigt_a))       call destroy_mem(amr_grid%voigt_a)
-    if (associated(amr_grid%vfx))           call destroy_mem(amr_grid%vfx)
-    if (associated(amr_grid%vfy))           call destroy_mem(amr_grid%vfy)
-    if (associated(amr_grid%vfz))           call destroy_mem(amr_grid%vfz)
-    if (associated(amr_grid%Pem))           call destroy_mem(amr_grid%Pem)
-    if (associated(amr_grid%Pwgt))          call destroy_mem(amr_grid%Pwgt)
-    if (associated(amr_grid%alias))         call destroy_mem(amr_grid%alias)
-    if (associated(amr_grid%xfreq))         call destroy_mem(amr_grid%xfreq)
-    if (associated(amr_grid%velocity))      call destroy_mem(amr_grid%velocity)
-    if (associated(amr_grid%wavelength))    call destroy_mem(amr_grid%wavelength)
+    ! Free every shared-memory window in one shot.  Mirrors the convention
+    ! used by grid_destroy (Cartesian) and observer_destroy_outside: any of
+    ! those callers may run before us and zero out num_windows, in which case
+    ! the per-array destroy_mem() route would fall through to a Fortran
+    ! deallocate() of MPI-window memory and trip ifort severe (173).  Calling
+    ! destroy_shared_mem_all() is idempotent (no-op when num_windows == 0).
+    call destroy_shared_mem_all()
+    nullify(amr_grid%neighbor, amr_grid%parent, amr_grid%children, &
+            amr_grid%level, amr_grid%cx, amr_grid%cy, amr_grid%cz, amr_grid%ch, &
+            amr_grid%ileaf, amr_grid%icell_of_leaf, &
+            amr_grid%rhokap, amr_grid%rhokapD, amr_grid%Dfreq, amr_grid%voigt_a, &
+            amr_grid%vfx, amr_grid%vfy, amr_grid%vfz, &
+            amr_grid%Pem, amr_grid%Pwgt, amr_grid%alias, &
+            amr_grid%xfreq, amr_grid%velocity, amr_grid%wavelength)
     ! Per-rank output arrays (allocatable): freed normally
     if (allocated(amr_grid%Jout))  deallocate(amr_grid%Jout)
     if (allocated(amr_grid%Jin))   deallocate(amr_grid%Jin)

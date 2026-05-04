@@ -138,6 +138,7 @@ OBJSB	= \
 	write_output_rect.o \
 	write_output_heal.o \
 	clump_mod.o \
+	raytrace_clump.o \
 	peelingoff_rect.o \
 	peelingoff_heal.o \
 	read_ramses_amr.o \
@@ -152,7 +153,7 @@ OBJSB	= \
 	scattering_amr.o \
 	grid_mod_amr.o \
 	peelingoff_amr.o \
-	raytrace_clump.o \
+	sightline_tau_clump.o \
 	grid_mod_clump.o \
 	setup.o \
 
@@ -170,6 +171,15 @@ make_clumps: clean make_clumps_link
 
 make_clumps_link: $(OBJSB) make_clumps.o
 	$(FC) make_clumps.o $(OBJSB) $(LDFLAGS) -o make_clumps.x
+
+# Standalone sight-line optical-depth / column-density map calculator.
+# Reuses the same OBJSB list and the procedure-pointer make_sightline_tau
+# dispatch.  Build via:  make sightline_tau   ->  make_sightline_tau.x
+sightline_tau: clean sightline_tau_link
+	/bin/rm -rf *.o *.mod
+
+sightline_tau_link: $(OBJSB) make_sightline_tau.o
+	$(FC) make_sightline_tau.o $(OBJSB) $(LDFLAGS) -o make_sightline_tau.x
 
 ramses2fits:
 	$(FC) -O3 -cpp -DMPI -c define.f90

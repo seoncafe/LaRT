@@ -871,3 +871,175 @@ opacity input.
 
 The other two slots are unchanged: R_CLUMP must be R_CLUMP, TEMP must be
 TEMP.  Their header-keyword fallbacks are CL_RAD and TEMP_CL.
+
+================================================================================
+2026-05-04  Standalone sight-line tau / N(HI) map calculator
+================================================================================
+
+NEW FILES
+---------
+  make_sightline_tau.f90          standalone driver (~80 lines)
+  sightline_tau_clump.f90         clump-aware sight-line traversal (~150 lines)
+  examples/clump_sphere/clump_sightline_test.in
+  examples/sphere/sphere_sightline_test.in
+
+NEW MODULE (sightline_tau_clump.f90)
+------------------------------------
+  module sightline_tau_clump_mod
+    public :: make_sightline_tau_clump
+
+  Mirrors sightline_tau_amr.f90 but for clump mode:
+    - Ray-sphere intersection against the bounding sphere of radius
+      `sphere_R` (clump_mod) instead of box-AABB intersection
+    - Initialises pobs%icell_clump = 0 (vacuum entry from far surface)
+    - Uses raytrace_to_edge_tau_gas_clump and raytrace_to_edge_column_clump
+      (already public in raytrace_clump_mod) for the per-pixel loop
+    - reduce_mem across MPI ranks; FITS output via the existing
+      write_sightline_tau_outside (sightline_tau_rect.f90)
+
+WIRING CHANGES
+--------------
+  v2.10 (grid_class.f90 / type-bound dispatch):
+    clump_make_sightline_tau now calls make_sightline_tau_clump
+    instead of the cartesian make_sightline_tau_outside (which would
+    traverse the empty grid and return tau = 0).
+
+  v2.00 (setup.f90 / procedure pointers):
+    Inside the use_clump_medium branch, make_sightline_tau pointer is
+    set to make_sightline_tau_clump (was: make_sightline_tau_outside).
+    setup.f90 gains `use sightline_tau_clump_mod`.
+
+STANDALONE DRIVER (make_sightline_tau.f90)
+------------------------------------------
+  Workflow:
+    MPI_INIT
+    read_input(<input.in>)
+    setup_procedure()
+    par%save_peeloff       = .true.
+    par%save_sightline_tau = .true.
+    allocate concrete grid (v2.10) / call grid_create_* (v2.00)
+    observer_create()
+    make_sightline_tau()
+    observer_destroy() / grid_destroy*
+    MPI_FINALIZE
+
+  Build:
+    make sightline_tau         ->  make_sightline_tau.x
+
+  Run:
+    mpirun -np N ./make_sightline_tau.x sightline.in
+    -> writes <base>_tau.fits.gz with HDUs:
+         TAU_gas (nxfreq, nxim, nyim)
+         N_gas   (nxim,   nyim)
+         TAU_dust (nxim,  nyim)   (only when par%DGR > 0)
+       plus the standard observer WCS header (CD1_1, etc.).
+
+  Unlike make_clumps.x this driver does benefit from multiple MPI ranks:
+  the per-pixel sight-line loop uses loop_divide across mpar%nproc and
+  reduces with reduce_mem.
+
+VALIDATION
+----------
+  Smoke tests with par%iseed = 12345:
+    clump_sightline_test.in (clump mode, f_cov=5, tau0=1e3):
+      TAU_gas: max ~ 2.74e4, mean ~ 7.9e2
+      N_gas:   max ~ 4.6e17, mean ~ 1.2e17
+    sphere_sightline_test.in (Cartesian, taumax=1e4, T=10K):
+      TAU_gas: max ~ 2.0e4 (= 2*taumax through the centre), mean ~ 3.5e2
+      N_gas:   max ~ 1.1e16, mean ~ 5.7e15
+
+  v2.10 and v2.00 produce byte-identical maps in both modes (same RNG
+  seed, deterministic geometry).
+
+BACKWARD COMPATIBILITY
+----------------------
+  The wiring change for clump mode also fixes the same path inside a
+  regular LaRT.x run: setting par%save_sightline_tau = .true. on a
+  clump-mode input now produces the correct sight-line maps (previously
+  these returned all-zero arrays because the Cartesian raytrace
+  traversed the empty grid).
+
+================================================================================
+2026-05-04  Clump peel-off tau_huge cap + verify_peel_jmu fcov=5 cells
+================================================================================
+
+PROBLEM
+-------
+  The five outside-observer peel-off routines in peelingoff_rect.f90
+  (peeling_direct_outside, peeling_dust_*_outside,
+  peeling_resonance_*_outside) used the procedure pointer
+    call raytrace_to_edge(pobs, grid, tau)
+  which setup_procedure had mapped to raytrace_to_edge_clump for
+  clump-mode runs.  Result was correct (verified by
+  verify_peel_jmu), but the raytrace ran uncapped: even when the
+  running tau exceeded tau_huge ~ 745 (the double-precision exp(-tau)
+  underflow point) it kept walking and accumulating, wasting CPU on
+  rays whose contribution was already zero.
+
+  An additional gap was that raytrace_to_edge_clump itself could not
+  carry an optional tau_max argument because the
+  raytrace_to_edge / raytrace_to_dist procedure-pointer interfaces
+  in define.f90 fix the 3-arg signature.
+
+FIX
+---
+  raytrace_clump.f90 :: added two new public subroutines
+    raytrace_to_edge_clump_capped(pobs, grid, tau, tau_max)
+    raytrace_to_dist_clump_capped(pobs, grid, dist_in, tau, tau_max)
+  identical algorithms to the originals but with an explicit tau_max
+  argument that exits early once tau >= tau_max.  The originals keep
+  their 3-arg signatures so the procedure-pointer interfaces in
+  define.f90 stay intact.  A new public parameter
+    tau_huge_clump = 745.2_wp
+  encodes the underflow threshold.
+
+  peelingoff_rect.f90 :: 5 sites changed from the procedure-pointer
+  call to a small mode-aware helper at the bottom of the module:
+    subroutine peel_raytrace_to_edge(pobs, grid, tau)
+       if (par%use_clump_medium) then
+          call raytrace_to_edge_clump_capped(pobs, grid, tau, &
+                                             tau_max=tau_huge_clump)
+       else
+          call raytrace_to_edge(pobs, grid, tau)   ! pointer
+       end if
+    end subroutine
+  Sight-line wrappers
+  (raytrace_to_edge_tau_gas_clump, raytrace_to_dist_tau_gas_clump,
+  _column_clump variants) keep using the uncapped originals so the
+  sight-line FITS output continues to report the FULL integrated tau,
+  however large.
+
+MAKEFILE
+--------
+  raytrace_clump.o moved up the OBJSB list (now immediately after
+  clump_mod.o, before peelingoff_rect.o) so that raytrace_clump_mod's
+  .mod file is available when peelingoff_rect.o compiles.
+
+VALIDATION
+----------
+  examples/clump_sphere/verify_peel_jmu.ipynb gained a new section
+  "3b. Clumpy sphere f_cov = 5" with two reference cases:
+
+    clump_NHI18_fcov5_novel.in        (monochromatic, no velocity, 1e5 ph)
+    clump_NHI18_fcov5_voigt_novel.in  (voigt,        no velocity, 1e5 ph)
+
+  Theory:  P(scatt) = 1 - exp(-5) = 0.9933
+  Measured (4 observers, NP=64):
+    v2.00 mono   : Scatt/Jmu = 1.024, 1.002, 0.997, 0.999  (mean 1.006)
+    v2.00 voigt  : 0.979, 0.985, 0.990, 0.983              (mean 0.984)
+    v2.10 mono   : 0.988, 0.998, 0.999, 1.025              (mean 1.002)
+    v2.10 voigt  : 1.006, 1.012, 0.988, 1.011              (mean 1.004)
+
+  The cap (tau_huge_clump = 745.2) preserves the answer at high
+  optical depths (taumax ~ 6.7e3 for fcov=5) while saving CPU on the
+  rays that would otherwise integrate uselessly past the
+  exp(-tau) underflow point.
+
+DOCUMENTATION
+-------------
+  README_HISTORY -- new entry.
+  docs/LaRT_clump_description.tex -- the existing
+    "Peel-off is handled by ..." paragraph rewritten to describe the
+    new helper, the tau_huge cap, and the sight-line / peel-off cap
+    convention; sloppypar wrappers used to keep long typewriter
+    identifiers from overflowing the right margin.
