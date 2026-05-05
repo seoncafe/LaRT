@@ -635,23 +635,11 @@ class LaRTOutput:
         else:
             cbar_label = r'$\sigma_v$ [km s$^{-1}$]'
 
-        def _extent(p: PeelObservation):
-            h   = p.header
-            cd1 = abs(float(h.get('CD2_2', 1.0)))
-            cd2 = abs(float(h.get('CD3_3', cd1)))
-            cx  = float(h.get('CRPIX2', 0.5*(p.nxim + 1)))
-            cy  = float(h.get('CRPIX3', 0.5*(p.nyim + 1)))
-            xlo = (0.5         - cx) * cd1
-            xhi = (p.nxim + 0.5 - cx) * cd1
-            ylo = (0.5         - cy) * cd2
-            yhi = (p.nyim + 0.5 - cy) * cd2
-            return (xlo, xhi, ylo, yhi)
-
         xlabel_str = 'image y' if transpose else 'image x'
         ylabel_str = 'image x' if transpose else 'image y'
 
         def _imshow_one(ax, mmap, peel, vmin_, vmax_):
-            xlo, xhi, ylo, yhi = _extent(peel)
+            xlo, xhi, ylo, yhi = _peel_extent_code(peel)
             if transpose:
                 arr = mmap.T
                 ext = (ylo, yhi, xlo, xhi)
@@ -749,10 +737,755 @@ class LaRTOutput:
             plt.show()
         return fig, axes
 
+    # ------------------------------------------------------------------
+    # Plotting: peel-off integrated-intensity map(s)
+    # ------------------------------------------------------------------
+    def plot_peeling_map(self,
+                         observer: Optional[int] = None,
+                         component: str = 'all',
+                         vel_range: Optional[Tuple[float, float]] = None,
+                         cmap: str = 'inferno',
+                         vmin: Optional[float] = None,
+                         vmax: Optional[float] = None,
+                         log: bool = False,
+                         transpose: bool = False,
+                         share_color: bool = True,
+                         ncols: Optional[int] = None,
+                         figsize: Optional[Tuple[float, float]] = None,
+                         title: Optional[str] = None,
+                         show: bool = False,
+                         savefig: Optional[str] = None):
+        r"""Plot the spatial map of frequency-integrated intensity from each
+        peel-off observer.
+
+        For every spatial pixel of each peel-off cube ``I(x, y, v)`` this
+        integrates over the velocity (frequency) axis and draws the
+        resulting 2D map :math:`\int I\,dv`.
+
+        Parameters
+        ----------
+        observer : int, optional
+            Index into ``self.peelings``.  If None (default), every
+            peel-off observer is drawn as a subplot panel.
+        component : {'all', 'scatt', 'direct'}
+            Which part of the peel-off cube to use.
+        vel_range : (lo, hi), optional
+            Restrict integration to ``lo <= v <= hi`` (km/s).
+        cmap : str
+            Matplotlib colormap (default 'inferno').
+        vmin, vmax : float, optional
+            Color-scale bounds.  If both None, set from the data.
+        log : bool
+            If True, use logarithmic color scaling (zero/negative pixels
+            are masked).
+        transpose : bool
+            If True, swap image x and y axes.
+        share_color : bool
+            Multi-observer mode: share one color scale across panels.
+        ncols, figsize, title, show, savefig : convenience options.
+
+        Returns
+        -------
+        fig, ax(es) : matplotlib.figure.Figure, Axes (or array of Axes)
+        """
+        if not self.peelings:
+            raise RuntimeError("No peel-off observers were found for this run.")
+        if self.velocity is None:
+            raise RuntimeError(
+                "velocity grid not available -- the FITS Spectrum table "
+                "has no 'velocity' column.")
+
+        import matplotlib.pyplot as plt
+        from matplotlib.colors import LogNorm, Normalize
+        from mpl_toolkits.axes_grid1 import make_axes_locatable
+
+        cbar_label = r'$\int I\,dv$'
+
+        def _attach_cbar(im, ax, label):
+            divider = make_axes_locatable(ax)
+            cax     = divider.append_axes('right', size='4%', pad=0.08)
+            return ax.figure.colorbar(im, cax=cax, label=label)
+
+        xlabel_str = 'image y' if transpose else 'image x'
+        ylabel_str = 'image x' if transpose else 'image y'
+
+        def _imshow_one(ax, mmap, peel, norm_):
+            xlo, xhi, ylo, yhi = _peel_extent_code(peel)
+            if transpose:
+                arr = mmap.T
+                ext = (ylo, yhi, xlo, xhi)
+            else:
+                arr = mmap
+                ext = (xlo, xhi, ylo, yhi)
+            return ax.imshow(arr, origin='lower', extent=ext,
+                             cmap=cmap, norm=norm_,
+                             interpolation='nearest', aspect='equal')
+
+        def _make_norm(maps):
+            if log:
+                # ignore zero/negative for log scaling
+                vals = np.concatenate([m[m > 0].ravel() for m in maps])
+                if vals.size == 0:
+                    raise RuntimeError("Cannot use log scale: no positive "
+                                       "pixel values found.")
+                lo = float(vals.min()) if vmin is None else vmin
+                hi = float(vals.max()) if vmax is None else vmax
+                return LogNorm(vmin=lo, vmax=hi)
+            lo = (min(float(np.nanmin(m)) for m in maps)
+                  if vmin is None else vmin)
+            hi = (max(float(np.nanmax(m)) for m in maps)
+                  if vmax is None else vmax)
+            return Normalize(vmin=lo, vmax=hi)
+
+        def _moment0(peel):
+            return peel.velocity_moment_map(self.velocity, order=0,
+                                            component=component,
+                                            vel_range=vel_range)
+
+        # --- single observer ------------------------------------------
+        if observer is not None:
+            peel = self.peelings[observer]
+            mmap = _moment0(peel)
+            norm_ = _make_norm([mmap])
+            if figsize is None:
+                figsize = (5.5, 4.6)
+            fig, ax = plt.subplots(figsize=figsize)
+            im = _imshow_one(ax, mmap, peel, norm_)
+            _attach_cbar(im, ax, cbar_label)
+            ax.set_xlabel(xlabel_str); ax.set_ylabel(ylabel_str)
+            if title is None:
+                title = (f"{os.path.basename(peel.file_name)}\n"
+                         f"$\\alpha$={peel.alpha:+.1f}, "
+                         f"$\\beta$={peel.beta:+.1f}, "
+                         f"$\\gamma$={peel.gamma:+.1f}")
+            ax.set_title(title, fontsize=11)
+            fig.tight_layout()
+            if savefig:
+                fig.savefig(savefig, dpi=150)
+            if show:
+                plt.show()
+            return fig, ax
+
+        # --- multi-observer grid --------------------------------------
+        nobs = len(self.peelings)
+        if ncols is None:
+            ncols = int(np.ceil(np.sqrt(nobs)))
+        nrows = int(np.ceil(nobs / ncols))
+        if figsize is None:
+            figsize = (4.6 * ncols, 3.9 * nrows)
+
+        maps = [_moment0(p) for p in self.peelings]
+
+        if share_color:
+            shared_norm = _make_norm(maps)
+        fig, axes = plt.subplots(nrows, ncols, figsize=figsize, squeeze=False)
+        axes_flat = axes.ravel()
+
+        for i, (peel, mmap) in enumerate(zip(self.peelings, maps)):
+            ax = axes_flat[i]
+            norm_ = shared_norm if share_color else _make_norm([mmap])
+            im = _imshow_one(ax, mmap, peel, norm_)
+            _attach_cbar(im, ax, cbar_label)
+            ax.set_title(f'$\\alpha$={peel.alpha:+.1f}, '
+                         f'$\\beta$={peel.beta:+.1f}, '
+                         f'$\\gamma$={peel.gamma:+.1f}', fontsize=10)
+            ax.set_xlabel(xlabel_str); ax.set_ylabel(ylabel_str)
+
+        for j in range(nobs, nrows * ncols):
+            axes_flat[j].axis('off')
+
+        if title is None:
+            title = os.path.basename(self.fits_file)
+        fig.suptitle(title, fontsize=11)
+        fig.tight_layout(rect=(0, 0, 1, 0.96))
+        if savefig:
+            fig.savefig(savefig, dpi=150)
+        if show:
+            plt.show()
+        return fig, axes
+
+    # ------------------------------------------------------------------
+    # Plotting: peel-off spatially-integrated 1D spectrum
+    # ------------------------------------------------------------------
+    def plot_peeling_spectrum(self,
+                              observer: Optional[int] = None,
+                              x: str = 'velocity',
+                              component: str = 'all',
+                              mode: str = 'sum',
+                              yscale: str = 'linear',
+                              ax=None,
+                              ncols: Optional[int] = None,
+                              figsize: Optional[Tuple[float, float]] = None,
+                              xlim: Optional[tuple] = None,
+                              ylim: Optional[tuple] = None,
+                              xmin: Optional[float] = None,
+                              xmax: Optional[float] = None,
+                              ymin: Optional[float] = None,
+                              ymax: Optional[float] = None,
+                              title: Optional[str] = None,
+                              show: bool = False,
+                              savefig: Optional[str] = None):
+        """Plot the spatially-integrated (or averaged) 1D spectrum of each
+        peel-off observer.
+
+        Parameters
+        ----------
+        observer : int, optional
+            Index into ``self.peelings``.  If None (default), every
+            observer is drawn -- on a single set of axes (``ax`` given
+            or only one observer) or as a grid of subplots otherwise.
+        x : {'velocity', 'xfreq', 'wavelength'}
+            X-axis quantity.
+        component : {'all', 'scatt', 'direct'}
+            Which cube to use.
+        mode : {'sum', 'mean'}
+            Spatial reduction over the (y, x) image axes.  ``'sum'``
+            (default) integrates over pixels; ``'mean'`` returns the
+            spatial average specific intensity.
+        yscale : {'linear', 'log'}
+        ax : matplotlib.axes.Axes, optional
+            If provided, plot all observers as separate curves on this
+            single axes (overrides the multi-panel grid).
+        xlim, ylim, xmin/xmax/ymin/ymax : axis limit overrides.
+        ncols, figsize, title, show, savefig : convenience options.
+
+        Returns
+        -------
+        fig, ax(es) : matplotlib.figure.Figure, Axes (or array of Axes)
+        """
+        if not self.peelings:
+            raise RuntimeError("No peel-off observers were found for this run.")
+        if mode not in ('sum', 'mean'):
+            raise ValueError(f"mode must be 'sum' or 'mean', got {mode!r}")
+        if component not in ('all', 'scatt', 'direct'):
+            raise ValueError(f"component must be 'all', 'scatt', or "
+                             f"'direct', got {component!r}")
+        if yscale not in ('linear', 'log'):
+            raise ValueError(f"yscale must be 'linear' or 'log', got {yscale!r}")
+
+        import matplotlib.pyplot as plt
+
+        xvals, xlabel, _, _ = _x_axis_pick(self, x)
+        xlim_eff = _resolve_lim(xlim, xmin, xmax)
+        ylim_eff = _resolve_lim(ylim, ymin, ymax)
+
+        ylabel = (r'$\sum_{\rm pix} I\,(\mathrm{pixel}\cdot \mathrm{flux})$'
+                  if mode == 'sum'
+                  else r'$\langle I\rangle_{\rm pix}$')
+
+        def _spec(peel):
+            if component == 'all':
+                cube = peel.cube
+            elif component == 'scatt':
+                cube = peel.scatt
+            else:
+                cube = peel.direc
+            if mode == 'sum':
+                return cube.sum(axis=(0, 1))
+            return cube.mean(axis=(0, 1))
+
+        def _label(peel):
+            return (rf'$\alpha={peel.alpha:+.0f}^\circ,\ '
+                    rf'\beta={peel.beta:+.0f}^\circ,\ '
+                    rf'\gamma={peel.gamma:+.0f}^\circ$')
+
+        # --- single observer ------------------------------------------
+        if observer is not None:
+            peel = self.peelings[observer]
+            if ax is None:
+                if figsize is None:
+                    figsize = (7.0, 4.5)
+                fig, ax = plt.subplots(figsize=figsize)
+            else:
+                fig = ax.figure
+            ax.plot(xvals, _spec(peel), lw=1.4)
+            ax.set_xlabel(xlabel); ax.set_ylabel(ylabel)
+            if yscale == 'log': ax.set_yscale('log')
+            if xlim_eff is not None: ax.set_xlim(*xlim_eff)
+            if ylim_eff is not None: ax.set_ylim(*ylim_eff)
+            if title is None:
+                title = (f"{os.path.basename(peel.file_name)}\n"
+                         f"{_label(peel)}")
+            ax.set_title(title, fontsize=11)
+            fig.tight_layout()
+            if savefig:
+                fig.savefig(savefig, dpi=150)
+            if show:
+                plt.show()
+            return fig, ax
+
+        # --- all observers, single axes (overlay) --------------------
+        if ax is not None:
+            fig = ax.figure
+            for peel in self.peelings:
+                ax.plot(xvals, _spec(peel), lw=1.2, label=_label(peel))
+            ax.set_xlabel(xlabel); ax.set_ylabel(ylabel)
+            if yscale == 'log': ax.set_yscale('log')
+            if xlim_eff is not None: ax.set_xlim(*xlim_eff)
+            if ylim_eff is not None: ax.set_ylim(*ylim_eff)
+            ax.legend(fontsize=9, frameon=False)
+            if title is None:
+                title = os.path.basename(self.fits_file)
+            ax.set_title(title, fontsize=11)
+            fig.tight_layout()
+            if savefig:
+                fig.savefig(savefig, dpi=150)
+            if show:
+                plt.show()
+            return fig, ax
+
+        # --- multi-observer grid --------------------------------------
+        nobs = len(self.peelings)
+        if ncols is None:
+            ncols = int(np.ceil(np.sqrt(nobs)))
+        nrows = int(np.ceil(nobs / ncols))
+        if figsize is None:
+            figsize = (4.8 * ncols, 3.4 * nrows)
+        fig, axes = plt.subplots(nrows, ncols, figsize=figsize, squeeze=False)
+        axes_flat = axes.ravel()
+
+        for i, peel in enumerate(self.peelings):
+            ax_i = axes_flat[i]
+            ax_i.plot(xvals, _spec(peel), lw=1.4, color='C0')
+            ax_i.set_xlabel(xlabel); ax_i.set_ylabel(ylabel)
+            if yscale == 'log': ax_i.set_yscale('log')
+            if xlim_eff is not None: ax_i.set_xlim(*xlim_eff)
+            if ylim_eff is not None: ax_i.set_ylim(*ylim_eff)
+            ax_i.set_title(_label(peel), fontsize=10)
+
+        for j in range(nobs, nrows * ncols):
+            axes_flat[j].axis('off')
+
+        if title is None:
+            title = os.path.basename(self.fits_file)
+        fig.suptitle(title, fontsize=11)
+        fig.tight_layout(rect=(0, 0, 1, 0.96))
+        if savefig:
+            fig.savefig(savefig, dpi=150)
+        if show:
+            plt.show()
+        return fig, axes
+
+    # convenience alias
+    plot_peeling_spec = plot_peeling_spectrum
+
+    # ------------------------------------------------------------------
+    # Plotting: peel-off azimuthally-averaged radial profile
+    # ------------------------------------------------------------------
+    def plot_peeling_radial_profile(self,
+                                    observer: Optional[int] = None,
+                                    component: str = 'all',
+                                    vel_range: Optional[Tuple[float, float]] = None,
+                                    nbins: Optional[int] = None,
+                                    rmax: Optional[float] = None,
+                                    yscale: str = 'linear',
+                                    xscale: str = 'linear',
+                                    ax=None,
+                                    ncols: Optional[int] = None,
+                                    figsize: Optional[Tuple[float, float]] = None,
+                                    xlim: Optional[tuple] = None,
+                                    ylim: Optional[tuple] = None,
+                                    xmin: Optional[float] = None,
+                                    xmax: Optional[float] = None,
+                                    ymin: Optional[float] = None,
+                                    ymax: Optional[float] = None,
+                                    title: Optional[str] = None,
+                                    show: bool = False,
+                                    savefig: Optional[str] = None):
+        r"""Azimuthally averaged radial profile of the frequency-integrated
+        peel-off map :math:`\int I\,dv`.
+
+        For each peel-off observer the cube is integrated over the velocity
+        axis to produce a 2D map; pixel distances from the image centre
+        are then binned and the mean intensity within each annulus is
+        computed.
+
+        Parameters
+        ----------
+        observer : int, optional
+            Index into ``self.peelings``.  If None (default), every
+            observer is drawn -- on a single set of axes (``ax`` given)
+            or as a grid of subplots otherwise.
+        component : {'all', 'scatt', 'direct'}
+        vel_range : (lo, hi), optional
+            Restrict integration to ``lo <= v <= hi`` (km/s).
+        nbins : int, optional
+            Number of radial bins.  Default = ``nxim // 2``.
+        rmax : float, optional
+            Maximum radius (image-axis units).  Default = half the
+            shorter image side.
+        yscale, xscale : {'linear', 'log'}
+        ax : matplotlib.axes.Axes, optional
+            If given, plot all observers as separate curves on this single
+            axes (overrides the multi-panel grid).
+        xlim, ylim, xmin/xmax/ymin/ymax : axis limits.
+        ncols, figsize, title, show, savefig : convenience options.
+
+        Returns
+        -------
+        fig, ax(es) : matplotlib.figure.Figure, Axes (or array of Axes)
+        """
+        if not self.peelings:
+            raise RuntimeError("No peel-off observers were found for this run.")
+        if self.velocity is None:
+            raise RuntimeError(
+                "velocity grid not available -- the FITS Spectrum table "
+                "has no 'velocity' column.")
+        if yscale not in ('linear', 'log'):
+            raise ValueError(f"yscale must be 'linear' or 'log', got {yscale!r}")
+        if xscale not in ('linear', 'log'):
+            raise ValueError(f"xscale must be 'linear' or 'log', got {xscale!r}")
+
+        import matplotlib.pyplot as plt
+
+        xlim_eff = _resolve_lim(xlim, xmin, xmax)
+        ylim_eff = _resolve_lim(ylim, ymin, ymax)
+
+        def _profile(peel: PeelObservation):
+            mmap = peel.velocity_moment_map(self.velocity, order=0,
+                                            component=component,
+                                            vel_range=vel_range)
+            xs, ys, _, _ = _peel_pixel_coords_code(peel)
+            X, Y = np.meshgrid(xs, ys)
+            R = np.sqrt(X*X + Y*Y)
+            rmax_eff = (min(float(np.abs(xs).max()), float(np.abs(ys).max()))
+                        if rmax is None else float(rmax))
+            nb = peel.nxim // 2 if nbins is None else int(nbins)
+            if nb < 1:
+                raise ValueError("nbins must be >= 1")
+            edges = np.linspace(0.0, rmax_eff, nb + 1)
+            centers = 0.5 * (edges[:-1] + edges[1:])
+            counts, _ = np.histogram(R.ravel(), bins=edges)
+            weighted, _ = np.histogram(R.ravel(), bins=edges,
+                                       weights=mmap.ravel())
+            with np.errstate(invalid='ignore', divide='ignore'):
+                prof = np.where(counts > 0, weighted / counts, np.nan)
+            return centers, prof
+
+        def _label(peel: PeelObservation):
+            return (rf'$\alpha={peel.alpha:+.0f}^\circ,\ '
+                    rf'\beta={peel.beta:+.0f}^\circ,\ '
+                    rf'\gamma={peel.gamma:+.0f}^\circ$')
+
+        xlabel = 'image radius'
+        ylabel = r'$\langle\int I\,dv\rangle$ (annular avg)'
+
+        def _finalize(ax_, with_legend=False, title_=None):
+            ax_.set_xlabel(xlabel); ax_.set_ylabel(ylabel)
+            if xscale == 'log': ax_.set_xscale('log')
+            if yscale == 'log': ax_.set_yscale('log')
+            if xlim_eff is not None: ax_.set_xlim(*xlim_eff)
+            if ylim_eff is not None: ax_.set_ylim(*ylim_eff)
+            if with_legend: ax_.legend(fontsize=9, frameon=False)
+            if title_ is not None: ax_.set_title(title_, fontsize=11)
+
+        # --- single observer ------------------------------------------
+        if observer is not None:
+            peel = self.peelings[observer]
+            r, prof = _profile(peel)
+            if ax is None:
+                if figsize is None: figsize = (7.0, 4.5)
+                fig, ax = plt.subplots(figsize=figsize)
+            else:
+                fig = ax.figure
+            ax.plot(r, prof, lw=1.4)
+            t = (f"{os.path.basename(peel.file_name)}\n{_label(peel)}"
+                 if title is None else title)
+            _finalize(ax, with_legend=False, title_=t)
+            fig.tight_layout()
+            if savefig: fig.savefig(savefig, dpi=150)
+            if show: plt.show()
+            return fig, ax
+
+        # --- all observers, single axes (overlay) --------------------
+        if ax is not None:
+            fig = ax.figure
+            for peel in self.peelings:
+                r, prof = _profile(peel)
+                ax.plot(r, prof, lw=1.2, label=_label(peel))
+            t = os.path.basename(self.fits_file) if title is None else title
+            _finalize(ax, with_legend=True, title_=t)
+            fig.tight_layout()
+            if savefig: fig.savefig(savefig, dpi=150)
+            if show: plt.show()
+            return fig, ax
+
+        # --- multi-observer grid --------------------------------------
+        nobs = len(self.peelings)
+        if ncols is None:
+            ncols = int(np.ceil(np.sqrt(nobs)))
+        nrows = int(np.ceil(nobs / ncols))
+        if figsize is None:
+            figsize = (4.8 * ncols, 3.4 * nrows)
+        fig, axes = plt.subplots(nrows, ncols, figsize=figsize, squeeze=False)
+        axes_flat = axes.ravel()
+
+        for i, peel in enumerate(self.peelings):
+            r, prof = _profile(peel)
+            ax_i = axes_flat[i]
+            ax_i.plot(r, prof, lw=1.4, color='C0')
+            _finalize(ax_i, with_legend=False, title_=_label(peel))
+
+        for j in range(nobs, nrows * ncols):
+            axes_flat[j].axis('off')
+
+        if title is None:
+            title = os.path.basename(self.fits_file)
+        fig.suptitle(title, fontsize=11)
+        fig.tight_layout(rect=(0, 0, 1, 0.96))
+        if savefig: fig.savefig(savefig, dpi=150)
+        if show: plt.show()
+        return fig, axes
+
+    # convenience alias
+    plot_peeling_rprof = plot_peeling_radial_profile
+
+    # ------------------------------------------------------------------
+    # Plotting: clump cross-section slice
+    # ------------------------------------------------------------------
+    def _clumps_file_path(self) -> str:
+        """Return the path of the corresponding ``*_clumps.fits.gz`` file
+        derived from the main output FITS file."""
+        base = self.fits_file
+        for ext in ('.fits.gz', '.fits'):
+            if base.endswith(ext):
+                base = base[:-len(ext)]
+                break
+        for ext in ('_clumps.fits.gz', '_clumps.fits'):
+            cand = base + ext
+            if os.path.exists(cand):
+                return cand
+        return base + '_clumps.fits.gz'
+
+    def plot_clump_slice(self,
+                         axis: str = 'z',
+                         value: float = 0.0,
+                         colorby: Optional[str] = None,
+                         fill: bool = True,
+                         cmap: str = 'viridis',
+                         vmin: Optional[float] = None,
+                         vmax: Optional[float] = None,
+                         linewidth: float = 0.5,
+                         alpha: Optional[float] = None,
+                         show_sphere: bool = True,
+                         clumps_file: Optional[str] = None,
+                         ax=None,
+                         figsize: Tuple[float, float] = (7.0, 7.0),
+                         title: Optional[str] = None,
+                         show: bool = False,
+                         savefig: Optional[str] = None):
+        r"""Plot the cross-section of clumps that intersect a coordinate
+        slice plane.
+
+        Loads the corresponding ``*_clumps.fits.gz`` file (or the path
+        given via ``clumps_file``) and reuses :func:`plot_clump_slice.load_clumps`,
+        :func:`plot_clump_slice.slice_clumps` and
+        :func:`plot_clump_slice.make_color_array` from the same directory
+        for the geometry.
+
+        Parameters
+        ----------
+        axis : {'x', 'y', 'z'}
+            Slice axis (default 'z').
+        value : float
+            Slice coordinate (default 0).
+        colorby : {'rhokap', 'radius', 'rcross', 'temp', 'none'}, optional
+            Per-clump quantity used to colour the disks.  Default
+            ``'rhokap'`` if the clumps file has a RHOKAP column,
+            otherwise auto-falls back to ``'radius'``.  ``'radius'``
+            colours by full 3D ``R_CLUMP``.
+        fill : bool
+            If True (default), fill the cross-section disks; otherwise
+            draw outlines only.
+        cmap : str
+            Matplotlib colormap (default 'viridis').
+        vmin, vmax : float, optional
+            Color-scale bounds for the chosen quantity.
+        linewidth : float
+            Outline thickness.
+        alpha : float, optional
+            Disk alpha.  Default 0.6 when ``fill=True``, 1.0 when outline.
+        show_sphere : bool
+            Draw the outer sphere boundary at this slice as a dashed
+            circle (default True).
+        clumps_file : str, optional
+            Override the auto-located ``*_clumps.fits.gz`` path.
+        ax : matplotlib.axes.Axes, optional
+            Existing axes to draw on; created if None.
+        figsize, title, show, savefig : convenience options.
+
+        Returns
+        -------
+        fig, ax : matplotlib.figure.Figure, matplotlib.axes.Axes
+        """
+        if axis not in ('x', 'y', 'z'):
+            raise ValueError(f"axis must be 'x', 'y', or 'z', got {axis!r}")
+        if colorby is not None and colorby not in (
+                'none', 'rhokap', 'radius', 'rcross', 'temp'):
+            raise ValueError(f"colorby must be one of 'none', 'rhokap', "
+                             f"'radius', 'rcross', 'temp'; got {colorby!r}")
+
+        cfile = clumps_file if clumps_file else self._clumps_file_path()
+        if not os.path.exists(cfile):
+            raise FileNotFoundError(
+                f"Clumps file not found: {cfile}\n"
+                f"  (derived from {self.fits_file}; pass clumps_file=... "
+                f"to override)")
+
+        # Reuse helpers from plot_clump_slice.py in the same directory.
+        try:
+            from plot_clump_slice import load_clumps, slice_clumps, AXIS_TRIPLE
+        except ImportError:
+            here = os.path.dirname(os.path.abspath(__file__))
+            if here not in sys.path:
+                sys.path.insert(0, here)
+            from plot_clump_slice import load_clumps, slice_clumps, AXIS_TRIPLE
+
+        import matplotlib.pyplot as plt
+        from matplotlib.patches import Circle
+        from matplotlib.collections import PatchCollection
+
+        clumps = load_clumps(cfile)
+        a, b, rcross, idx = slice_clumps(clumps['pos'], clumps['radius'],
+                                         axis, value)
+
+        # Resolve colorby: default rhokap if available, else radius.
+        if colorby is None:
+            colorby = 'rhokap' if clumps.get('rhokap') is not None else 'radius'
+        # Validate availability and produce (values, label) ourselves so we
+        # don't depend on the CLI helper's sys.exit error path.
+        if colorby == 'none':
+            color_vals, color_label = None, None
+        elif colorby == 'rhokap':
+            if clumps.get('rhokap') is None:
+                raise ValueError(
+                    f"colorby='rhokap' requested but the clumps file "
+                    f"{os.path.basename(cfile)} has no RHOKAP column.")
+            color_vals = np.asarray(clumps['rhokap'])[idx]
+            color_label = 'RHOKAP'
+        elif colorby == 'radius':
+            color_vals = np.asarray(clumps['radius'])[idx]
+            color_label = r'$R_{\rm clump}$'
+        elif colorby == 'rcross':
+            color_vals = rcross
+            color_label = r'$r_{\rm cross}$'
+        else:  # 'temp'
+            if clumps.get('temp') is None:
+                raise ValueError(
+                    f"colorby='temp' requested but the clumps file "
+                    f"{os.path.basename(cfile)} has no TEMP column.")
+            color_vals = np.asarray(clumps['temp'])[idx]
+            color_label = 'Temperature  [K]'
+
+        if ax is None:
+            fig, ax = plt.subplots(figsize=figsize)
+        else:
+            fig = ax.figure
+
+        # Outer sphere boundary at this slice
+        R_sphere = clumps['sphere_R']
+        if show_sphere and abs(value) < R_sphere:
+            r_outer = np.sqrt(R_sphere**2 - value**2)
+            ax.add_patch(Circle((0.0, 0.0), r_outer, fill=False,
+                                edgecolor='black', linestyle='--',
+                                linewidth=1.0,
+                                label=f'sphere @ {axis}={value:g}'))
+
+        patches = [Circle((ai, bi), ri) for ai, bi, ri in zip(a, b, rcross)]
+        fill_alpha = (alpha if alpha is not None
+                      else (0.6 if fill else 1.0))
+
+        if color_vals is None:
+            col = PatchCollection(
+                patches,
+                facecolors=('tab:blue' if fill else 'none'),
+                edgecolors='tab:blue',
+                linewidths=linewidth,
+                alpha=fill_alpha,
+            )
+            ax.add_collection(col)
+        else:
+            col = PatchCollection(
+                patches, cmap=cmap,
+                edgecolors=('face' if fill else None),
+                linewidths=linewidth,
+                alpha=fill_alpha,
+            )
+            col.set_array(np.asarray(color_vals))
+            if vmin is not None or vmax is not None:
+                col.set_clim(vmin=vmin, vmax=vmax)
+            if not fill:
+                col.set_facecolor('none')
+            ax.add_collection(col)
+            cb = fig.colorbar(col, ax=ax, fraction=0.046, pad=0.04)
+            cb.set_label(color_label)
+
+        _, _, _, lab_a, lab_b = AXIS_TRIPLE[axis]
+        ax.set_xlabel(lab_a)
+        ax.set_ylabel(lab_b)
+        ax.set_aspect('equal')
+        lim = R_sphere * 1.05
+        ax.set_xlim(-lim, lim); ax.set_ylim(-lim, lim)
+
+        n_in_plane = len(rcross)
+        if title is None:
+            title = (f'{os.path.basename(cfile)}\n'
+                     f'slice {axis} = {value:g}  |  '
+                     f'{n_in_plane} / {len(clumps["pos"])} clumps cross plane')
+            if clumps['f_cov'] is not None and clumps['f_vol'] is not None:
+                title += (f'\nf_cov={clumps["f_cov"]:.3f}  '
+                          f'f_vol={clumps["f_vol"]:.4f}')
+        ax.set_title(title, fontsize=10)
+        if show_sphere and abs(value) < R_sphere:
+            ax.legend(loc='lower right', fontsize=8)
+
+        fig.tight_layout()
+        if savefig:
+            fig.savefig(savefig, dpi=150)
+        if show:
+            plt.show()
+        return fig, ax
+
 
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
+def _peel_pixel_coords_code(p: 'PeelObservation'):
+    """Pixel-centre coordinates of a peel-off image in **code units**.
+
+    The peel-off cube's FITS WCS stores ``CD2_2`` / ``CD3_3`` in
+    degrees/pixel and the observer distance in code units (``DISTANCE``
+    header / ``peel.distance``).  The transverse pixel size projected
+    back to the source plane is therefore ``cd_deg * (pi/180) * D`` in
+    the small-angle limit (always valid for peel-off geometry where the
+    observer is far from the source).
+
+    Returns
+    -------
+    xs : (nxim,) ndarray of pixel-centre x in code units
+    ys : (nyim,) ndarray of pixel-centre y in code units
+    dx, dy : float
+        Pixel pitch along x / y in code units.
+    """
+    h    = p.header
+    cd1d = abs(float(h.get('CD2_2', 1.0)))
+    cd2d = abs(float(h.get('CD3_3', cd1d)))
+    cx   = float(h.get('CRPIX2', 0.5*(p.nxim + 1)))
+    cy   = float(h.get('CRPIX3', 0.5*(p.nyim + 1)))
+    dx   = cd1d * (np.pi/180.0) * p.distance
+    dy   = cd2d * (np.pi/180.0) * p.distance
+    xs   = (np.arange(p.nxim) + 1.0 - cx) * dx
+    ys   = (np.arange(p.nyim) + 1.0 - cy) * dy
+    return xs, ys, dx, dy
+
+
+def _peel_extent_code(p: 'PeelObservation'):
+    """``(xlo, xhi, ylo, yhi)`` extent of a peel-off image in code units."""
+    xs, ys, dx, dy = _peel_pixel_coords_code(p)
+    return (xs[0] - 0.5*dx, xs[-1] + 0.5*dx,
+            ys[0] - 0.5*dy, ys[-1] + 0.5*dy)
+
 
 def _resolve_lim(lim, lo, hi):
     """Combine (lo, hi) tuple with explicit per-bound overrides."""
