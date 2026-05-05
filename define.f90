@@ -305,6 +305,13 @@ public
      real(kind=wp) :: clump_temperature = -1.0_wp  ! clump temperature [K] (default: par%temperature)
      real(kind=wp) :: clump_sigma_v     =  0.0_wp  ! Gaussian sigma of clump bulk velocity [km/s]
      logical       :: save_clump_info   = .false.  ! save clump positions/velocities to FITS
+     !--- clump-placement constraint:
+     !       .true.  (default) -> reject any clump that would protrude outside
+     !                            the outer sphere (r_centre + R_clump > rmax)
+     !       .false.           -> legacy behaviour: only the clump centre is
+     !                            required to lie inside rmax; clumps can spill
+     !                            past the medium surface.
+     logical       :: clump_fully_inside = .true.
      !--- radial-profile inputs (Phase 2 onwards). When all three profiles
      !    are 'constant' (default), the legacy uniform clump behaviour is
      !    reproduced exactly. Each axis selects its own shape independently:

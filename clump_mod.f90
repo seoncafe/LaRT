@@ -720,7 +720,9 @@ contains
   real(kind=wp)  :: xc, yc, zc, dx, dy, dz, d2, sep_pair
   real(kind=wp)  :: r_trial, rcl_trial, cos_theta, sin_theta, phi_az
   real(kind=wp)  :: temp_loc, vth_loc, Df_loc, va_loc, kap_loc, dens_factor
+  real(kind=wp)  :: r_max_centre
   integer        :: ig, jg, kg, ig2, jg2, kg2, icell_rsa, jnb
+  integer        :: ierr
   integer(int64) :: icl, n_attempts
   logical        :: overlap
   integer, allocatable :: head(:), nxt(:)
@@ -735,11 +737,27 @@ contains
   ncells_rsa = rg**3
   min_sep2_uniform = (2.0_wp * cl_radius_max)**2
 
+  !--- "fully-inside" mode: a clump is accepted only if its outermost edge
+  !    stays within the medium (r_centre + R_clump <= sphere_R). This
+  !    requires sphere_R > the largest clump radius; abort otherwise.
+  if (par%clump_fully_inside .and. cl_radius_max >= sphere_R) then
+     if (mpar%p_rank == 0) write(*,'(a)') &
+        'ERROR: par%clump_fully_inside=.true. but max clump radius >= sphere_R; '// &
+        'cannot fit any clump entirely inside the medium.'
+     call MPI_ABORT(MPI_COMM_WORLD, 1, ierr)
+  end if
+
   allocate(head(ncells_rsa),    source=-1)
   allocate(nxt(int(N_clumps)), source=-1)
 
-  if (mpar%p_rank == 0) &
+  if (mpar%p_rank == 0) then
      write(*,'(a,i5,a,i14,a)') ' RSA: grid ', rg, '^3, placing ', N_clumps, ' clumps...'
+     if (par%clump_fully_inside) then
+        write(*,'(a)') ' RSA: clump_fully_inside = .true.  (clumps must fit inside rmax)'
+     else
+        write(*,'(a)') ' RSA: clump_fully_inside = .false. (legacy: only centres inside rmax)'
+     end if
+  end if
 
   n_attempts = 0_int64
   icl        = 0_int64
@@ -758,13 +776,24 @@ contains
         xc = r_trial * sin_theta * cos(phi_az)
         yc = r_trial * sin_theta * sin(phi_az)
         zc = r_trial * cos_theta
+        !--- "fully-inside" rejection: retry if the clump would protrude
+        !    past the outer sphere boundary.
+        if (par%clump_fully_inside .and. r_trial + rcl_trial > sphere_R) cycle
      else
-        !--- uniform random point inside sphere (legacy box rejection)
+        !--- uniform random point inside the placement sphere (legacy box
+        !    rejection). When clump_fully_inside is set, the placement
+        !    sphere shrinks to (sphere_R - base_radius_in) so the entire
+        !    clump fits inside the medium.
+        if (par%clump_fully_inside) then
+           r_max_centre = sphere_R - base_radius_in
+        else
+           r_max_centre = sphere_R
+        end if
         do
-           xc = (2.0_wp * rand_number() - 1.0_wp) * sphere_R
-           yc = (2.0_wp * rand_number() - 1.0_wp) * sphere_R
-           zc = (2.0_wp * rand_number() - 1.0_wp) * sphere_R
-           if (xc*xc + yc*yc + zc*zc <= sphere_R*sphere_R) exit
+           xc = (2.0_wp * rand_number() - 1.0_wp) * r_max_centre
+           yc = (2.0_wp * rand_number() - 1.0_wp) * r_max_centre
+           zc = (2.0_wp * rand_number() - 1.0_wp) * r_max_centre
+           if (xc*xc + yc*yc + zc*zc <= r_max_centre*r_max_centre) exit
         end do
      end if
 

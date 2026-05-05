@@ -1043,3 +1043,114 @@ DOCUMENTATION
     new helper, the tau_huge cap, and the sight-line / peel-off cap
     convention; sloppypar wrappers used to keep long typewriter
     identifiers from overflowing the right margin.
+  raytrace_clump_mod's .mod file is available when peelingoff_rect.o
+  compiles.
+
+VALIDATION
+----------
+  examples/clump_sphere/verify_peel_jmu.ipynb gained a new section
+  "3b. Clumpy sphere f_cov = 5" with two reference cases:
+
+    clump_NHI18_fcov5_novel.in        (monochromatic, no velocity, 1e5 ph)
+    clump_NHI18_fcov5_voigt_novel.in  (voigt,        no velocity, 1e5 ph)
+
+  Theory:  P(scatt) = 1 - exp(-5) = 0.9933
+  Measured (4 observers, NP=64):
+    v2.10 mono   : Scatt/Jmu = 0.988, 0.998, 0.999, 1.025  (mean 1.002)
+    v2.10 voigt  : 1.006, 1.012, 0.988, 1.011             (mean 1.004)
+    v2.00 mono   : 1.024, 1.002, 0.997, 0.999             (mean 1.006)
+    v2.00 voigt  : 0.979, 0.985, 0.990, 0.983             (mean 0.984)
+
+  The cap (tau_huge_clump = 745.2) preserves the answer at high
+  optical depths (taumax ~ 6.7e3 for fcov=5) while saving CPU on the
+  rays that would otherwise integrate uselessly past the
+  exp(-tau) underflow point.
+
+DOCUMENTATION
+-------------
+  README_HISTORY (both versions) -- new entry.
+  docs/LaRT_clump_description.tex (both) -- the existing
+    "Peel-off is handled by ..." paragraph rewritten to describe the
+    new helper, the tau_huge cap, and the sight-line / peel-off cap
+    convention; sloppypar wrappers used to keep long typewriter
+    identifiers from overflowing the right margin.
+
+
+================================================================================
+2026-05-05  Clump-placement constraint: clumps fully inside rmax (default)
+================================================================================
+
+PROBLEM
+-------
+  The existing RSA placement only required each clump centre to lie inside
+  the outer sphere of radius rmax.  When the per-clump radius is non-trivial
+  (and especially with the radius-profile mode where R_clump can grow with
+  r), individual clumps near the surface could protrude past r = rmax.
+
+  Example (clump_radius_powerlaw, fcov drive of f_vol = 0.1):
+    legacy generation -- 564 of 10000 clumps had  r_centre + R_clump > rmax,
+                        with the worst extending to r ≈ 1.02.
+    new default       -- 0 of 10000 clumps protrude.
+
+NEW PARAMETER
+-------------
+  par%clump_fully_inside    logical, default = .true.
+
+    .true.  (default) -- a clump is accepted only if its outermost edge stays
+                         inside the outer sphere:
+                            r_centre + R_clump  <=  rmax
+                         The placement automatically enforces this; samples
+                         that would protrude are retried.
+
+    .false.            -- legacy behaviour (centres only).  Clumps may spill
+                         past the medium surface; useful for reproducing pre-
+                         2026-05-05 results.
+
+IMPLEMENTATION
+--------------
+  clump_mod.f90 :: generate_clumps
+    * uniform path (constant R_clump):
+        when clump_fully_inside = .true., the placement sphere shrinks from
+        radius rmax to (rmax - clump_radius); the existing box-rejection draw
+        is unchanged otherwise.
+        when .false., the placement sphere is the full rmax (legacy).
+
+    * profile path (per-clump R_clump from clump_radius_profile):
+        adds a rejection check after the inverse-CDF radial draw and isotropic
+        angle assignment: if r_trial + rcl_trial > rmax, the sample is
+        discarded and a new (r, R_clump) is drawn.
+
+    * If par%clump_fully_inside = .true. but the largest possible clump
+      radius (cl_radius_max) >= rmax, init/RSA aborts with a clear message:
+      no clump can fit entirely inside the medium in that case.
+
+    * The RSA log line now reports the active mode:
+        " RSA: clump_fully_inside = .true.  (clumps must fit inside rmax)"
+        " RSA: clump_fully_inside = .false. (legacy: only centres inside rmax)"
+
+  Note on N_clumps normalisation:
+    The conversion of par%clump_f_vol / par%clump_f_cov to N_clumps still
+    uses (rmax / cl_radius_max) as in the legacy formula.  When
+    clump_fully_inside = .true., the available volume for clump centres is
+    slightly smaller than (4/3)·π·rmax^3, so the realised f_vol / f_cov can
+    be marginally below the requested target when r_clump is a non-trivial
+    fraction of rmax.  No correction is applied; specify a slightly larger
+    target if needed.
+
+FILES MODIFIED
+--------------
+  define.f90      -- new field params_type :: clump_fully_inside (logical)
+  clump_mod.f90   -- generate_clumps: rejection / shrunk placement sphere
+
+VALIDATION
+----------
+  Standalone driver make_clumps.x with
+    par%clump_radius = 0.05, par%clump_f_vol = 0.10, par%rmax = 1.0,
+    par%iseed = 42, fixed RNG sequence (10 000 clumps):
+
+      mode                    overflow clumps    max(r_centre + R_clump)
+      ------------------------------------------------------------------
+      clump_fully_inside=T       0 / 800             0.9998
+      clump_fully_inside=F     127 / 800             1.0498
+
+  Behaviour reproducible across both v2.00 and v2.10.
