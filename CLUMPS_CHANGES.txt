@@ -27,7 +27,7 @@ Physical Model
 
 Geometry
 --------
-  * Outer sphere of radius par%rmax centred at the origin.
+  * Outer sphere of radius par%rmax centered at the origin.
   * N non-overlapping spherical clumps of radius par%clump_radius.
   * Clumps are placed by Random Sequential Adsorption (RSA).
   * Outside the clumps: vacuum (no gas, no dust).
@@ -37,13 +37,13 @@ Key dimensionless parameters
 -----------------------------
   f_cov  = (3/4) * N_clumps * (clump_radius / rmax)^2
             line-of-sight covering factor (mean number of clumps intersected
-            by a ray from the centre to the sphere edge)
+            by a ray from the center to the sphere edge)
 
   f_vol  = N_clumps * (clump_radius / rmax)^3
             volume filling factor
 
   tau0   = par%clump_tau0
-            line-centre optical depth from the clump centre to its surface
+            line-center optical depth from the clump center to its surface
 
   Effective tau through the sphere ≈ f_cov * tau0  (for f_cov not too large)
 
@@ -119,7 +119,7 @@ Photon transport loop
 
 Output & normalization
 -----------------------
-  Jout is normalised by the standard Cartesian formula:
+  Jout is normalized by the standard Cartesian formula:
     J_norm = Jout / (nphotons * dxfreq * 4*pi*rmax^2)
   which is correct because the outer boundary is a sphere of radius rmax,
   matching the Cartesian convention.
@@ -149,11 +149,11 @@ New Parameters (namelist)
   --- specify exactly one of the following two for opacity: ---
 
   par%clump_tau0      real(wp), default = -1.0
-    Line-centre optical depth from clump centre to its surface.
+    Line-center optical depth from clump center to its surface.
     cl_rhokap = tau0 / (H(0,a) * clump_radius)   [code_unit^-1]
 
   par%clump_NHI       real(wp), default = -1.0
-    Per-clump HI column density [cm^-2] from the individual clump centre to
+    Per-clump HI column density [cm^-2] from the individual clump center to
     its surface.  Distinct from the total system column density par%N_HImax.
     Does NOT require par%distance_unit.
     cl_rhokap = clump_NHI * (line%cross0/cl_Dfreq) / clump_radius   [code_unit^-1]
@@ -193,7 +193,7 @@ New Source Files
      cl_Dfreq             -- Doppler frequency width [Hz]
      cl_vtherm            -- thermal velocity [km/s]
      cl_temperature       -- actual clump temperature [K]
-     cl_x(:), cl_y(:), cl_z(:)   -- clump centre positions [code units]
+     cl_x(:), cl_y(:), cl_z(:)   -- clump center positions [code units]
      cl_vx(:),cl_vy(:),cl_vz(:)  -- clump bulk velocities [km/s]
      cg_start(:), cg_list(:)     -- CSR acceleration grid (int32)
      cgx, cgy, cgz, cg_dx, ...   -- CSR grid geometry
@@ -292,7 +292,7 @@ define.f90
   photon_type: added
     integer :: icell_clump = 0
     -- tracks which clump the photon currently occupies (0 = vacuum).
-    -- Initialised to 0 by default; explicitly reset in clump_generate_photon.
+    -- Initialized to 0 by default; explicitly reset in clump_generate_photon.
 
   params_type: added
     logical       :: use_clump_medium  = .false.
@@ -336,7 +336,7 @@ grid_class.f90
     clump_generate_photon     -> sets icell_clump=0, then generate_photon_car
     clump_scattering          -> scattering(photon, self%g)  [Cartesian routine;
                                  valid because grid%Dfreq=cl_Dfreq, voigt_a=cl_voigt_a]
-    clump_output_*            -> Cartesian output routines (normalisation uses rmax)
+    clump_output_*            -> Cartesian output routines (normalization uses rmax)
     clump_observer_*          -> observer_create/destroy_outside (rectangular grid)
     clump_make_sightline_tau  -> make_sightline_tau_outside (gives tau=0 since
                                  grid%rhokap=0; sightline tau not supported in
@@ -377,7 +377,7 @@ BUG FIX: cl_rhokap wrong for clump_NHI and clump_nH paths (missing / cl_Dfreq)
 
     line%cross0 = sigma_0 * f_osc / sqrt(pi)   [cm^2*Hz]   (NOT [cm^2])
 
-  The actual line-centre cross-section [cm^2] is  line%cross0 / cl_Dfreq.
+  The actual line-center cross-section [cm^2] is  line%cross0 / cl_Dfreq.
   Both paths were missing a division by cl_Dfreq:
 
   WRONG:
@@ -501,17 +501,17 @@ Change Log
 2026-04-26  NEW FEATURE: clump_NHI — per-clump HI column density input
   - Added par%clump_NHI (real, default -1; units: cm^-2).
 
-    Specifies the HI column density of an INDIVIDUAL CLUMP from its centre to
+    Specifies the HI column density of an INDIVIDUAL CLUMP from its center to
     its surface.  This must be clearly distinguished from the total SYSTEM
     column density (par%N_HImax), which is the average HI column density along
-    a radial sightline through the entire clumpy sphere (centre to outer
+    a radial sightline through the entire clumpy sphere (center to outer
     boundary, averaged over the random clump population).
 
     The per-clump opacity is derived as:
       cl_rhokap = clump_NHI * line%cross0 / cl_radius          [code_unit^-1]
     which is equivalent to:
       tau0 = clump_NHI * cross0 * phi(0, a_V^cl)
-    where cross0 is the reference line-centre cross-section [cm^2] and phi is
+    where cross0 is the reference line-center cross-section [cm^2] and phi is
     the Voigt profile value at x=0.
 
     Unlike clump_nH (which requires par%distance_unit to convert number density
@@ -535,7 +535,7 @@ REFACTOR: cl_vx/y/z stored as v / cl_vtherm (dimensionless), matching the
   Previously cl_vx/cl_vy/cl_vz were stored in km/s, requiring a per-call
   division by cl_vtherm in raytrace_clump.f90 (6 places) and peelingoff_rect.f90
   (4 places).  This was inconsistent with the Cartesian/AMR convention, where
-  grid%vfx is already pre-normalised to v/vtherm in grid_create_car
+  grid%vfx is already pre-normalized to v/vtherm in grid_create_car
   (cf. grid_mod_car.f90, where each cell's v_field is divided by the local
   vtherm right after being read).
 
@@ -613,12 +613,12 @@ BUG FIX (B): par%tauhomo / par%taumax / par%N_gashomo / par%N_gasmax were
     f_vol            = N_clumps * (r_c/R_max)^3
     f_cov            = (3/4) * N_clumps * (r_c/R_max)^2     (LaRT convention:
                                   expected number of clump crossings per
-                                  radial path from centre to surface)
-    tau_per_clump_lc = cl_rhokap * voigt0 * r_c            (line-centre
-                                  optical depth of one clump, centre to
+                                  radial path from center to surface)
+    tau_per_clump_lc = cl_rhokap * voigt0 * r_c            (line-center
+                                  optical depth of one clump, center to
                                   surface)
     par%tauhomo      = (4/3) * f_cov * tau_per_clump_lc    (= homogeneous-
-                                  equivalent line-centre tau, identical
+                                  equivalent line-center tau, identical
                                   to the EXPECTED radial taumax for a
                                   random sightline through the clumpy sphere)
     par%taumax       = (4/3) * f_cov * tau_per_clump_lc    (no physical
@@ -703,7 +703,7 @@ Known Limitations
 
 This change set extends the clumpy medium so that the clump radius, internal
 density, and spatial number density can vary with distance from the box
-centre. When all profiles are 'constant' the previous uniform behaviour is
+center. When all profiles are 'constant' the previous uniform behavior is
 reproduced exactly (Phase 1 byte-identical regression on
 clump_tau3_fcov5.in).
 
@@ -733,7 +733,7 @@ Implementation details:
   * Per-clump arrays (cl_radius, cl_radius2, cl_rhokap, cl_voigt_a, cl_Dfreq,
     cl_vtherm, cl_temperature) replace the previous module-level scalars.
     Reference scalars (cl_*_ref) are kept for grid setup / FITS headers.
-  * Inverse-CDF sampling for the clump-centre radius, isotropic angles for
+  * Inverse-CDF sampling for the clump-center radius, isotropic angles for
     direction.  RSA overlap test is per-pair (cl_radius(i)+cl_radius(j))² so
     non-uniform clump radii are handled correctly.
   * N_clumps derivation: closed-form for the uniform case, numerical
@@ -742,7 +742,7 @@ Implementation details:
     the relevant integrals.
   * FITS clump table now has 9 columns:
       X, Y, Z, VX, VY, VZ, R_CLUMP, RHOKAP, TEMP
-    plus stdout diagnostics for realised f_vol, f_cov, r_cl range, mean
+    plus stdout diagnostics for realized f_vol, f_cov, r_cl range, mean
     tau-per-clump, and integrated HI mass.
 
 Examples:
@@ -891,7 +891,7 @@ NEW MODULE (sightline_tau_clump.f90)
   Mirrors sightline_tau_amr.f90 but for clump mode:
     - Ray-sphere intersection against the bounding sphere of radius
       `sphere_R` (clump_mod) instead of box-AABB intersection
-    - Initialises pobs%icell_clump = 0 (vacuum entry from far surface)
+    - Initializes pobs%icell_clump = 0 (vacuum entry from far surface)
     - Uses raytrace_to_edge_tau_gas_clump and raytrace_to_edge_column_clump
       (already public in raytrace_clump_mod) for the per-pixel loop
     - reduce_mem across MPI ranks; FITS output via the existing
@@ -945,7 +945,7 @@ VALIDATION
       TAU_gas: max ~ 2.74e4, mean ~ 7.9e2
       N_gas:   max ~ 4.6e17, mean ~ 1.2e17
     sphere_sightline_test.in (Cartesian, taumax=1e4, T=10K):
-      TAU_gas: max ~ 2.0e4 (= 2*taumax through the centre), mean ~ 3.5e2
+      TAU_gas: max ~ 2.0e4 (= 2*taumax through the center), mean ~ 3.5e2
       N_gas:   max ~ 1.1e16, mean ~ 5.7e15
 
   v2.10 and v2.00 produce byte-identical maps in both modes (same RNG
@@ -1082,7 +1082,7 @@ DOCUMENTATION
 
 PROBLEM
 -------
-  The existing RSA placement only required each clump centre to lie inside
+  The existing RSA placement only required each clump center to lie inside
   the outer sphere of radius rmax.  When the per-clump radius is non-trivial
   (and especially with the radius-profile mode where R_clump can grow with
   r), individual clumps near the surface could protrude past r = rmax.
@@ -1102,7 +1102,7 @@ NEW PARAMETER
                          The placement automatically enforces this; samples
                          that would protrude are retried.
 
-    .false.            -- legacy behaviour (centres only).  Clumps may spill
+    .false.            -- legacy behavior (centers only).  Clumps may spill
                          past the medium surface; useful for reproducing pre-
                          2026-05-05 results.
 
@@ -1126,13 +1126,13 @@ IMPLEMENTATION
 
     * The RSA log line now reports the active mode:
         " RSA: clump_fully_inside = .true.  (clumps must fit inside rmax)"
-        " RSA: clump_fully_inside = .false. (legacy: only centres inside rmax)"
+        " RSA: clump_fully_inside = .false. (legacy: only centers inside rmax)"
 
-  Note on N_clumps normalisation:
+  Note on N_clumps normalization:
     The conversion of par%clump_f_vol / par%clump_f_cov to N_clumps still
     uses (rmax / cl_radius_max) as in the legacy formula.  When
-    clump_fully_inside = .true., the available volume for clump centres is
-    slightly smaller than (4/3)·π·rmax^3, so the realised f_vol / f_cov can
+    clump_fully_inside = .true., the available volume for clump centers is
+    slightly smaller than (4/3)·π·rmax^3, so the realized f_vol / f_cov can
     be marginally below the requested target when r_clump is a non-trivial
     fraction of rmax.  No correction is applied; specify a slightly larger
     target if needed.
@@ -1153,4 +1153,4 @@ VALIDATION
       clump_fully_inside=T       0 / 800             0.9998
       clump_fully_inside=F     127 / 800             1.0498
 
-  Behaviour reproducible across both v2.00 and v2.10.
+  Behavior reproducible across both v2.00 and v2.10.
