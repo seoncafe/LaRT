@@ -860,7 +860,7 @@ contains
      if (par%clump_fully_inside) then
         write(*,'(a)') ' RSA: clump_fully_inside = .true.  (clumps must fit inside the shell)'
      else
-        write(*,'(a)') ' RSA: clump_fully_inside = .false. (legacy: only centers inside the shell)'
+        write(*,'(a)') ' RSA: clump_fully_inside = .false. (only centers inside the shell)'
      end if
      if (r_min_clump > 0.0_wp) &
         write(*,'(a,2f12.5)') ' RSA: shell rmin/rmax    = ', r_min_clump, sphere_R
