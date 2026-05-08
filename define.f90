@@ -308,9 +308,14 @@ public
      !--- clump-placement constraint:
      !       .true.  (default) -> reject any clump that would protrude outside
      !                            the outer sphere (r_centre + R_clump > rmax)
+     !                            or, when par%rmin > 0, inside the inner
+     !                            sphere (r_centre - R_clump < par%rmin).
      !       .false.           -> legacy behaviour: only the clump centre is
-     !                            required to lie inside rmax; clumps can spill
-     !                            past the medium surface.
+     !                            required to lie inside [par%rmin, rmax];
+     !                            clumps can spill past either boundary.
+     !    The inner radius is the system-level par%rmin (default -999, treated
+     !    as 0 in clump placement) so a hollow-shell medium can be configured
+     !    via the same parameter used by the Cartesian grid mode.
      logical       :: clump_fully_inside = .true.
      !--- radial-profile inputs (Phase 2 onwards). When all three profiles
      !    are 'constant' (default), the legacy uniform clump behaviour is

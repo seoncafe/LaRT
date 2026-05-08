@@ -1154,3 +1154,91 @@ VALIDATION
       clump_fully_inside=F     127 / 800             1.0498
 
   Behavior reproducible across both v2.00 and v2.10.
+
+===============================================================================
+2026-05-09  Clump-shell support: clumps placed only in [par%rmin, par%rmax]
+===============================================================================
+
+PROBLEM
+-------
+  Clump placement always filled the full sphere [0, par%rmax]. For hollow
+  shells (e.g. modeling expanding outflows that have already cleared an
+  inner cavity) the user had no way to keep clumps out of the central
+  region without manually pruning the output FITS file.
+
+CHANGES
+-------
+  Reuse the existing system-level par%rmin (default -999, treated as 0)
+  as the inner placement radius. Clumps are now generated only in the
+  shell par%rmin <= r <= par%rmax. par%clump_fully_inside (introduced on
+  2026-05-05) symmetrically applies to both boundaries: when .true., a
+  candidate is accepted only if r_centre - R_clump >= par%rmin AND
+  r_centre + R_clump <= par%rmax.
+
+  f_vol and f_cov are reinterpreted relative to the shell:
+      V_shell = (4pi/3)(R^3 - rmin^3)     instead of (4pi/3) R^3
+      sightline factor = R^2 + R*rmin + rmin^2  instead of R^2
+
+  With rmin = 0 these reduce exactly to the original full-sphere
+  formulas, so prior inputs reproduce byte-identical N_clumps and
+  realized filling factors.
+
+  Profile path: prof_shape_number(r) is set to 0 for r < rmin in
+  build_radial_profile_tables, so inverse-CDF position sampling, total
+  clump count integration, and f_vol/f_cov quadratures all see
+  n_cl(r) = 0 inside the cavity automatically.
+
+IMPLEMENTATION
+--------------
+  - clump_mod.f90:
+    * new module-level save variable r_min_clump (= max(0, par%rmin))
+    * init_clumps: set r_min_clump, validate par%rmin < par%rmax
+    * build_radial_profile_tables: zero out shape_number below rmin
+    * f_vol_quad: divide by V_shell instead of R^3
+    * generate_clumps:
+        - extra abort: rmin + 2*cl_radius_max > sphere_R when fully_inside
+        - profile path: reject if r_trial - rcl_trial < r_min_clump
+        - uniform path: shell box-rejection using
+              r_min_centre = r_min_clump (+ base_radius_in if fully_inside)
+              r_max_centre = sphere_R    (- base_radius_in if fully_inside)
+    * uniform-path N_clumps closed forms now use shell volume / sightline
+    * write_clumps_fits: realised f_vol / f_cov use shell denominators
+    * write_clumps_fits: new FITS header keyword RMIN
+    * read_clumps_fits: reads par%rmin into r_min_clump on file load
+  - define.f90: comment update on clump_fully_inside (no new field; the
+    inner radius reuses the existing par%rmin)
+  - docs/LaRT_clump_description.tex: rewrote "Uniform Sampling" and
+    "Fully-Inside Constraint" subsections to cover the shell case;
+    updated placement-algorithm pseudocode
+  - docs/LaRT_user_manual.tex: added par%rmin row to the clump table;
+    updated the trailing paragraph on f_vol/f_cov interpretation
+
+FILES MODIFIED
+--------------
+  define.f90                          -- comment on clump_fully_inside
+  clump_mod.f90                       -- shell sampling + N_clumps shell math
+  docs/LaRT_user_manual.tex           -- par%rmin in clump-parameters table
+  docs/LaRT_clump_description.tex     -- shell sampling + fully-inside
+  CLUMPS_CHANGES.txt                  -- this entry
+
+VALIDATION
+----------
+  Standalone driver make_clumps.x with
+    par%clump_radius = 0.05, par%clump_f_vol = 0.10, par%rmax = 1.0,
+    par%rmin = 0.4, par%iseed = 42, 749 clumps:
+
+      mode                    inner protrusions    outer protrusions
+      -----------------------------------------------------------------
+      clump_fully_inside=T       0 / 749             0 / 749
+      clump_fully_inside=F      24 / 749           126 / 749
+
+    fully_inside=T: r_centre in [0.4527, 0.9498],
+                    r-rcl >= 0.4027,  r+rcl <= 0.9998   (shell respected)
+    fully_inside=F: r_centre in [0.4074, 0.9998],
+                    r-rcl  = 0.3574,  r+rcl  = 1.0498   (legacy spillover)
+
+  Backward compat: existing input clump_make_test.in (no par%rmin)
+  reproduces byte-identical N_clumps = 66667 and f_vol = 0.066667.
+
+  Behavior reproducible across both v2.00 and v2.10 with identical iseed.
+

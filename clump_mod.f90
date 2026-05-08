@@ -24,8 +24,10 @@ module clump_mod
   public
 
   !--- Physical properties of the clump population
-  integer(int64), save :: N_clumps   = 0_int64
-  real(kind=wp),  save :: sphere_R   = 0.0_wp   ! outer sphere radius [code units]
+  integer(int64), save :: N_clumps    = 0_int64
+  real(kind=wp),  save :: sphere_R    = 0.0_wp   ! outer sphere radius [code units]
+  real(kind=wp),  save :: r_min_clump = 0.0_wp   ! inner placement radius [code units]
+                                                 ! (= max(0, par%rmin); 0 -> filled sphere)
 
   !--- Per-clump physical properties (MPI shared memory, dimension N_clumps).
   !    In Phase 1 every entry is uniform (filled with the corresponding _ref
@@ -282,8 +284,16 @@ contains
   prof_shape_density(1) = shape_density(0.0_wp)
   prof_cdf_pos(1)       = 0.0_wp
 
-  rcl_local = base_radius_in * prof_shape_radius(1)
-  if (rcl_local > cl_radius_max) cl_radius_max = rcl_local
+  ! Suppress the radial number profile inside the inner cavity so that
+  ! position sampling, total counts, and integrated f_vol/f_cov all see
+  ! n_cl(r) = 0 for r < r_min_clump.  shape_radius/shape_density are kept
+  ! intact for diagnostic output; they have no effect when shape_number = 0.
+  if (prof_r(1) < r_min_clump) prof_shape_number(1) = 0.0_wp
+
+  if (prof_shape_number(1) > 0.0_wp) then
+     rcl_local = base_radius_in * prof_shape_radius(1)
+     if (rcl_local > cl_radius_max) cl_radius_max = rcl_local
+  end if
 
   last_integrand = prof_shape_number(1) * 0.0_wp     ! r^2 = 0 at r=0
 
@@ -293,12 +303,15 @@ contains
      prof_shape_number(i)  = shape_number(r)
      prof_shape_radius(i)  = shape_radius(r)
      prof_shape_density(i) = shape_density(r)
+     if (r < r_min_clump) prof_shape_number(i) = 0.0_wp
      integrand             = prof_shape_number(i) * r * r
      prof_cdf_pos(i) = prof_cdf_pos(i-1) + 0.5_wp * (last_integrand + integrand) * prof_dr
      last_integrand = integrand
 
-     rcl_local = base_radius_in * prof_shape_radius(i)
-     if (rcl_local > cl_radius_max) cl_radius_max = rcl_local
+     if (prof_shape_number(i) > 0.0_wp) then
+        rcl_local = base_radius_in * prof_shape_radius(i)
+        if (rcl_local > cl_radius_max) cl_radius_max = rcl_local
+     end if
   end do
 
   total = prof_cdf_pos(NPROF)
@@ -390,14 +403,15 @@ contains
   !===========================================================================
   pure real(kind=wp) function f_vol_quad(A_norm, R_box) result(fvol)
   real(kind=wp), intent(in) :: A_norm, R_box
-  real(kind=wp) :: rcl, r, integrand(NPROF)
+  real(kind=wp) :: rcl, r, integrand(NPROF), V_shell
   integer :: i
   do i = 1, NPROF
      r   = prof_r(i)
      rcl = base_radius_in * prof_shape_radius(i)
      integrand(i) = A_norm * prof_shape_number(i) * rcl**3 * r * r
   end do
-  fvol = fourpi * integrate_table(integrand) / (R_box**3)
+  V_shell = max(R_box**3 - r_min_clump**3, tiny(1.0_wp))
+  fvol = fourpi * integrate_table(integrand) / V_shell
   end function f_vol_quad
   !===========================================================================
 
@@ -526,6 +540,16 @@ contains
      call MPI_ABORT(MPI_COMM_WORLD, 1, ierr)
   end if
 
+  !--- Inner placement radius. par%rmin = -999 (default) is treated as "no
+  !    inner cavity". Negative values map to 0; rmin >= rmax is fatal.
+  r_min_clump = max(0.0_wp, par%rmin)
+  if (r_min_clump >= R_sphere) then
+     if (mpar%p_rank == 0) write(*,'(a,2es12.4)') &
+        'ERROR: par%rmin must be < par%rmax for clump placement; rmin, rmax = ', &
+        r_min_clump, R_sphere
+     call MPI_ABORT(MPI_COMM_WORLD, 1, ierr)
+  end if
+
   !--- If the user supplied a pre-built clump FITS file, load it and skip the
   !    internal profile / RSA generation entirely. Sets cl_*, sphere_R,
   !    cl_radius_max and reference scalars; builds the CSR acceleration grid.
@@ -593,19 +617,27 @@ contains
   !    Profile case: numerical quadrature with the LOS f_cov definition
   !                  (see docs/covering_factor_definitions.tex).
   if (.not. profiles_active) then
+     ! Closed-form formulas with f_vol/f_cov defined relative to the shell
+     ! volume V_shell = (4pi/3)(R^3 - rmin^3) and the shell sightline length
+     ! (R - rmin). With r_min_clump = 0 these reduce to the original
+     ! full-sphere formulas exactly.
      if (par%clump_N_clumps > 0.0_wp) then
         N_clumps = int(par%clump_N_clumps, int64)
      else if (par%clump_f_vol > 0.0_wp) then
-        N_clumps = nint(par%clump_f_vol * (R_sphere/cl_radius_max)**3, int64)
+        N_clumps = nint(par%clump_f_vol * (R_sphere**3 - r_min_clump**3) / cl_radius_max**3, int64)
      else if (par%clump_f_cov > 0.0_wp) then
-        N_clumps = nint((4.0_wp/3.0_wp)*par%clump_f_cov*(R_sphere/cl_radius_max)**2, int64)
+        N_clumps = nint((4.0_wp/3.0_wp)*par%clump_f_cov * &
+                        (R_sphere**2 + R_sphere*r_min_clump + r_min_clump**2) / &
+                        cl_radius_max**2, int64)
      else
         if (mpar%p_rank == 0) &
            write(*,*) 'ERROR: specify clump_N_clumps, clump_f_vol, or clump_f_cov'
         call MPI_ABORT(MPI_COMM_WORLD, 1, ierr)
      end if
-     fvol_realised = real(N_clumps, wp) * (cl_radius_max/R_sphere)**3
-     fcov_realised = 0.75_wp * real(N_clumps, wp) * (cl_radius_max/R_sphere)**2
+     fvol_realised = real(N_clumps, wp) * cl_radius_max**3 / &
+                     max(R_sphere**3 - r_min_clump**3, tiny(1.0_wp))
+     fcov_realised = 0.75_wp * real(N_clumps, wp) * cl_radius_max**2 / &
+                     max(R_sphere**2 + R_sphere*r_min_clump + r_min_clump**2, tiny(1.0_wp))
   else
      !--- non-uniform: integrate the shape and back-solve for the density
      !    normalisation A_norm of n_cl(r) = A_norm * shape_number(r).
@@ -631,9 +663,10 @@ contains
   if (N_clumps <= 0_int64) N_clumps = 1_int64
 
   if (mpar%p_rank == 0) then
-     write(*,'(a,i14)')   ' Clumps: N_clumps  = ', N_clumps
-     write(*,'(a,f12.6)') ' Clumps: f_vol     = ', fvol_realised
-     write(*,'(a,f12.5)') ' Clumps: f_cov     = ', fcov_realised
+     write(*,'(a,i14)')    ' Clumps: N_clumps  = ', N_clumps
+     write(*,'(a,f12.6)')  ' Clumps: f_vol     = ', fvol_realised
+     write(*,'(a,f12.5)')  ' Clumps: f_cov     = ', fcov_realised
+     write(*,'(a,2f12.5)') ' Clumps: rmin/rmax = ', r_min_clump, R_sphere
      write(*,'(a,es12.4)') ' Clumps: cl_rhokap = ', cl_rhokap_ref
      write(*,'(a,f12.5)')  ' Clumps: voigt_a   = ', cl_voigt_a_ref
      write(*,'(a,es12.4)') ' Clumps: cl_Dfreq  = ', cl_Dfreq_ref
@@ -720,7 +753,7 @@ contains
   real(kind=wp)  :: xc, yc, zc, dx, dy, dz, d2, sep_pair
   real(kind=wp)  :: r_trial, rcl_trial, cos_theta, sin_theta, phi_az
   real(kind=wp)  :: temp_loc, vth_loc, Df_loc, va_loc, kap_loc, dens_factor
-  real(kind=wp)  :: r_max_centre
+  real(kind=wp)  :: r_min_centre, r_max_centre, r_min_centre2, r_max_centre2
   integer        :: ig, jg, kg, ig2, jg2, kg2, icell_rsa, jnb
   integer        :: ierr
   integer(int64) :: icl, n_attempts
@@ -737,14 +770,25 @@ contains
   ncells_rsa = rg**3
   min_sep2_uniform = (2.0_wp * cl_radius_max)**2
 
-  !--- "fully-inside" mode: a clump is accepted only if its outermost edge
-  !    stays within the medium (r_centre + R_clump <= sphere_R). This
-  !    requires sphere_R > the largest clump radius; abort otherwise.
-  if (par%clump_fully_inside .and. cl_radius_max >= sphere_R) then
-     if (mpar%p_rank == 0) write(*,'(a)') &
-        'ERROR: par%clump_fully_inside=.true. but max clump radius >= sphere_R; '// &
-        'cannot fit any clump entirely inside the medium.'
-     call MPI_ABORT(MPI_COMM_WORLD, 1, ierr)
+  !--- "fully-inside" mode: a clump is accepted only if it lies entirely in
+  !    the radial shell [r_min_clump, sphere_R], i.e. both
+  !    r_centre + R_clump <= sphere_R   (no protrusion past the outer edge)
+  !    r_centre - R_clump >= r_min_clump (no protrusion into the inner cavity).
+  !    This requires r_min_clump + 2*cl_radius_max <= sphere_R; abort otherwise.
+  if (par%clump_fully_inside) then
+     if (cl_radius_max >= sphere_R) then
+        if (mpar%p_rank == 0) write(*,'(a)') &
+           'ERROR: par%clump_fully_inside=.true. but max clump radius >= sphere_R; '// &
+           'cannot fit any clump entirely inside the medium.'
+        call MPI_ABORT(MPI_COMM_WORLD, 1, ierr)
+     end if
+     if (r_min_clump + 2.0_wp*cl_radius_max > sphere_R) then
+        if (mpar%p_rank == 0) write(*,'(a,3es12.4)') &
+           'ERROR: par%clump_fully_inside=.true. but rmin + 2*cl_radius_max > rmax; '// &
+           'no clump fits inside the shell. rmin, cl_radius_max, rmax = ', &
+           r_min_clump, cl_radius_max, sphere_R
+        call MPI_ABORT(MPI_COMM_WORLD, 1, ierr)
+     end if
   end if
 
   allocate(head(ncells_rsa),    source=-1)
@@ -753,10 +797,12 @@ contains
   if (mpar%p_rank == 0) then
      write(*,'(a,i5,a,i14,a)') ' RSA: grid ', rg, '^3, placing ', N_clumps, ' clumps...'
      if (par%clump_fully_inside) then
-        write(*,'(a)') ' RSA: clump_fully_inside = .true.  (clumps must fit inside rmax)'
+        write(*,'(a)') ' RSA: clump_fully_inside = .true.  (clumps must fit inside the shell)'
      else
-        write(*,'(a)') ' RSA: clump_fully_inside = .false. (legacy: only centres inside rmax)'
+        write(*,'(a)') ' RSA: clump_fully_inside = .false. (legacy: only centres inside the shell)'
      end if
+     if (r_min_clump > 0.0_wp) &
+        write(*,'(a,2f12.5)') ' RSA: shell rmin/rmax    = ', r_min_clump, sphere_R
   end if
 
   n_attempts = 0_int64
@@ -767,7 +813,9 @@ contains
      n_attempts = n_attempts + 1_int64
 
      if (profiles_active) then
-        !--- inverse-CDF radial draw + isotropic angles
+        !--- inverse-CDF radial draw + isotropic angles. The CDF is built so
+        !    that prof_shape_number(r) = 0 for r < r_min_clump, so the draw
+        !    naturally avoids the inner cavity in legacy mode.
         r_trial    = sample_clump_radius()
         rcl_trial  = base_radius_in * shape_radius(r_trial)
         cos_theta  = 2.0_wp * rand_number() - 1.0_wp
@@ -777,23 +825,31 @@ contains
         yc = r_trial * sin_theta * sin(phi_az)
         zc = r_trial * cos_theta
         !--- "fully-inside" rejection: retry if the clump would protrude
-        !    past the outer sphere boundary.
-        if (par%clump_fully_inside .and. r_trial + rcl_trial > sphere_R) cycle
+        !    past the outer sphere boundary or into the inner cavity.
+        if (par%clump_fully_inside) then
+           if (r_trial + rcl_trial > sphere_R)  cycle
+           if (r_trial - rcl_trial < r_min_clump) cycle
+        end if
      else
-        !--- uniform random point inside the placement sphere (legacy box
-        !    rejection). When clump_fully_inside is set, the placement
-        !    sphere shrinks to (sphere_R - base_radius_in) so the entire
+        !--- uniform random point inside the placement shell (legacy box
+        !    rejection). When clump_fully_inside is set, the shell is
+        !    inset by one base clump radius on both sides so the entire
         !    clump fits inside the medium.
         if (par%clump_fully_inside) then
-           r_max_centre = sphere_R - base_radius_in
+           r_max_centre = sphere_R    - base_radius_in
+           r_min_centre = r_min_clump + base_radius_in
         else
            r_max_centre = sphere_R
+           r_min_centre = r_min_clump
         end if
+        r_max_centre2 = r_max_centre * r_max_centre
+        r_min_centre2 = r_min_centre * r_min_centre
         do
            xc = (2.0_wp * rand_number() - 1.0_wp) * r_max_centre
            yc = (2.0_wp * rand_number() - 1.0_wp) * r_max_centre
            zc = (2.0_wp * rand_number() - 1.0_wp) * r_max_centre
-           if (xc*xc + yc*yc + zc*zc <= r_max_centre*r_max_centre) exit
+           d2 = xc*xc + yc*yc + zc*zc
+           if (d2 <= r_max_centre2 .and. d2 >= r_min_centre2) exit
         end do
      end if
 
@@ -1301,8 +1357,11 @@ contains
 
   !--- Compute realized f_vol and f_cov from actual placed clumps.
   !    Uniform case: closed-form (preserves Phase 1 numbers).
-  !    Profile case: 4π/3 * Σ r_cl^3 / V_box and (LOS f_cov from quadrature).
+  !    Profile case: 4π/3 * Σ r_cl^3 / V_shell and (LOS f_cov from quadrature).
   !    From-file case: per-clump sums (no profile tables available).
+  !    All formulas use shell volume V_shell = (4π/3)(R^3 - rmin^3) and shell
+  !    sightline factor (R^2 + R*rmin + rmin^2); rmin = 0 reduces them to the
+  !    original full-sphere expressions.
   if (clumps_from_file) then
      f_vol_actual = 0.0_wp
      f_cov_actual = 0.0_wp
@@ -1310,18 +1369,21 @@ contains
         f_vol_actual = f_vol_actual + cl_radius(i)**3
         f_cov_actual = f_cov_actual + cl_radius(i)**2
      end do
-     f_vol_actual = f_vol_actual / sphere_R**3
-     f_cov_actual = 0.75_wp * f_cov_actual / sphere_R**2
+     f_vol_actual = f_vol_actual / max(sphere_R**3 - r_min_clump**3, tiny(1.0_wp))
+     f_cov_actual = 0.75_wp * f_cov_actual / &
+                    max(sphere_R**2 + sphere_R*r_min_clump + r_min_clump**2, tiny(1.0_wp))
   else if (.not. profiles_active) then
-     f_vol_actual = real(ncl,wp) * (cl_radius_max / sphere_R)**3
-     f_cov_actual = 0.75_wp * real(ncl,wp) * (cl_radius_max / sphere_R)**2
+     f_vol_actual = real(ncl,wp) * cl_radius_max**3 / &
+                    max(sphere_R**3 - r_min_clump**3, tiny(1.0_wp))
+     f_cov_actual = 0.75_wp * real(ncl,wp) * cl_radius_max**2 / &
+                    max(sphere_R**2 + sphere_R*r_min_clump + r_min_clump**2, tiny(1.0_wp))
   else
      !--- realised f_vol from sum of individual clump volumes
      f_vol_actual = 0.0_wp
      do i = 1_int64, ncl
         f_vol_actual = f_vol_actual + cl_radius(i)**3
      end do
-     f_vol_actual = f_vol_actual / sphere_R**3
+     f_vol_actual = f_vol_actual / max(sphere_R**3 - r_min_clump**3, tiny(1.0_wp))
      !--- realised f_cov from radial quadrature (LOS integral)
      f_cov_actual = f_cov_LOS_quad(real(ncl,wp) / max(total_count_quad(1.0_wp), tiny(1.0_wp)))
   end if
@@ -1423,6 +1485,7 @@ contains
   !--- Write keywords into the BinTable HDU (current HDU after fits_write_table_column)
   call fits_put_keyword(unit, 'N_CLUMPS',  ncl,                'number of clumps (realized)',          status)
   call fits_put_keyword(unit, 'SPHERE_R',  sphere_R,           'outer sphere radius [code units]',      status)
+  call fits_put_keyword(unit, 'RMIN',      r_min_clump,        'inner placement radius [code units]',   status)
   call fits_put_keyword(unit, 'CL_RAD',    cl_radius_max,      'clump radius (max) [code units]',       status)
   call fits_put_keyword(unit, 'F_VOL',     f_vol_actual,       'volume filling factor (realized)',      status)
   call fits_put_keyword(unit, 'F_COV',     f_cov_actual,       'covering factor (realized)',            status)
@@ -1549,6 +1612,7 @@ contains
   base_radius_in  = par%clump_radius
   profiles_active = .false.
   clumps_from_file = .true.
+  r_min_clump = max(0.0_wp, par%rmin)
 
   if (mpar%p_rank == 0) then
      write(*,'(2a)') ' Clumps: reading from ', trim(fname)
