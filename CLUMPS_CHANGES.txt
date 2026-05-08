@@ -1242,3 +1242,90 @@ VALIDATION
 
   Behavior reproducible across both v2.00 and v2.10 with identical iseed.
 
+
+===============================================================================
+2026-05-09  System-level taumax / N_HImax fallback for clump opacity
+===============================================================================
+
+PROBLEM
+-------
+  Clump-mode opacity could only be specified per-clump via clump_tau0,
+  clump_NHI, or clump_nH.  Users routinely think in system-level terms
+  (par%taumax = optical depth from box centre to surface; par%N_HImax =
+  HI column along the same sightline) and had to manually back-solve to
+  pick clump_tau0/NHI for a given run.
+
+CHANGES
+-------
+  init_clumps now accepts par%taumax / par%N_HImax as a fallback when
+  none of clump_tau0, clump_NHI, clump_nH is set. par%N_gasmax is an
+  alias for par%N_HImax (HI-only line in clump mode).
+
+  Implementation:
+
+  - Reorder: N_clumps and A_norm / f_vol_realised / f_cov_realised are
+    derived BEFORE opacity, since the back-solve needs the realised
+    population. None of the population helpers (total_count_quad,
+    f_vol_quad, f_cov_LOS_quad) reference cl_rhokap_ref, so the reorder
+    is safe and reproduces all prior closed-form values byte-for-byte.
+
+  - Uniform path back-solve uses the closed-form relation
+        taumax  = (4/3) * f_cov_realised * clump_tau0_peak,
+        N_HImax = (4/3) * f_cov_realised * clump_NHI_peak.
+
+  - Profile path back-solve uses a new helper LOS_geometric_quad(A_norm)
+    that integrates shape_number(r) * shape_radius(r)^3 * shape_density(r)
+    over [rmin, R] (the existing prof_shape_number(r) is already zero
+    inside the cavity, so the quadrature respects par%rmin
+    automatically).  GF = (4*pi/3) * A_norm * base_radius_in^3 * I_shape,
+    then taumax = GF * cl_rhokap_ref * voigt(0, a) and N_HImax = GF *
+    cl_rhokap_ref * cl_Dfreq_ref / cross0.
+
+  - read_clumps_fits: new helper rescale_loaded_clumps_to_target multiplies
+    every cl_rhokap(i) by alpha = target/realised, where
+    realised = sum_i cl_rhokap(i) * (Dfreq or voigt0) * cl_radius(i)^3
+                     / (3 * [cross0 if N_HImax] * max(d_i^2, cl_radius(i)^2))
+    is the small-angle expected radial-sightline column.  cap on d^2
+    prevents divergence when a clump straddles the origin.  Round-trip
+    is exact (alpha = 1.0 to machine precision when reloading the
+    rescaled file with the same target).
+
+  Priority order (when more than one is given): clump_tau0 > clump_NHI >
+  clump_nH > taumax > N_HImax.
+
+FILES MODIFIED
+--------------
+  clump_mod.f90                     -- reorder + new fallback + new helpers
+  docs/LaRT_user_manual.tex         -- explanation in clump-parameters section
+  docs/LaRT_clump_description.tex   -- new "System-level fallback" paragraph
+                                       under Clump Physical Parameters
+  CLUMPS_CHANGES.txt                -- this entry
+
+VALIDATION
+----------
+  make_clumps.x with par%clump_radius=0.05, par%clump_f_cov=5.0,
+  par%temperature=1e4, par%iseed=42:
+
+    input form                        cl_rhokap_ref   diff vs direct
+    ----------------------------------------------------------------
+    clump_NHI = 1.5e18  (direct)        1.7704e+06    reference
+    N_HImax   = 1.0e19  (back-solve)    1.7702e+06    -0.01% (nint)
+    taumax    = 1.0e4   (back-solve)    3.0012e+04    matches uniform
+                                                       formula
+
+  Profile path with clump_radius_powerlaw (alpha=-1, r0=0.5),
+  N=1000, N_HImax=1e19: cl_rhokap_ref = 2.9507e+08; quadrature-based
+  back-solve consistent with f_cov-based check at the placed-clump level.
+
+  File-loaded path: load test_NHIdirect (clump_NHI=1.5e18, target N_HImax
+  = 1e19) with par%N_HImax=5.0e19 -> alpha = 4.9084 (close to 5.0 of
+  closed form; small-angle formula has 1-2% systematic from peripheral
+  clumps).  Reloading the rescaled file with par%N_HImax=5.0e19 gives
+  alpha = 1.0000 exactly (round-trip stable).
+
+  Backward compat: existing inputs with clump_tau0 / clump_NHI / clump_nH
+  unchanged byte-for-byte (verified clump_make_test.in -> N_clumps=66667,
+  cl_rhokap=1.0005e+05, identical to prior runs).
+
+  Identical results between v2.00 and v2.10 with the same iseed.
+

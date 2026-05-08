@@ -432,6 +432,39 @@ contains
   !===========================================================================
 
   !===========================================================================
+  ! Geometric factor GF for the radial-sightline taumax / N_HImax integrals
+  ! through the clumpy medium:
+  !
+  !   GF(A_norm) = (4*pi/3) * A_norm * base_radius_in^3
+  !                * integral_rmin^R shape_number(r) * shape_radius(r)^3
+  !                                * shape_density(r) dr
+  !
+  ! Given a uniform reference temperature (cl_Dfreq_ref, cl_voigt_a_ref) the
+  ! line-centre optical depth and HI column density, integrated radially from
+  ! the box centre to the outer surface, are
+  !
+  !   taumax  = GF(A_norm) * base_rhokap * voigt(0, cl_voigt_a_ref)
+  !   N_HImax = GF(A_norm) * base_rhokap * cl_Dfreq_ref / line%cross0
+  !
+  ! These match the uniform closed-form taumax = (4/3) * f_cov * clump_tau0
+  ! and N_HImax = (4/3) * f_cov * clump_NHI when shape_* = 1 on [rmin, R].
+  ! The leading (4*pi/3) drops to f_vol_local(r) on combination with the
+  ! shape_radius^3 factor; the remaining shape_density(r) carries the local
+  ! n_HI scaling. Profile mode only -- the uniform path uses the closed
+  ! form directly.
+  !===========================================================================
+  pure real(kind=wp) function LOS_geometric_quad(A_norm) result(GF)
+  real(kind=wp), intent(in) :: A_norm
+  real(kind=wp) :: integrand(NPROF)
+  integer :: i
+  do i = 1, NPROF
+     integrand(i) = prof_shape_number(i) * prof_shape_radius(i)**3 * prof_shape_density(i)
+  end do
+  GF = (fourpi / 3.0_wp) * A_norm * base_radius_in**3 * integrate_table(integrand)
+  end function LOS_geometric_quad
+  !===========================================================================
+
+  !===========================================================================
   ! Load tabulated radial profile from `par%clump_profile_file`.
   ! Expected ASCII format (whitespace-separated, '#' = comment):
   !
@@ -531,6 +564,7 @@ contains
   implicit none
   real(kind=wp), intent(in) :: R_sphere
   real(kind=wp) :: temp_cl, vtherm, A_norm, fvol_unit, fcov_unit, fvol_realised, fcov_realised
+  real(kind=wp) :: GF_los
   integer       :: ierr
 
   sphere_R       = R_sphere
@@ -588,39 +622,17 @@ contains
   cl_temperature_ref = temp_cl                         ! [K]
   cl_voigt_a_ref     = (line%damping / fourpi) / cl_Dfreq_ref
 
-  !--- clump opacity (peak value) from tau0, NHI (column density), or nH.
-  !    Whichever input is given fixes base_rhokap_in. When density_profile
-  !    is non-constant, this acts as the peak and shape_density(r)
-  !    multiplies it.
-  base_nH_in = 0.0_wp
-  if (par%clump_tau0 > 0.0_wp) then
-     cl_rhokap_ref = par%clump_tau0 / (voigt(0.0_wp, cl_voigt_a_ref) * base_radius_in)
-  else if (par%clump_NHI > 0.0_wp) then
-     ! clump_NHI = per-clump column density [cm^-2] from clump centre to surface
-     ! (peak value; shape_density(r) modulates per clump).
-     cl_rhokap_ref = par%clump_NHI * line%cross0 / (cl_Dfreq_ref * base_radius_in)
-  else if (par%clump_nH > 0.0_wp) then
-     if (par%distance2cm <= 0.0_wp) then
-        if (mpar%p_rank == 0) write(*,*) 'ERROR: clump_nH requires distance_unit'
-        call MPI_ABORT(MPI_COMM_WORLD, 1, ierr)
-     end if
-     cl_rhokap_ref = par%clump_nH * line%cross0 * par%distance2cm / cl_Dfreq_ref
-     base_nH_in    = par%clump_nH
-  else
-     if (mpar%p_rank == 0) write(*,*) 'ERROR: specify clump_tau0, clump_NHI, or clump_nH'
-     call MPI_ABORT(MPI_COMM_WORLD, 1, ierr)
-  end if
-  base_rhokap_in = cl_rhokap_ref
-
-  !--- derive N_clumps
-  !    Uniform case: closed-form (preserves Phase 1 behaviour byte-for-byte).
+  !--- derive N_clumps + f_vol/f_cov_realised first; opacity may need the
+  !    realised population to back-solve from system-level taumax / N_HImax.
+  !    None of the helpers below reference cl_rhokap_ref.
+  !
+  !    Uniform case: closed-form using shell volume V_shell = (4pi/3)(R^3 -
+  !    rmin^3) and shell sightline factor (R^2 + R*rmin + rmin^2). With
+  !    r_min_clump = 0 these reduce to the original full-sphere formulas.
   !    Profile case: numerical quadrature with the LOS f_cov definition
-  !                  (see docs/covering_factor_definitions.tex).
+  !    (see docs/covering_factor_definitions.tex).
+  A_norm = 0.0_wp
   if (.not. profiles_active) then
-     ! Closed-form formulas with f_vol/f_cov defined relative to the shell
-     ! volume V_shell = (4pi/3)(R^3 - rmin^3) and the shell sightline length
-     ! (R - rmin). With r_min_clump = 0 these reduce to the original
-     ! full-sphere formulas exactly.
      if (par%clump_N_clumps > 0.0_wp) then
         N_clumps = int(par%clump_N_clumps, int64)
      else if (par%clump_f_vol > 0.0_wp) then
@@ -661,6 +673,55 @@ contains
      fcov_realised = f_cov_LOS_quad(A_norm)
   end if
   if (N_clumps <= 0_int64) N_clumps = 1_int64
+
+  !--- clump opacity (peak value).
+  !    Per-clump direct inputs (clump_tau0, clump_NHI, clump_nH) take
+  !    priority over the system-level fallbacks (par%taumax, par%N_HImax),
+  !    which back-solve for the peak opacity assuming the realised f_cov
+  !    (uniform) or shape quadrature (profile) hits the requested radial
+  !    sightline target.
+  base_nH_in = 0.0_wp
+  if (par%clump_tau0 > 0.0_wp) then
+     cl_rhokap_ref = par%clump_tau0 / (voigt(0.0_wp, cl_voigt_a_ref) * base_radius_in)
+  else if (par%clump_NHI > 0.0_wp) then
+     ! clump_NHI = per-clump column density [cm^-2] from clump centre to surface
+     ! (peak value; shape_density(r) modulates per clump).
+     cl_rhokap_ref = par%clump_NHI * line%cross0 / (cl_Dfreq_ref * base_radius_in)
+  else if (par%clump_nH > 0.0_wp) then
+     if (par%distance2cm <= 0.0_wp) then
+        if (mpar%p_rank == 0) write(*,*) 'ERROR: clump_nH requires distance_unit'
+        call MPI_ABORT(MPI_COMM_WORLD, 1, ierr)
+     end if
+     cl_rhokap_ref = par%clump_nH * line%cross0 * par%distance2cm / cl_Dfreq_ref
+     base_nH_in    = par%clump_nH
+  else if (par%taumax > 0.0_wp .or. par%N_HImax > 0.0_wp) then
+     !--- Back-solve from system-level radial sightline target.
+     !    For uniform: GF = N * r_cl^3 / (R^2 + R*rmin + rmin^2)
+     !    For profile: GF = LOS_geometric_quad(A_norm)
+     !    Then taumax = GF * cl_rhokap_ref * voigt0   or
+     !         N_HImax = GF * cl_rhokap_ref * cl_Dfreq_ref / cross0.
+     if (profiles_active) then
+        GF_los = LOS_geometric_quad(A_norm)
+     else
+        GF_los = real(N_clumps, wp) * cl_radius_max**3 / &
+                 max(R_sphere**2 + R_sphere*r_min_clump + r_min_clump**2, tiny(1.0_wp))
+     end if
+     if (GF_los <= 0.0_wp) then
+        if (mpar%p_rank == 0) write(*,*) &
+           'ERROR: cannot back-solve clump opacity (geometric factor is zero)'
+        call MPI_ABORT(MPI_COMM_WORLD, 1, ierr)
+     end if
+     if (par%taumax > 0.0_wp) then
+        cl_rhokap_ref = par%taumax / (GF_los * voigt(0.0_wp, cl_voigt_a_ref))
+     else
+        cl_rhokap_ref = par%N_HImax * line%cross0 / (GF_los * cl_Dfreq_ref)
+     end if
+  else
+     if (mpar%p_rank == 0) write(*,*) &
+        'ERROR: specify clump_tau0, clump_NHI, clump_nH, taumax, or N_HImax'
+     call MPI_ABORT(MPI_COMM_WORLD, 1, ierr)
+  end if
+  base_rhokap_in = cl_rhokap_ref
 
   if (mpar%p_rank == 0) then
      write(*,'(a,i14)')    ' Clumps: N_clumps  = ', N_clumps
@@ -1733,6 +1794,16 @@ contains
   cl_rhokap_ref      = cl_rhokap(1)
   base_rhokap_in     = cl_rhokap_ref
 
+  !--- Optional rescaling: when par%taumax or par%N_HImax is supplied along
+  !    with a pre-built clump file, multiply every cl_rhokap(i) by a single
+  !    factor so the realised radial-sightline tau / NHI matches the target.
+  !    The realised value uses the small-angle (V/d^2) approximation, capped
+  !    at d^2 >= cl_radius^2 to avoid divergence when a clump straddles the
+  !    origin (e.g. when par%rmin = 0 and a clump centre lies near the box
+  !    centre).  Both cl_rhokap and cl_rhokap_ref are updated in lockstep
+  !    so write_clumps_fits and grid_create_clump see the rescaled values.
+  call rescale_loaded_clumps_to_target()
+
   if (mpar%p_rank == 0) then
      write(*,'(a,i14)')    ' Clumps: N_clumps  = ', N_clumps
      write(*,'(a,es12.4)') ' Clumps: cl_rhokap = ', cl_rhokap_ref
@@ -1745,6 +1816,86 @@ contains
   call MPI_BARRIER(mpar%hostcomm, ierr)
 
   end subroutine read_clumps_fits
+  !===========================================================================
+
+  !===========================================================================
+  subroutine rescale_loaded_clumps_to_target()
+  !---------------------------------------------------------------------------
+  ! Helper for read_clumps_fits.  Reads par%taumax / par%N_HImax (priority
+  ! order) and rescales the loaded cl_rhokap(:) by a single multiplicative
+  ! factor so the realised radial-sightline tau / NHI from the box centre
+  ! to the outer surface matches the target.
+  !
+  ! Realised value uses the small-angle expected-column formula:
+  !
+  !   N_HImax = sum_i  cl_rhokap(i) * cl_Dfreq(i) * cl_radius(i)^3
+  !                    / (3 * cross0 * max(d_i^2, cl_radius(i)^2))
+  !
+  !   taumax  = sum_i  cl_rhokap(i) * voigt(0,a_i) * cl_radius(i)^3
+  !                    / (3 * max(d_i^2, cl_radius(i)^2))
+  !
+  ! These reduce to the uniform formulas N_HImax = (4/3) f_cov * clump_NHI
+  ! (and similarly for tau) when the clumps fill the sphere.  Cap on d^2
+  ! avoids the small-angle divergence near the origin.
+  !---------------------------------------------------------------------------
+  use line_mod
+  implicit none
+  integer        :: ierr
+  integer(int64) :: i
+  real(kind=wp)  :: realised, target_val, alpha, di2, voigt0_i
+
+  if (par%taumax  <= 0.0_wp .and. par%N_HImax <= 0.0_wp) return
+
+  realised = 0.0_wp
+  if (mpar%p_rank == 0) then
+     if (par%taumax > 0.0_wp) then
+        do i = 1_int64, N_clumps
+           di2 = max(cl_x(i)**2 + cl_y(i)**2 + cl_z(i)**2, cl_radius(i)**2)
+           voigt0_i = voigt(0.0_wp, cl_voigt_a(i))
+           realised = realised + cl_rhokap(i) * voigt0_i * cl_radius(i)**3 / (3.0_wp * di2)
+        end do
+        target_val = par%taumax
+     else
+        do i = 1_int64, N_clumps
+           di2 = max(cl_x(i)**2 + cl_y(i)**2 + cl_z(i)**2, cl_radius(i)**2)
+           realised = realised + cl_rhokap(i) * cl_Dfreq(i) * cl_radius(i)**3 / &
+                                 (3.0_wp * line%cross0 * di2)
+        end do
+        target_val = par%N_HImax
+     end if
+  end if
+  call MPI_BCAST(realised,   1, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, ierr)
+  call MPI_BCAST(target_val, 1, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, ierr)
+
+  if (realised <= 0.0_wp) then
+     if (mpar%p_rank == 0) write(*,'(a)') &
+        ' Clumps: WARNING -- realised tau/NHI from loaded clumps is zero; '// &
+        'cannot rescale to par%taumax/par%N_HImax. Leaving cl_rhokap unchanged.'
+     return
+  end if
+  alpha = target_val / realised
+
+  if (mpar%h_rank == 0) then
+     do i = 1_int64, N_clumps
+        cl_rhokap(i) = cl_rhokap(i) * alpha
+     end do
+  end if
+  call MPI_BARRIER(mpar%hostcomm, ierr)
+
+  cl_rhokap_ref  = cl_rhokap_ref * alpha
+  base_rhokap_in = cl_rhokap_ref
+
+  if (mpar%p_rank == 0) then
+     if (par%taumax > 0.0_wp) then
+        write(*,'(a,es12.4,a,es12.4)') &
+           ' Clumps: rescaled to par%taumax  = ', target_val, ', alpha = ', alpha
+     else
+        write(*,'(a,es12.4,a,es12.4)') &
+           ' Clumps: rescaled to par%N_HImax = ', target_val, ', alpha = ', alpha
+     end if
+  end if
+
+  end subroutine rescale_loaded_clumps_to_target
   !===========================================================================
 
 end module clump_mod
