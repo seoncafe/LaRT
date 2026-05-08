@@ -41,6 +41,7 @@ contains
 
   integer       :: ierr
   real(kind=wp) :: f_vol_realized, f_cov_realized, voigt0, tau_per_clump_lc
+  real(kind=wp) :: shell_R3, shell_R2_factor
 
   if (par%rmax <= 0.0_wp) then
      if (mpar%p_rank == 0) write(*,*) 'ERROR: par%rmax must be > 0 for clump medium'
@@ -72,32 +73,40 @@ contains
   !--- Set par%tauhomo / par%taumax / par%N_gashomo / par%N_gasmax for the
   !    clumpy medium, only if the user did not specify them in the input.
   !
-  !    tauhomo (homogeneous-equivalent line-center optical depth): the
-  !    optical depth of a uniform medium of the same total HI mass spread
-  !    over the sphere volume:
+  !    All four scalars are radial-sightline / shell-equivalent values; with
+  !    par%rmin = 0 (no inner cavity) they reduce to the original full-sphere
+  !    formulas. The shell-aware definition is:
   !
-  !        tauhomo = f_vol * cl_rhokap_ref * voigt(0, cl_voigt_a_ref) * R_max
-  !                = (4/3) * f_cov * tau_per_clump
-  !
-  !    where f_vol = N_clumps * (R_cl/R_max)^3 (volume filling fraction),
-  !          f_cov = (3/4) * N_clumps * (R_cl/R_max)^2 (covering factor;
-  !                  expected number of clump crossings per radial path),
-  !          tau_per_clump = cl_rhokap_ref * voigt(0, cl_voigt_a_ref) * R_cl
+  !        f_vol_shell = (sum V_clump) / V_shell
+  !                    = N_clumps * (R_cl)^3 / (R_max^3 - R_min^3)
+  !        f_cov_shell = (sum cross-section) / shell sightline
+  !                    = (3/4) * N_clumps * (R_cl)^2
+  !                                       / (R_max^2 + R_max*R_min + R_min^2)
+  !        tau_per_clump = cl_rhokap_ref * voigt(0, cl_voigt_a_ref) * R_cl
   !                        (line-center tau from clump center to surface).
   !
-  !    For a clumpy medium the EXPECTED radial taumax along a random LOS
-  !    equals tauhomo, although a specific realization can deviate widely
-  !    (no clumps -> 0; many clumps stacked -> >> tauhomo).
-  !    N_gashomo and N_gasmax are set similarly via N_HI_per_clump =
-  !        cl_rhokap_ref / line%cross0 * cl_Dfreq_ref * R_cl  (column from clump
-  !        center to surface; reduces to par%clump_NHI when that input is used).
+  !    Then the radial-sightline taumax / N_HImax through the clumpy shell:
+  !        taumax  = (4/3) * f_cov_shell * tau_per_clump
+  !        N_HImax = (4/3) * f_cov_shell * N_HI_per_clump
+  !    where N_HI_per_clump = cl_rhokap_ref / line%cross0 * cl_Dfreq_ref * R_cl
+  !    (= par%clump_NHI when that input is used). Under this convention the
+  !    realised taumax / N_gasmax matches the system-level target supplied
+  !    via par%taumax / par%N_HImax in init_clumps. tauhomo / N_gashomo are
+  !    set equal to the shell radial-sightline values (homogeneous-spread
+  !    interpretation taken over the shell, not the full sphere).
   voigt0           = voigt(0.0_wp, cl_voigt_a_ref)
-  f_vol_realized   = real(N_clumps, wp) * (par%clump_radius / par%rmax)**3
-  f_cov_realized   = 0.75_wp * real(N_clumps, wp) * (par%clump_radius / par%rmax)**2
+  ! r_min_clump = max(0, par%rmin) was set inside init_clumps and is exposed
+  ! by clump_mod as a module-level save variable.
+  shell_R3         = par%rmax**3 - r_min_clump**3
+  shell_R2_factor  = par%rmax**2 + par%rmax*r_min_clump + r_min_clump**2
+  if (shell_R3        <= 0.0_wp) shell_R3        = par%rmax**3      ! defensive
+  if (shell_R2_factor <= 0.0_wp) shell_R2_factor = par%rmax**2      ! defensive
+  f_vol_realized   = real(N_clumps, wp) * par%clump_radius**3 / shell_R3
+  f_cov_realized   = 0.75_wp * real(N_clumps, wp) * par%clump_radius**2 / shell_R2_factor
   tau_per_clump_lc = cl_rhokap_ref * voigt0 * par%clump_radius
 
-  if (par%tauhomo  <= 0.0_wp) par%tauhomo  = (4.0_wp/3.0_wp) * f_cov_realized * tau_per_clump_lc
-  if (par%taumax   <= 0.0_wp) par%taumax   = (4.0_wp/3.0_wp) * f_cov_realized * tau_per_clump_lc
+  if (par%tauhomo   <= 0.0_wp) par%tauhomo   = (4.0_wp/3.0_wp) * f_cov_realized * tau_per_clump_lc
+  if (par%taumax    <= 0.0_wp) par%taumax    = (4.0_wp/3.0_wp) * f_cov_realized * tau_per_clump_lc
   if (par%N_gashomo <= 0.0_wp) &
        par%N_gashomo = (4.0_wp/3.0_wp) * f_cov_realized * (cl_rhokap_ref / line%cross0) * cl_Dfreq_ref * par%clump_radius
   if (par%N_gasmax  <= 0.0_wp) &

@@ -1329,3 +1329,22 @@ VALIDATION
 
   Identical results between v2.00 and v2.10 with the same iseed.
 
+ADDENDUM (2026-05-09)
+---------------------
+  grid_mod_clump.f90 was still computing par%N_gashomo, par%tauhomo,
+  par%N_gasmax, par%taumax with the OLD full-sphere f_cov formula
+  (3/4 * N * (r_cl/R)^2), inconsistent with the new shell-aware
+  formula in init_clumps.  With par%rmin > 0 this produced a
+  systematic mismatch by the factor (R^2 + R*rmin + rmin^2) / R^2.
+  Example: clump_NHI18_fcov1.in (rmin=0.1, fcov=1, N_HImax=1e18)
+  reported N_gashomo = 1.11e18 (11% high).
+
+  Fixed: grid_mod_clump.f90 now uses the shell formulas
+        f_vol_realized = N * r_cl^3 / (R^3 - rmin^3)
+        f_cov_realized = (3/4) * N * r_cl^2 / (R^2 + R*rmin + rmin^2)
+  so the four scalars are consistent with init_clumps and reduce to
+  the original full-sphere expressions when rmin = 0.
+
+  After the fix, clump_NHI18_fcov1.in reports N_gashomo = 1.000e18
+  exactly (matches par%N_HImax target).
+
