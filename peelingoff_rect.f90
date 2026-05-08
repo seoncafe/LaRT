@@ -12,7 +12,7 @@ module peelingoff_rect
   !    and the photon's xfreq is in the clump's rest frame. We must add the
   !    clump's bulk velocity to convert to the lab frame before binning.
   !    cl_v* are stored as v / cl_vtherm (dimensionless, see clump_mod.f90),
-  !    so they can be used directly in u1 without further normalisation,
+  !    so they can be used directly in u1 without further normalization,
   !    matching the Cartesian grid%vfx convention. (Bug fix 2026-04-27:
   !    previously used grid%vfx=0, which caused peel-off spectra to be in
   !    the clump frame and disagree with the Jout spectrum, e.g., for

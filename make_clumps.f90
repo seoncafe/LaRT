@@ -14,7 +14,7 @@ program make_clumps
 !     par%clump_radius              base clump radius
 !     par%clump_tau0 / clump_NHI / clump_nH    opacity choice
 !     par%temperature / clump_temperature      gas temperature
-!     par%clump_N_clumps / clump_f_cov / clump_f_vol     normalisation choice
+!     par%clump_N_clumps / clump_f_cov / clump_f_vol     normalization choice
 !     par%clump_sigma_v             optional velocity sigma
 !     par%clump_*_profile / *_alpha / *_r0      optional radial profiles
 !     par%clump_profile_file        optional tabulated profile

@@ -307,10 +307,10 @@ public
      logical       :: save_clump_info   = .false.  ! save clump positions/velocities to FITS
      !--- clump-placement constraint:
      !       .true.  (default) -> reject any clump that would protrude outside
-     !                            the outer sphere (r_centre + R_clump > rmax)
+     !                            the outer sphere (r_center + R_clump > rmax)
      !                            or, when par%rmin > 0, inside the inner
-     !                            sphere (r_centre - R_clump < par%rmin).
-     !       .false.           -> legacy behaviour: only the clump centre is
+     !                            sphere (r_center - R_clump < par%rmin).
+     !       .false.           -> legacy behavior: only the clump center is
      !                            required to lie inside [par%rmin, rmax];
      !                            clumps can spill past either boundary.
      !    The inner radius is the system-level par%rmin (default -999, treated
@@ -318,7 +318,7 @@ public
      !    via the same parameter used by the Cartesian grid mode.
      logical       :: clump_fully_inside = .true.
      !--- radial-profile inputs (Phase 2 onwards). When all three profiles
-     !    are 'constant' (default), the legacy uniform clump behaviour is
+     !    are 'constant' (default), the legacy uniform clump behavior is
      !    reproduced exactly. Each axis selects its own shape independently:
      !       'constant'    : value uniform in r (default)
      !       'powerlaw'    : f(r) = (r/r0)**(-alpha) for r >= r0; = 1 for r < r0

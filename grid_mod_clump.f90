@@ -111,7 +111,7 @@ contains
 
   !--- Create the base Cartesian grid (allocates shared-memory arrays,
   !    sets up Jout/Jin/xfreq axes, face arrays, xcrit, etc.)
-  !    grid%rhokap will be normalised by par%tauhomo here (waste but harmless),
+  !    grid%rhokap will be normalized by par%tauhomo here (waste but harmless),
   !    then overridden to 0 below.
   call grid_create(grid)
 

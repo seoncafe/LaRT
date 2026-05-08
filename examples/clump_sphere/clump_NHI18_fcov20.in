@@ -1,9 +1,11 @@
 &parameters
  par%use_clump_medium = .true.
  par%rmax             = 1.0
+ par%rmin             = 0.1
+ par%clump_fully_inside = .false.
  par%clump_radius     = 0.001
  par%clump_f_cov      = 20.0
- par%clump_NHI        = 7.5e17
+ par%N_HImax         = 1.0e18
  par%temperature      = 1.0e4
  par%clump_sigma_v    = 0.0
  par%no_photons       = 1e6

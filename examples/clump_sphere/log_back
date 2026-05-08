@@ -1,0 +1,263 @@
+
+Running ../../LaRT.x on lart4.
+   with the machinefile /tmp/host_file_4972
+
++++++ clump_NHI18_fcov1.in +++++
+ >>> START @ 2026/05/03 06:51:42
+Use_Master_Slave          : T
+Line ID                   : ly_alpha
+Dust Parameters(a, g)     :  0.3253 0.6761
+Dust-to-Gas Ratio         :    0.000E+00
+Total number of photons   :    1.000E+06
+ Clumps: N_clumps  =        1333333
+ Clumps: f_vol     =     0.001333
+ Clumps: f_cov     =      1.00000
+ Clumps: cl_rhokap =   4.4261E+07
+ Clumps: voigt_a   =      0.00047
+ Clumps: cl_Dfreq  =   1.0566E+11
+ RSA: grid   111^3, placing        1333333 clumps...
+   placed        1000000 /        1333333
+ RSA done, acceptance rate =   99.5%
+ Clumps: velocity_type   = rotating_galaxy_halo
+ CSR grid:      1827254 registrations in   111^3 cells.
+ Clump derived: tauhomo  =    5.89826E+04
+ Clump derived: taumax   =    5.89826E+04
+ Clump derived: N_gashomo=    1.00000E+18
+voigt_a          :        4.719E-04
+temperature (K)  :        1.000E+04
+N(H  I)_pole     :        1.000E+18
+N(H  I)_homo     :        1.000E+18
+tau_pole  (H  I) :        5.898E+04
+tau_homo  (H  I) :        5.898E+04
+tau_pole  (dust) :        0.000E+00
+tau_homo  (dust) :        0.000E+00
+ Clump grid: rmax      =      1.00000
+ Clump grid: nx,ny,nz  =    11   11   11
+ Clump grid: cl_Dfreq  =   1.0566E+11
+ Clump grid: cl_vtherm =     12.84424 km/s
+ Clump grid: voigt_a   =      0.00047
+ Clumps saved to clump_NHI18_fcov1_clumps.fits.gz
+---> Now starting simulation...  @    0.071 mins
+   1.00000E+05 photons calculated:    2.249 mins
+   2.00000E+05 photons calculated:    4.315 mins
+   3.00000E+05 photons calculated:    6.372 mins
+   4.00000E+05 photons calculated:    8.466 mins
+   5.00000E+05 photons calculated:   10.546 mins
+   6.00000E+05 photons calculated:   12.683 mins
+   7.00000E+05 photons calculated:   14.833 mins
+   8.00000E+05 photons calculated:   16.922 mins
+   9.00000E+05 photons calculated:   18.958 mins
+   1.00000E+06 photons calculated:   21.105 mins
+---> Now Gathering Results...
+Average Number of scattering :   4.3454E+03
+Nscatt_dust, Nscatt_gas      :   0.0000E+00  4.3454E+03
+Total Excution Time          :   21.114 mins
+ >>> STOP  @ 2026/05/03 07:12:52
+
++++++ clump_NHI18_fcov5.in +++++
+ >>> START @ 2026/05/03 07:12:54
+Use_Master_Slave          : T
+Line ID                   : ly_alpha
+Dust Parameters(a, g)     :  0.3253 0.6761
+Dust-to-Gas Ratio         :    0.000E+00
+Total number of photons   :    1.000E+06
+ Clumps: N_clumps  =        6666667
+ Clumps: f_vol     =     0.006667
+ Clumps: f_cov     =      5.00000
+ Clumps: cl_rhokap =   4.4261E+07
+ Clumps: voigt_a   =      0.00047
+ Clumps: cl_Dfreq  =   1.0566E+11
+ RSA: grid   189^3, placing        6666667 clumps...
+   placed        1000000 /        6666667
+   placed        2000000 /        6666667
+   placed        3000000 /        6666667
+   placed        4000000 /        6666667
+   placed        5000000 /        6666667
+   placed        6000000 /        6666667
+ RSA done, acceptance rate =   97.3%
+ Clumps: velocity_type   = rotating_galaxy_halo
+ CSR grid:     11194770 registrations in   189^3 cells.
+ Clump derived: tauhomo  =    2.94913E+05
+ Clump derived: taumax   =    2.94913E+05
+ Clump derived: N_gashomo=    5.00000E+18
+voigt_a          :        4.719E-04
+temperature (K)  :        1.000E+04
+N(H  I)_pole     :        5.000E+18
+N(H  I)_homo     :        5.000E+18
+tau_pole  (H  I) :        2.949E+05
+tau_homo  (H  I) :        2.949E+05
+tau_pole  (dust) :        0.000E+00
+tau_homo  (dust) :        0.000E+00
+ Clump grid: rmax      =      1.00000
+ Clump grid: nx,ny,nz  =    11   11   11
+ Clump grid: cl_Dfreq  =   1.0566E+11
+ Clump grid: cl_vtherm =     12.84424 km/s
+ Clump grid: voigt_a   =      0.00047
+ Clumps saved to clump_NHI18_fcov5_clumps.fits.gz
+---> Now starting simulation...  @    0.471 mins
+   1.00000E+05 photons calculated:   63.779 mins
+   2.00000E+05 photons calculated:  125.102 mins
+   3.00000E+05 photons calculated:  186.473 mins
+   4.00000E+05 photons calculated:  248.278 mins
+   5.00000E+05 photons calculated:  308.324 mins
+   6.00000E+05 photons calculated:  370.114 mins
+   7.00000E+05 photons calculated:  431.409 mins
+   8.00000E+05 photons calculated:  492.332 mins
+   9.00000E+05 photons calculated:  553.392 mins
+   1.00000E+06 photons calculated:  614.596 mins
+---> Now Gathering Results...
+Average Number of scattering :   4.2010E+04
+Nscatt_dust, Nscatt_gas      :   0.0000E+00  4.2010E+04
+Total Excution Time          :  614.604 mins
+ >> STOP  @ 2026/05/03 17:27:34
+
+Running ../../LaRT.x on lart4.
+   with the machinefile /tmp/host_file_13370
+
++++++ clump_NHI18_fcov5.in +++++
+ >>> START @ 2026/05/06 13:17:03
+Use_Master_Slave          : T
+Line ID                   : ly_alpha
+Dust Parameters(a, g)     :  0.3253 0.6761
+Dust-to-Gas Ratio         :    0.000E+00
+Total number of photons   :    1.000E+06
+ Clumps: N_clumps  =        6666667
+ Clumps: f_vol     =     0.006667
+ Clumps: f_cov     =      5.00000
+ Clumps: cl_rhokap =   4.4261E+07
+ Clumps: voigt_a   =      0.00047
+ Clumps: cl_Dfreq  =   1.0566E+11
+ RSA: grid   190^3, placing        6666667 clumps...
+ RSA: clump_fully_inside = .true.  (clumps must fit inside rmax)
+   placed        1000000 /        6666667
+   placed        2000000 /        6666667
+   placed        3000000 /        6666667
+   placed        4000000 /        6666667
+   placed        5000000 /        6666667
+   placed        6000000 /        6666667
+ RSA done, acceptance rate =   97.3%
+ Clumps: velocity_type   = rotating_galaxy_halo
+ CSR grid:     11203166 registrations in   189^3 cells.
+ Clump derived: tauhomo  =    2.94913E+05
+ Clump derived: taumax   =    2.94913E+05
+ Clump derived: N_gashomo=    5.00000E+18
+voigt_a          :        4.719E-04
+temperature (K)  :        1.000E+04
+N(H  I)_pole     :        5.000E+18
+N(H  I)_homo     :        5.000E+18
+tau_pole  (H  I) :        2.949E+05
+tau_homo  (H  I) :        2.949E+05
+tau_pole  (dust) :        0.000E+00
+tau_homo  (dust) :        0.000E+00
+ Clump grid: rmax      =      1.00000
+ Clump grid: nx,ny,nz  =    11   11   11
+ Clump grid: cl_Dfreq_ref  =   1.0566E+11
+ Clump grid: cl_vtherm_ref =     12.84424 km/s
+ Clump grid: voigt_a   =      0.00047
+ Clumps: realised f_vol      =   6.6667E-03
+ Clumps: realised f_cov      =   5.0000E+00
+ Clumps: r_cl min/mean/max   =   1.0000E-03  1.0000E-03  1.0000E-03
+ Clumps: mean tau_per_clump  =   4.4237E+04
+ Clumps: integrated HI col   =   2.0944E+19
+ Clumps: per-clump columns saved (R_CLUMP/RHOKAP/TEMP) =  F F F
+ Clumps saved to clump_NHI18_fcov5_clumps.fits.gz
+---> Now starting simulation...  @    0.458 mins
+   1.00000E+05 photons calculated:    2.632 mins
+   2.00000E+05 photons calculated:    4.720 mins
+   3.00000E+05 photons calculated:    6.837 mins
+   4.00000E+05 photons calculated:    8.939 mins
+   5.00000E+05 photons calculated:   11.050 mins
+   6.00000E+05 photons calculated:   13.153 mins
+   7.00000E+05 photons calculated:   15.241 mins
+   8.00000E+05 photons calculated:   17.352 mins
+   9.00000E+05 photons calculated:   19.438 mins
+   1.00000E+06 photons calculated:   21.513 mins
+---> Now Gathering Results...
+Average Number of scattering :   4.2399E+04
+Nscatt_dust, Nscatt_gas      :   0.0000E+00  4.2399E+04
+Total Excution Time          :   21.522 mins
+ >>> STOP  @ 2026/05/06 13:38:38
+
++++++ clump_NHI18_fcov20.in +++++
+ >>> START @ 2026/05/06 13:38:40
+Use_Master_Slave          : T
+Line ID                   : ly_alpha
+Dust Parameters(a, g)     :  0.3253 0.6761
+Dust-to-Gas Ratio         :    0.000E+00
+Total number of photons   :    1.000E+06
+ Clumps: N_clumps  =       26666667
+ Clumps: f_vol     =     0.026667
+ Clumps: f_cov     =     20.00000
+ Clumps: cl_rhokap =   4.4261E+07
+ Clumps: voigt_a   =      0.00047
+ Clumps: cl_Dfreq  =   1.0566E+11
+ RSA: grid   300^3, placing       26666667 clumps...
+ RSA: clump_fully_inside = .true.  (clumps must fit inside rmax)
+   placed        1000000 /       26666667
+   placed        2000000 /       26666667
+   placed        3000000 /       26666667
+   placed        4000000 /       26666667
+   placed        5000000 /       26666667
+   placed        6000000 /       26666667
+   placed        7000000 /       26666667
+   placed        8000000 /       26666667
+   placed        9000000 /       26666667
+   placed       10000000 /       26666667
+   placed       11000000 /       26666667
+   placed       12000000 /       26666667
+   placed       13000000 /       26666667
+   placed       14000000 /       26666667
+   placed       15000000 /       26666667
+   placed       16000000 /       26666667
+   placed       17000000 /       26666667
+   placed       18000000 /       26666667
+   placed       19000000 /       26666667
+   placed       20000000 /       26666667
+   placed       21000000 /       26666667
+   placed       22000000 /       26666667
+   placed       23000000 /       26666667
+   placed       24000000 /       26666667
+   placed       25000000 /       26666667
+   placed       26000000 /       26666667
+ RSA done, acceptance rate =   89.3%
+ Clumps: velocity_type   = rotating_galaxy_halo
+ CSR grid:     58421868 registrations in   299^3 cells.
+ Clump derived: tauhomo  =    1.17965E+06
+ Clump derived: taumax   =    1.17965E+06
+ Clump derived: N_gashomo=    2.00000E+19
+voigt_a          :        4.719E-04
+temperature (K)  :        1.000E+04
+N(H  I)_pole     :        2.000E+19
+N(H  I)_homo     :        2.000E+19
+tau_pole  (H  I) :        1.180E+06
+tau_homo  (H  I) :        1.180E+06
+tau_pole  (dust) :        0.000E+00
+tau_homo  (dust) :        0.000E+00
+ Clump grid: rmax      =      1.00000
+ Clump grid: nx,ny,nz  =    11   11   11
+ Clump grid: cl_Dfreq_ref  =   1.0566E+11
+ Clump grid: cl_vtherm_ref =     12.84424 km/s
+ Clump grid: voigt_a   =      0.00047
+ Clumps: realised f_vol      =   2.6667E-02
+ Clumps: realised f_cov      =   2.0000E+01
+ Clumps: r_cl min/mean/max   =   1.0000E-03  1.0000E-03  1.0000E-03
+ Clumps: mean tau_per_clump  =   4.4237E+04
+ Clumps: integrated HI col   =   8.3776E+19
+ Clumps: per-clump columns saved (R_CLUMP/RHOKAP/TEMP) =  F F F
+ Clumps saved to clump_NHI18_fcov20_clumps.fits.gz
+---> Now starting simulation...  @    2.180 mins
+   1.00000E+05 photons calculated:   14.826 mins
+   2.00000E+05 photons calculated:   27.089 mins
+   3.00000E+05 photons calculated:   39.273 mins
+   4.00000E+05 photons calculated:   51.547 mins
+   5.00000E+05 photons calculated:   63.603 mins
+   6.00000E+05 photons calculated:   75.843 mins
+   7.00000E+05 photons calculated:   88.026 mins
+   8.00000E+05 photons calculated:  100.135 mins
+   9.00000E+05 photons calculated:  112.363 mins
+   1.00000E+06 photons calculated:  124.367 mins
+---> Now Gathering Results...
+Average Number of scattering :   2.5491E+05
+Nscatt_dust, Nscatt_gas      :   0.0000E+00  2.5491E+05
+Total Excution Time          :  124.375 mins
+ >>> STOP  @ 2026/05/06 15:43:07

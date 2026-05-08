@@ -49,7 +49,7 @@ contains
   par%spectral_type   = strlowcase(par%spectral_type)
   par%amr_type        = strlowcase(par%amr_type)
 
-  !--- Normalise geometry string to a canonical value.
+  !--- Normalize geometry string to a canonical value.
   !    Default is 'sphere'.  RAMSES AMR defaults to 'rectangle' because
   !    RAMSES grids are not necessarily spherical.
   !    'box' is accepted as a synonym for 'rectangle'.
@@ -240,7 +240,7 @@ contains
      if (trim(par%geometry) /= 'cylinder') par%nz = par%nr
   endif
 
-  !--- Geometry dimension normalisation (Cartesian only; AMR overrides these in grid_create_amr).
+  !--- Geometry dimension normalization (Cartesian only; AMR overrides these in grid_create_amr).
   !    sphere   : rmax = xmax = ymax = zmax = max of all positive size parameters.
   !    cylinder : rmax = xmax = ymax = max of positive radial params; zmax unchanged.
   !    rectangle: rmax = -1 (undefined).

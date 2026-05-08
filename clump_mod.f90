@@ -32,7 +32,7 @@ module clump_mod
   !--- Per-clump physical properties (MPI shared memory, dimension N_clumps).
   !    In Phase 1 every entry is uniform (filled with the corresponding _ref
   !    scalar below); later phases (radial profiles) populate them as
-  !    functions of clump-centre radius.
+  !    functions of clump-center radius.
   real(kind=wp), pointer, save :: cl_radius(:)      => null()  ! clump radius [code units]
   real(kind=wp), pointer, save :: cl_radius2(:)     => null()  ! cl_radius(icl)**2
   real(kind=wp), pointer, save :: cl_rhokap(:)      => null()  ! opacity/code-unit inside clump
@@ -44,7 +44,7 @@ module clump_mod
   !--- Reference / representative scalars used during initialisation, grid
   !    setup, and FITS-header reporting. In Phase 1 these equal every
   !    cl_*(icl) entry. cl_radius_max is also used to size the RSA / CSR
-  !    acceleration grids so that the 27-neighbour overlap search remains
+  !    acceleration grids so that the 27-neighbor overlap search remains
   !    complete when r_cl varies between clumps.
   real(kind=wp), save :: cl_radius_max      = 0.0_wp
   real(kind=wp), save :: cl_rhokap_ref      = 0.0_wp
@@ -83,7 +83,7 @@ module clump_mod
   integer, parameter :: NPROF = 4001                   ! 1-D radial table size
   real(kind=wp), save :: prof_dr     = 0.0_wp
   real(kind=wp), save :: prof_r(NPROF)
-  real(kind=wp), save :: prof_shape_number(NPROF)      ! n_cl(r) shape (unnormalised)
+  real(kind=wp), save :: prof_shape_number(NPROF)      ! n_cl(r) shape (unnormalized)
   real(kind=wp), save :: prof_shape_radius(NPROF)      ! r_cl(r) shape
   real(kind=wp), save :: prof_shape_density(NPROF)     ! n_H(r) shape (rhokap shape)
   real(kind=wp), save :: prof_cdf_pos(NPROF)           ! CDF for sampling r ~ shape_number * r^2
@@ -121,7 +121,7 @@ contains
   !===========================================================================
   ! Radial-profile evaluator. Returns the multiplicative shape factor
   ! associated with a profile name at radius r (in code units, 0 <= r <= R_box).
-  ! The shape is normalised so that the user-supplied base value
+  ! The shape is normalized so that the user-supplied base value
   ! (par%clump_radius / par%clump_tau0 / etc.) is multiplied by this factor
   ! to obtain the local quantity. Built-in shapes:
   !   'constant'    : f = 1
@@ -328,7 +328,7 @@ contains
   !===========================================================================
 
   !===========================================================================
-  ! Sample a clump-centre radius from the tabulated inverse CDF.
+  ! Sample a clump-center radius from the tabulated inverse CDF.
   !===========================================================================
   real(kind=wp) function sample_clump_radius() result(r_out)
   real(kind=wp) :: u, t
@@ -374,8 +374,8 @@ contains
   !===========================================================================
   ! Numerical f_cov via the radial line-of-sight integral (LaRT convention,
   ! see docs/covering_factor_definitions.tex). f_cov is the expected number
-  ! of clump intersections along a radial sightline from the centre to the
-  ! sphere surface, evaluated for the *current* normalisation A_norm:
+  ! of clump intersections along a radial sightline from the center to the
+  ! sphere surface, evaluated for the *current* normalization A_norm:
   !
   !     f_cov = ∫₀ᴿ A_norm * shape_number(r) * π * r_cl(r)^2 dr
   !
@@ -416,7 +416,7 @@ contains
   !===========================================================================
 
   !===========================================================================
-  ! Total clump count for normalisation A_norm:
+  ! Total clump count for normalization A_norm:
   !     N = ∫₀ᴿ A_norm * shape_number(r) * 4π r^2 dr
   !===========================================================================
   pure real(kind=wp) function total_count_quad(A_norm) result(Ntot)
@@ -440,8 +440,8 @@ contains
   !                                * shape_density(r) dr
   !
   ! Given a uniform reference temperature (cl_Dfreq_ref, cl_voigt_a_ref) the
-  ! line-centre optical depth and HI column density, integrated radially from
-  ! the box centre to the outer surface, are
+  ! line-center optical depth and HI column density, integrated radially from
+  ! the box center to the outer surface, are
   !
   !   taumax  = GF(A_norm) * base_rhokap * voigt(0, cl_voigt_a_ref)
   !   N_HImax = GF(A_norm) * base_rhokap * cl_Dfreq_ref / line%cross0
@@ -563,7 +563,7 @@ contains
   !---------------------------------------------------------------------------
   implicit none
   real(kind=wp), intent(in) :: R_sphere
-  real(kind=wp) :: temp_cl, vtherm, A_norm, fvol_unit, fcov_unit, fvol_realised, fcov_realised
+  real(kind=wp) :: temp_cl, vtherm, A_norm, fvol_unit, fcov_unit, fvol_realized, fcov_realized
   real(kind=wp) :: GF_los
   integer       :: ierr
 
@@ -622,8 +622,8 @@ contains
   cl_temperature_ref = temp_cl                         ! [K]
   cl_voigt_a_ref     = (line%damping / fourpi) / cl_Dfreq_ref
 
-  !--- derive N_clumps + f_vol/f_cov_realised first; opacity may need the
-  !    realised population to back-solve from system-level taumax / N_HImax.
+  !--- derive N_clumps + f_vol/f_cov_realized first; opacity may need the
+  !    realized population to back-solve from system-level taumax / N_HImax.
   !    None of the helpers below reference cl_rhokap_ref.
   !
   !    Uniform case: closed-form using shell volume V_shell = (4pi/3)(R^3 -
@@ -646,13 +646,13 @@ contains
            write(*,*) 'ERROR: specify clump_N_clumps, clump_f_vol, or clump_f_cov'
         call MPI_ABORT(MPI_COMM_WORLD, 1, ierr)
      end if
-     fvol_realised = real(N_clumps, wp) * cl_radius_max**3 / &
+     fvol_realized = real(N_clumps, wp) * cl_radius_max**3 / &
                      max(R_sphere**3 - r_min_clump**3, tiny(1.0_wp))
-     fcov_realised = 0.75_wp * real(N_clumps, wp) * cl_radius_max**2 / &
+     fcov_realized = 0.75_wp * real(N_clumps, wp) * cl_radius_max**2 / &
                      max(R_sphere**2 + R_sphere*r_min_clump + r_min_clump**2, tiny(1.0_wp))
   else
      !--- non-uniform: integrate the shape and back-solve for the density
-     !    normalisation A_norm of n_cl(r) = A_norm * shape_number(r).
+     !    normalization A_norm of n_cl(r) = A_norm * shape_number(r).
      if (par%clump_N_clumps > 0.0_wp) then
         N_clumps = int(par%clump_N_clumps, int64)
         A_norm   = real(N_clumps, wp) / max(total_count_quad(1.0_wp), tiny(1.0_wp))
@@ -669,22 +669,22 @@ contains
            write(*,*) 'ERROR: specify clump_N_clumps, clump_f_vol, or clump_f_cov'
         call MPI_ABORT(MPI_COMM_WORLD, 1, ierr)
      end if
-     fvol_realised = f_vol_quad(A_norm, R_sphere)
-     fcov_realised = f_cov_LOS_quad(A_norm)
+     fvol_realized = f_vol_quad(A_norm, R_sphere)
+     fcov_realized = f_cov_LOS_quad(A_norm)
   end if
   if (N_clumps <= 0_int64) N_clumps = 1_int64
 
   !--- clump opacity (peak value).
   !    Per-clump direct inputs (clump_tau0, clump_NHI, clump_nH) take
   !    priority over the system-level fallbacks (par%taumax, par%N_HImax),
-  !    which back-solve for the peak opacity assuming the realised f_cov
+  !    which back-solve for the peak opacity assuming the realized f_cov
   !    (uniform) or shape quadrature (profile) hits the requested radial
   !    sightline target.
   base_nH_in = 0.0_wp
   if (par%clump_tau0 > 0.0_wp) then
      cl_rhokap_ref = par%clump_tau0 / (voigt(0.0_wp, cl_voigt_a_ref) * base_radius_in)
   else if (par%clump_NHI > 0.0_wp) then
-     ! clump_NHI = per-clump column density [cm^-2] from clump centre to surface
+     ! clump_NHI = per-clump column density [cm^-2] from clump center to surface
      ! (peak value; shape_density(r) modulates per clump).
      cl_rhokap_ref = par%clump_NHI * line%cross0 / (cl_Dfreq_ref * base_radius_in)
   else if (par%clump_nH > 0.0_wp) then
@@ -725,8 +725,8 @@ contains
 
   if (mpar%p_rank == 0) then
      write(*,'(a,i14)')    ' Clumps: N_clumps  = ', N_clumps
-     write(*,'(a,f12.6)')  ' Clumps: f_vol     = ', fvol_realised
-     write(*,'(a,f12.5)')  ' Clumps: f_cov     = ', fcov_realised
+     write(*,'(a,f12.6)')  ' Clumps: f_vol     = ', fvol_realized
+     write(*,'(a,f12.5)')  ' Clumps: f_cov     = ', fcov_realized
      write(*,'(a,2f12.5)') ' Clumps: rmin/rmax = ', r_min_clump, R_sphere
      write(*,'(a,es12.4)') ' Clumps: cl_rhokap = ', cl_rhokap_ref
      write(*,'(a,f12.5)')  ' Clumps: voigt_a   = ', cl_voigt_a_ref
@@ -758,7 +758,7 @@ contains
   call create_shared_mem(cl_temperature, [int(N_clumps)])
 
   !--- Phase 1: fill per-clump arrays uniformly with the reference values
-  !    so that behaviour is identical to the previous scalar implementation.
+  !    so that behavior is identical to the previous scalar implementation.
   !    Phase 5 will replace this loop with profile-driven assignments after
   !    clump positions are placed.
   if (mpar%h_rank == 0) then
@@ -785,7 +785,7 @@ contains
      call MPI_BCAST(cl_vx, int(N_clumps), MPI_DOUBLE_PRECISION, 0, mpar%SAME_HRANK_COMM, ierr)
      call MPI_BCAST(cl_vy, int(N_clumps), MPI_DOUBLE_PRECISION, 0, mpar%SAME_HRANK_COMM, ierr)
      call MPI_BCAST(cl_vz, int(N_clumps), MPI_DOUBLE_PRECISION, 0, mpar%SAME_HRANK_COMM, ierr)
-     ! cl_vx/y/z are already stored as v / cl_vtherm(icl) (normalised inline
+     ! cl_vx/y/z are already stored as v / cl_vtherm(icl) (normalized inline
      ! by generate_clumps and assign_clump_velocities_from_type).
   end if
   call MPI_BARRIER(mpar%hostcomm, ierr)
@@ -814,7 +814,7 @@ contains
   real(kind=wp)  :: xc, yc, zc, dx, dy, dz, d2, sep_pair
   real(kind=wp)  :: r_trial, rcl_trial, cos_theta, sin_theta, phi_az
   real(kind=wp)  :: temp_loc, vth_loc, Df_loc, va_loc, kap_loc, dens_factor
-  real(kind=wp)  :: r_min_centre, r_max_centre, r_min_centre2, r_max_centre2
+  real(kind=wp)  :: r_min_center, r_max_center, r_min_center2, r_max_center2
   integer        :: ig, jg, kg, ig2, jg2, kg2, icell_rsa, jnb
   integer        :: ierr
   integer(int64) :: icl, n_attempts
@@ -824,7 +824,7 @@ contains
   rg         = min(512, max(32, int(real(N_clumps,wp)**(1.0_wp/3.0_wp)) + 1))
   ncells_rsa = rg**3
   ! RSA grid spans the bounding sphere; cells must be at least 2*cl_radius_max
-  ! across so the 27-neighbour search captures every possible overlap.
+  ! across so the 27-neighbor search captures every possible overlap.
   rg_cell    = max(2.0_wp * sphere_R / real(rg, wp), 2.0_wp * cl_radius_max)
   rg         = max(2, int((2.0_wp * sphere_R) / rg_cell) + 1)
   rg_cell    = (2.0_wp * sphere_R) / real(rg, wp)
@@ -833,8 +833,8 @@ contains
 
   !--- "fully-inside" mode: a clump is accepted only if it lies entirely in
   !    the radial shell [r_min_clump, sphere_R], i.e. both
-  !    r_centre + R_clump <= sphere_R   (no protrusion past the outer edge)
-  !    r_centre - R_clump >= r_min_clump (no protrusion into the inner cavity).
+  !    r_center + R_clump <= sphere_R   (no protrusion past the outer edge)
+  !    r_center - R_clump >= r_min_clump (no protrusion into the inner cavity).
   !    This requires r_min_clump + 2*cl_radius_max <= sphere_R; abort otherwise.
   if (par%clump_fully_inside) then
      if (cl_radius_max >= sphere_R) then
@@ -860,7 +860,7 @@ contains
      if (par%clump_fully_inside) then
         write(*,'(a)') ' RSA: clump_fully_inside = .true.  (clumps must fit inside the shell)'
      else
-        write(*,'(a)') ' RSA: clump_fully_inside = .false. (legacy: only centres inside the shell)'
+        write(*,'(a)') ' RSA: clump_fully_inside = .false. (legacy: only centers inside the shell)'
      end if
      if (r_min_clump > 0.0_wp) &
         write(*,'(a,2f12.5)') ' RSA: shell rmin/rmax    = ', r_min_clump, sphere_R
@@ -897,20 +897,20 @@ contains
         !    inset by one base clump radius on both sides so the entire
         !    clump fits inside the medium.
         if (par%clump_fully_inside) then
-           r_max_centre = sphere_R    - base_radius_in
-           r_min_centre = r_min_clump + base_radius_in
+           r_max_center = sphere_R    - base_radius_in
+           r_min_center = r_min_clump + base_radius_in
         else
-           r_max_centre = sphere_R
-           r_min_centre = r_min_clump
+           r_max_center = sphere_R
+           r_min_center = r_min_clump
         end if
-        r_max_centre2 = r_max_centre * r_max_centre
-        r_min_centre2 = r_min_centre * r_min_centre
+        r_max_center2 = r_max_center * r_max_center
+        r_min_center2 = r_min_center * r_min_center
         do
-           xc = (2.0_wp * rand_number() - 1.0_wp) * r_max_centre
-           yc = (2.0_wp * rand_number() - 1.0_wp) * r_max_centre
-           zc = (2.0_wp * rand_number() - 1.0_wp) * r_max_centre
+           xc = (2.0_wp * rand_number() - 1.0_wp) * r_max_center
+           yc = (2.0_wp * rand_number() - 1.0_wp) * r_max_center
+           zc = (2.0_wp * rand_number() - 1.0_wp) * r_max_center
            d2 = xc*xc + yc*yc + zc*zc
-           if (d2 <= r_max_centre2 .and. d2 >= r_min_centre2) exit
+           if (d2 <= r_max_center2 .and. d2 >= r_min_center2) exit
         end do
      end if
 
@@ -919,7 +919,7 @@ contains
      jg = min(rg-1, max(0, int((yc + sphere_R) / rg_cell)))
      kg = min(rg-1, max(0, int((zc + sphere_R) / rg_cell)))
 
-     !--- check 27 neighbours for overlap
+     !--- check 27 neighbors for overlap
      overlap = .false.
      outer: do kg2 = max(0,kg-1), min(rg-1,kg+1)
         do jg2 = max(0,jg-1), min(rg-1,jg+1)
@@ -1003,7 +1003,7 @@ contains
   subroutine assign_clump_velocities_from_type()
   !---------------------------------------------------------------------------
   ! Add a systematic velocity component to each clump based on par%velocity_type
-  ! and the clump's centre position.  Called only on h_rank=0 after
+  ! and the clump's center position.  Called only on h_rank=0 after
   ! generate_clumps(); adds to any existing sigma_v random component.
   !
   ! Supported types (same parameter names as grid_mod_car):
@@ -1196,7 +1196,7 @@ contains
                                     icl, t_entry, t_exit, hit)
   !---------------------------------------------------------------------------
   ! Ray–sphere intersection.  Ray: P(t) = origin + t*dir, t arbitrary.
-  ! Sphere: centre (cx,cy,cz), squared-radius cl_radius2(icl).
+  ! Sphere: center (cx,cy,cz), squared-radius cl_radius2(icl).
   ! Returns hit=.true. and t_entry <= t_exit when t_exit > 0.
   !---------------------------------------------------------------------------
   real(kind=wp),  intent(in)  :: ox, oy, oz, kx, ky, kz, cx, cy, cz
@@ -1439,13 +1439,13 @@ contains
      f_cov_actual = 0.75_wp * real(ncl,wp) * cl_radius_max**2 / &
                     max(sphere_R**2 + sphere_R*r_min_clump + r_min_clump**2, tiny(1.0_wp))
   else
-     !--- realised f_vol from sum of individual clump volumes
+     !--- realized f_vol from sum of individual clump volumes
      f_vol_actual = 0.0_wp
      do i = 1_int64, ncl
         f_vol_actual = f_vol_actual + cl_radius(i)**3
      end do
      f_vol_actual = f_vol_actual / max(sphere_R**3 - r_min_clump**3, tiny(1.0_wp))
-     !--- realised f_cov from radial quadrature (LOS integral)
+     !--- realized f_cov from radial quadrature (LOS integral)
      f_cov_actual = f_cov_LOS_quad(real(ncl,wp) / max(total_count_quad(1.0_wp), tiny(1.0_wp)))
   end if
 
@@ -1472,8 +1472,8 @@ contains
   end do
 
   if (mpar%p_rank == 0) then
-     write(*,'(a,es12.4)') ' Clumps: realised f_vol      = ', f_vol_actual
-     write(*,'(a,es12.4)') ' Clumps: realised f_cov      = ', f_cov_actual
+     write(*,'(a,es12.4)') ' Clumps: realized f_vol      = ', f_vol_actual
+     write(*,'(a,es12.4)') ' Clumps: realized f_cov      = ', f_cov_actual
      write(*,'(a,3es12.4)')' Clumps: r_cl min/mean/max   = ', rcl_min, rcl_mean, rcl_max
      write(*,'(a,es12.4)') ' Clumps: mean tau_per_clump  = ', tau_mean
      write(*,'(a,es12.4)') ' Clumps: integrated HI col   = ', total_HI_mass
@@ -1796,11 +1796,11 @@ contains
 
   !--- Optional rescaling: when par%taumax or par%N_HImax is supplied along
   !    with a pre-built clump file, multiply every cl_rhokap(i) by a single
-  !    factor so the realised radial-sightline tau / NHI matches the target.
-  !    The realised value uses the small-angle (V/d^2) approximation, capped
+  !    factor so the realized radial-sightline tau / NHI matches the target.
+  !    The realized value uses the small-angle (V/d^2) approximation, capped
   !    at d^2 >= cl_radius^2 to avoid divergence when a clump straddles the
-  !    origin (e.g. when par%rmin = 0 and a clump centre lies near the box
-  !    centre).  Both cl_rhokap and cl_rhokap_ref are updated in lockstep
+  !    origin (e.g. when par%rmin = 0 and a clump center lies near the box
+  !    center).  Both cl_rhokap and cl_rhokap_ref are updated in lockstep
   !    so write_clumps_fits and grid_create_clump see the rescaled values.
   call rescale_loaded_clumps_to_target()
 
@@ -1823,10 +1823,10 @@ contains
   !---------------------------------------------------------------------------
   ! Helper for read_clumps_fits.  Reads par%taumax / par%N_HImax (priority
   ! order) and rescales the loaded cl_rhokap(:) by a single multiplicative
-  ! factor so the realised radial-sightline tau / NHI from the box centre
+  ! factor so the realized radial-sightline tau / NHI from the box center
   ! to the outer surface matches the target.
   !
-  ! Realised value uses the small-angle expected-column formula:
+  ! Realized value uses the small-angle expected-column formula:
   !
   !   N_HImax = sum_i  cl_rhokap(i) * cl_Dfreq(i) * cl_radius(i)^3
   !                    / (3 * cross0 * max(d_i^2, cl_radius(i)^2))
@@ -1842,38 +1842,38 @@ contains
   implicit none
   integer        :: ierr
   integer(int64) :: i
-  real(kind=wp)  :: realised, target_val, alpha, di2, voigt0_i
+  real(kind=wp)  :: realized, target_val, alpha, di2, voigt0_i
 
   if (par%taumax  <= 0.0_wp .and. par%N_HImax <= 0.0_wp) return
 
-  realised = 0.0_wp
+  realized = 0.0_wp
   if (mpar%p_rank == 0) then
      if (par%taumax > 0.0_wp) then
         do i = 1_int64, N_clumps
            di2 = max(cl_x(i)**2 + cl_y(i)**2 + cl_z(i)**2, cl_radius(i)**2)
            voigt0_i = voigt(0.0_wp, cl_voigt_a(i))
-           realised = realised + cl_rhokap(i) * voigt0_i * cl_radius(i)**3 / (3.0_wp * di2)
+           realized = realized + cl_rhokap(i) * voigt0_i * cl_radius(i)**3 / (3.0_wp * di2)
         end do
         target_val = par%taumax
      else
         do i = 1_int64, N_clumps
            di2 = max(cl_x(i)**2 + cl_y(i)**2 + cl_z(i)**2, cl_radius(i)**2)
-           realised = realised + cl_rhokap(i) * cl_Dfreq(i) * cl_radius(i)**3 / &
+           realized = realized + cl_rhokap(i) * cl_Dfreq(i) * cl_radius(i)**3 / &
                                  (3.0_wp * line%cross0 * di2)
         end do
         target_val = par%N_HImax
      end if
   end if
-  call MPI_BCAST(realised,   1, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, ierr)
+  call MPI_BCAST(realized,   1, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, ierr)
   call MPI_BCAST(target_val, 1, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, ierr)
 
-  if (realised <= 0.0_wp) then
+  if (realized <= 0.0_wp) then
      if (mpar%p_rank == 0) write(*,'(a)') &
-        ' Clumps: WARNING -- realised tau/NHI from loaded clumps is zero; '// &
+        ' Clumps: WARNING -- realized tau/NHI from loaded clumps is zero; '// &
         'cannot rescale to par%taumax/par%N_HImax. Leaving cl_rhokap unchanged.'
      return
   end if
-  alpha = target_val / realised
+  alpha = target_val / realized
 
   if (mpar%h_rank == 0) then
      do i = 1_int64, N_clumps

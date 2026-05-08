@@ -365,7 +365,7 @@ contains
       z  = x + 1.0d0
       ! Now rescale v0 back by 1/2
       !--seon v0 = 0.5d0*v0
-      ! Use optimised Lagrange classical interpolation formula for
+      ! Use optimized Lagrange classical interpolation formula for
       ! a quadratic. Interpolation is done three times, for h0, h1 and h2.
       ! As the absicssa points are equally spaced the result has 
       ! been factored further.

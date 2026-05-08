@@ -3,7 +3,7 @@
  par%rmax             = 1.0
  par%clump_radius     = 0.001
  par%clump_f_cov      = 1.0
- par%clump_NHI        = 7.5e17
+ par%N_HImax         = 1.0e18
  par%temperature      = 1.0e4
  par%clump_sigma_v    = 0.0
  par%no_photons       = 1e5

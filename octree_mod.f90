@@ -48,7 +48,7 @@ module octree_mod
     integer, pointer :: neighbor(:,:)  => null()  ! (6, ncells)
 
     ! ------ physical data at leaf cells (size nleaf) -- shared memory ------
-    real(wp), pointer :: rhokap(:)   => null()  ! HI opacity per unit length at line centre
+    real(wp), pointer :: rhokap(:)   => null()  ! HI opacity per unit length at line center
     real(wp), pointer :: rhokapD(:)  => null()  ! dust opacity per unit length
     real(wp), pointer :: Dfreq(:)    => null()  ! local Doppler frequency
     real(wp), pointer :: voigt_a(:)  => null()  ! Voigt damping parameter

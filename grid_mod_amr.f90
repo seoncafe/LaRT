@@ -1,12 +1,12 @@
 module grid_mod_amr
   !-----------------------------------------------------------------------
   ! AMR grid creation: reads data (RAMSES or generic format), builds the
-  ! octree, and normalises physical quantities to LaRT's internal units.
+  ! octree, and normalizes physical quantities to LaRT's internal units.
   !
   ! Called from setup_v2c.f90 when par%use_amr_grid = .true.
   !
   ! After grid_create_amr returns:
-  !   amr_grid%rhokap(il)   = HI opacity per unit length at line centre
+  !   amr_grid%rhokap(il)   = HI opacity per unit length at line center
   !   amr_grid%rhokapD(il)  = dust opacity per unit length  (if DGR > 0)
   !   amr_grid%Dfreq(il)    = local Doppler frequency
   !   amr_grid%voigt_a(il)  = Voigt damping parameter
@@ -103,7 +103,7 @@ contains
     ! Cartesian grid.  Raytrace path lengths are in code units; rhokap is
     ! scaled to per-code-unit via *= distance2cm (same as Cartesian).
     ! (RAMSES reader returns cm, so for RAMSES distance2cm = 1 → no change.)
-    ! Coordinates are in [-boxlen/2, +boxlen/2] (box centred at origin).
+    ! Coordinates are in [-boxlen/2, +boxlen/2] (box centered at origin).
     call amr_build_tree(xleaf, yleaf, zleaf, leaf_level, nleaf, &
         -0.5_wp*boxlen_code, 0.5_wp*boxlen_code, &
         -0.5_wp*boxlen_code, 0.5_wp*boxlen_code, &
@@ -188,7 +188,7 @@ contains
 
     deallocate(nHI_frac)
 
-    !--- Step 5: Normalise to input optical depth / column density -----
+    !--- Step 5: Normalize to input optical depth / column density -----
     ! tau_pole: traverse from box center in +z direction to compute actual
     ! optical depth from center to z+ boundary (matches Cartesian taumax convention).
     opacity_sum = 0.0_wp
@@ -196,8 +196,8 @@ contains
       opacity_sum = opacity_sum + amr_grid%rhokap(il) * voigt(0.0_wp, amr_grid%voigt_a(il))
     end do
     nopac       = real(count(amr_grid%rhokap > 0.0_wp), wp)
-    ! Half-box = centre-to-boundary distance; matches Cartesian convention where
-    ! opac_length = par%rmax (centre to sphere surface) for a sphere model.
+    ! Half-box = center-to-boundary distance; matches Cartesian convention where
+    ! opac_length = par%rmax (center to sphere surface) for a sphere model.
     opac_length = boxlen_code / 2.0_wp
     if (nopac > 0.0_wp) then
       tauhomo = (opacity_sum / nopac) * opac_length
@@ -240,7 +240,7 @@ contains
     N_HIpole = NHI_pole_raw
     N_HIhomo = N_HIpole
 
-    ! Shared arrays: only rank 0 on each node normalises; others wait at barrier.
+    ! Shared arrays: only rank 0 on each node normalizes; others wait at barrier.
     if (mpar%h_rank == 0) then
     if (par%taumax > 0.0_wp) then
       if (taupole > 0.0_wp) then
@@ -700,7 +700,7 @@ contains
        if (mpar%p_rank == 0) then
           write(6,'(3a)') 'AMR generic: WARNING velocity_type "', &
                           trim(par%velocity_type), &
-                          '" not recognised - keeping input data velocities'
+                          '" not recognized - keeping input data velocities'
        end if
     end select
 

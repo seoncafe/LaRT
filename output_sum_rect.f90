@@ -158,7 +158,7 @@ contains
      grid%Jout(:)    = grid%Jout(:)/(par%nphotons*intensity_bin_unit*twopi*2.0_wp)
      if (associated(grid%Jin)) &
         grid%Jin(:)  = grid%Jin(:) /(par%nphotons*intensity_bin_unit*twopi*2.0_wp)
-     !--- Jmu normalised so that each mu bin = Jout for homogeneous isotropic case
+     !--- Jmu normalized so that each mu bin = Jout for homogeneous isotropic case
      if (associated(grid%Jmu)) &
         grid%Jmu(:,:) = grid%Jmu(:,:) * par%nmu / (par%nphotons*intensity_bin_unit*twopi*2.0_wp)
   else
@@ -175,7 +175,7 @@ contains
      grid%Jout(:)    = grid%Jout(:)/(par%nphotons*intensity_bin_unit*twopi*area)
      if (associated(grid%Jin)) &
         grid%Jin(:)  = grid%Jin(:) /(par%nphotons*intensity_bin_unit*twopi*area)
-     !--- Jmu normalised so that each mu bin = Jout for homogeneous isotropic case
+     !--- Jmu normalized so that each mu bin = Jout for homogeneous isotropic case
      if (associated(grid%Jmu)) &
         grid%Jmu(:,:) = grid%Jmu(:,:) * par%nmu / (par%nphotons*intensity_bin_unit*twopi*area)
   endif

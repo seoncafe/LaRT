@@ -42,7 +42,7 @@ contains
   ! Main reader: scans all CPU output files and collects leaf cell data.
   !
   ! Outputs (allocatable arrays, caller must deallocate):
-  !   xleaf, yleaf, zleaf  -- leaf centre coordinates [physical units set by unit_l]
+  !   xleaf, yleaf, zleaf  -- leaf center coordinates [physical units set by unit_l]
   !   leaf_level           -- AMR level (0 = root)
   !   nH_cgs               -- total hydrogen number density [cm^-3]
   !   T_cgs                -- gas temperature [K]
@@ -103,7 +103,7 @@ contains
         nleaf_total)
 
     ! Convert positions from code units (fraction of boxlen) to physical [cm],
-    ! then centre at the box origin so coordinates lie in [-boxlen/2, +boxlen/2].
+    ! then center at the box origin so coordinates lie in [-boxlen/2, +boxlen/2].
     xl = (xl - 0.5_wp) * boxlen_cm
     yl = (yl - 0.5_wp) * boxlen_cm
     zl = (zl - 0.5_wp) * boxlen_cm
