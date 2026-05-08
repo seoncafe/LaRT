@@ -802,7 +802,7 @@ contains
   !---------------------------------------------------------------------------
   ! RSA with linked-list grid acceleration. Called only on h_rank=0.
   ! Two sampling paths:
-  !  - profiles_active = .false.: uniform-in-sphere box rejection (legacy).
+  !  - profiles_active = .false.: uniform-in-sphere box rejection.
   !  - profiles_active = .true. : inverse-CDF sampling on r, isotropic angles,
   !    per-clump radius from shape_radius(r), per-clump opacity / temperature
   !    / Voigt parameter from the active profiles.
@@ -876,7 +876,8 @@ contains
      if (profiles_active) then
         !--- inverse-CDF radial draw + isotropic angles. The CDF is built so
         !    that prof_shape_number(r) = 0 for r < r_min_clump, so the draw
-        !    naturally avoids the inner cavity in legacy mode.
+        !    naturally avoids the inner cavity even when clump_fully_inside
+        !    is .false.
         r_trial    = sample_clump_radius()
         rcl_trial  = base_radius_in * shape_radius(r_trial)
         cos_theta  = 2.0_wp * rand_number() - 1.0_wp
@@ -892,10 +893,10 @@ contains
            if (r_trial - rcl_trial < r_min_clump) cycle
         end if
      else
-        !--- uniform random point inside the placement shell (legacy box
-        !    rejection). When clump_fully_inside is set, the shell is
-        !    inset by one base clump radius on both sides so the entire
-        !    clump fits inside the medium.
+        !--- uniform random point inside the placement shell (box-rejection
+        !    sampling). When clump_fully_inside is set, the shell is inset
+        !    by one base clump radius on both sides so the entire clump
+        !    fits inside the medium.
         if (par%clump_fully_inside) then
            r_max_center = sphere_R    - base_radius_in
            r_min_center = r_min_clump + base_radius_in

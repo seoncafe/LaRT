@@ -130,7 +130,7 @@ New Parameters (namelist)
 
   par%grid_type = 'clump'
     Selects the clump-medium grid.  (LaRT_v2.10 OOP interface.)
-    The legacy flag par%use_clump_medium = .true. maps to this automatically.
+    The previous flag par%use_clump_medium = .true. maps to this automatically.
 
   par%clump_radius    real(wp), default = -1.0
     Radius of each clump in code units.  Required.
@@ -751,7 +751,7 @@ Examples:
 
 Backward compatibility:
   Default profile values are 'constant' on every axis.  All existing input
-  files therefore continue to use the legacy uniform-clump path and
+  files therefore continue to use the uniform-clump path and
   reproduce previous results.
 
 
@@ -823,7 +823,7 @@ BYTE-IDENTICAL ROUND-TRIP
 BACKWARD COMPATIBILITY
 ----------------------
   par%clump_input_file defaults to ''.  All existing input files
-  therefore continue to use the legacy generate path.
+  therefore continue to use the original generate path.
 
 ================================================================================
 2026-05-04  Skip constant per-clump columns in the FITS file
@@ -845,7 +845,7 @@ read_clumps_fits gained a small helper, read_perclump_or_keyword(), that
 tries the column first and falls back to the named header keyword when
 the column is absent.  This makes the load path work for:
   - new files where one or more columns were skipped because they are
-    constant (the most common case for legacy uniform-clump runs),
+    constant (the most common case for uniform-clump runs),
   - pre-Phase-6 files which never carried these columns to begin with.
 
 Backward compatibility: the FITS schema is now a strict superset of the
@@ -1088,7 +1088,7 @@ PROBLEM
   r), individual clumps near the surface could protrude past r = rmax.
 
   Example (clump_radius_powerlaw, fcov drive of f_vol = 0.1):
-    legacy generation -- 564 of 10000 clumps had  r_centre + R_clump > rmax,
+    .false. generation -- 564 of 10000 clumps had  r_centre + R_clump > rmax,
                         with the worst extending to r ≈ 1.02.
     new default       -- 0 of 10000 clumps protrude.
 
@@ -1102,7 +1102,7 @@ NEW PARAMETER
                          The placement automatically enforces this; samples
                          that would protrude are retried.
 
-    .false.            -- legacy behavior (centers only).  Clumps may spill
+    .false.            -- centers-only mode.  Clumps may spill
                          past the medium surface; useful for reproducing pre-
                          2026-05-05 results.
 
@@ -1113,7 +1113,7 @@ IMPLEMENTATION
         when clump_fully_inside = .true., the placement sphere shrinks from
         radius rmax to (rmax - clump_radius); the existing box-rejection draw
         is unchanged otherwise.
-        when .false., the placement sphere is the full rmax (legacy).
+        when .false., the placement sphere is the full rmax.
 
     * profile path (per-clump R_clump from clump_radius_profile):
         adds a rejection check after the inverse-CDF radial draw and isotropic
@@ -1126,11 +1126,11 @@ IMPLEMENTATION
 
     * The RSA log line now reports the active mode:
         " RSA: clump_fully_inside = .true.  (clumps must fit inside rmax)"
-        " RSA: clump_fully_inside = .false. (legacy: only centers inside rmax)"
+        " RSA: clump_fully_inside = .false. (only centers inside rmax)"
 
   Note on N_clumps normalization:
     The conversion of par%clump_f_vol / par%clump_f_cov to N_clumps still
-    uses (rmax / cl_radius_max) as in the legacy formula.  When
+    uses (rmax / cl_radius_max) as in the prior formula.  When
     clump_fully_inside = .true., the available volume for clump centers is
     slightly smaller than (4/3)·π·rmax^3, so the realized f_vol / f_cov can
     be marginally below the requested target when r_clump is a non-trivial
@@ -1235,7 +1235,7 @@ VALIDATION
     fully_inside=T: r_centre in [0.4527, 0.9498],
                     r-rcl >= 0.4027,  r+rcl <= 0.9998   (shell respected)
     fully_inside=F: r_centre in [0.4074, 0.9998],
-                    r-rcl  = 0.3574,  r+rcl  = 1.0498   (legacy spillover)
+                    r-rcl  = 0.3574,  r+rcl  = 1.0498   (spillover)
 
   Backward compat: existing input clump_make_test.in (no par%rmin)
   reproduces byte-identical N_clumps = 66667 and f_vol = 0.066667.
