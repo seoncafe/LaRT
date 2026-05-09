@@ -59,32 +59,19 @@ echo "   with the machinefile $host_file"
 #====== Do not touch up to here =================
 #================================================
 
-#echo "=== Clumpy sphere: tau0=1e3, N_cov=5, static ==="
-#mpirun -machinefile ${host_file} ${EXEC} clump_tau3_fcov5.in
+echo "=== Clumpy sphere: tau0=1e3, N_cov=5, static ==="
+mpirun -machinefile ${host_file} ${EXEC} clump_tau3_fcov5.in
 #
-#echo "=== Clumpy sphere: tau0=1e4, N_cov=5, static ==="
-#mpirun -machinefile ${host_file} ${EXEC} clump_tau4_fcov5.in
+echo "=== Clumpy sphere: tau0=1e4, N_cov=5, static ==="
+mpirun -machinefile ${host_file} ${EXEC} clump_tau4_fcov5.in
 #
-#echo "=== Clumpy sphere: tau0=1e3, N_cov=20, static (dense covering) ==="
-#mpirun -machinefile ${host_file} ${EXEC} clump_tau3_fcov20.in
+echo "=== Clumpy sphere: tau0=1e3, N_cov=20, static (dense covering) ==="
+mpirun -machinefile ${host_file} ${EXEC} clump_tau3_fcov20.in
 #
-#echo "=== Clumpy sphere: tau0=1e3, N_cov=5, Hubble expansion Vexp=200 km/s ==="
-#mpirun -machinefile ${host_file} ${EXEC} clump_tau3_fcov5_hubble.in
+echo "=== Clumpy sphere: tau0=1e3, N_cov=5, Hubble expansion Vexp=200 km/s ==="
+mpirun -machinefile ${host_file} ${EXEC} clump_tau3_fcov5_hubble.in
 #
-#mpirun -machinefile ${host_file} ${EXEC} clump_tau3_fcov5_sigv.in
+mpirun -machinefile ${host_file} ${EXEC} clump_tau3_fcov5_sigv.in
 
-#echo "=== Clumpy sphere: tau0=1e3, N_cov=5, peel-off observer ==="
-#mpirun -machinefile ${host_file} ${EXEC} clump_tau3_fcov5_peel.in
-
-#mpirun -machinefile ${host_file} ${EXEC} clump_NHI18_fcov1.in
-#mpirun -machinefile ${host_file} ${EXEC} clump_NHI18_fcov5.in
-mpirun -machinefile ${host_file} ${EXEC} clump_NHI18_fcov20.in
-mpirun -machinefile ${host_file} ${EXEC} clump_NHI18_fcov1_gauss1.in
-mpirun -machinefile ${host_file} ${EXEC} clump_NHI18_fcov5_gauss1.in
-mpirun -machinefile ${host_file} ${EXEC} clump_NHI18_fcov20_gauss1.in
-#mpirun -machinefile ${host_file} ${EXEC} clump_NHI18_fcov1_novel.in
-#mpirun -machinefile ${host_file} ${EXEC} clump_NHI18_fcov1_voigt_novel.in
-#mpirun -machinefile ${host_file} ${EXEC} clump_NHI18_fcov2_voigt_novel.in
-#mpirun -machinefile ${host_file} ${EXEC} clump_NHI18_fcov2_voigt_vel.in
-#mpirun -machinefile ${host_file} ${EXEC} clump_NHI18_fcov5_novel.in
-#mpirun -machinefile ${host_file} ${EXEC} clump_NHI18_fcov5_voigt_novel.in
+echo "=== Clumpy sphere: tau0=1e3, N_cov=5, peel-off observer ==="
+mpirun -machinefile ${host_file} ${EXEC} clump_tau3_fcov5_peel.in
