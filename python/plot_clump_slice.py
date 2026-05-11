@@ -49,7 +49,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.patches import Circle
 from matplotlib.collections import PatchCollection
-from astropy.io import fits
+from lart_io import load_lart
 
 
 AXIS_TRIPLE = {
@@ -60,22 +60,27 @@ AXIS_TRIPLE = {
 
 
 def load_clumps(fname):
-    """Return dict of clump arrays + header metadata."""
-    with fits.open(fname) as hdul:
-        tbl = hdul[1].data
-        hdr = hdul[1].header
-        pos = np.column_stack([tbl['X'], tbl['Y'], tbl['Z']])
-        out = {
-            'pos':    pos,
-            'radius': tbl['R_CLUMP'] if 'R_CLUMP' in tbl.names else
-                      np.full(len(pos), hdr.get('CL_RAD', 0.01)),
-            'rhokap': tbl['RHOKAP']  if 'RHOKAP'  in tbl.names else None,
-            'temp':   tbl['TEMP']    if 'TEMP'    in tbl.names else None,
-            'sphere_R': hdr.get('SPHERE_R', hdr.get('RMAX', 1.0)),
-            'n_clumps': hdr.get('N_CLUMPS', len(pos)),
-            'f_vol':   hdr.get('F_VOL',  None),
-            'f_cov':   hdr.get('F_COV',  None),
-        }
+    """Return dict of clump arrays + header metadata.  Accepts both FITS
+    (.fits, .fits.gz) and HDF5 (.h5, .hdf5) clump files."""
+    lf  = load_lart(fname)
+    sec = lf.section('Clumps') or (lf.sections[0] if lf.sections else None)
+    if sec is None:
+        raise ValueError(f'No clump table found in {fname!r}')
+    x, y, z = sec.col('X'), sec.col('Y'), sec.col('Z')
+    pos = np.column_stack([x, y, z])
+    radius_col = sec.col('R_CLUMP')
+    if radius_col is None:
+        radius_col = np.full(len(pos), float(sec.attr('CL_RAD', 0.01)))
+    out = {
+        'pos':    pos,
+        'radius': radius_col,
+        'rhokap': sec.col('RHOKAP'),
+        'temp':   sec.col('TEMP'),
+        'sphere_R': float(sec.attr('SPHERE_R', sec.attr('RMAX', 1.0))),
+        'n_clumps': int  (sec.attr('N_CLUMPS', len(pos))),
+        'f_vol':         sec.attr('F_VOL',  None),
+        'f_cov':         sec.attr('F_COV',  None),
+    }
     return out
 
 

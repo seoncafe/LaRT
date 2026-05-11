@@ -30,7 +30,7 @@ from dataclasses import dataclass, field
 from typing import List, Optional, Tuple
 
 import numpy as np
-from astropy.io import fits
+from lart_io import load_lart, find_lart_file, glob_lart
 
 
 # ---------------------------------------------------------------------------
@@ -1637,119 +1637,138 @@ def resolve_input_file(name: str) -> str:
 
 
 def fits_path_for(infile: str) -> str:
-    """Determine the output FITS file path for a given input file.
+    """Determine the output file path for a given LaRT input file.
 
-    Honours par%out_file if set; otherwise falls back to <basename>.fits.gz
-    in the same directory as the input file.
+    Accepts either format the simulation may have produced (HDF5 or FITS).
+    Honours par%out_file if set in the namelist; otherwise falls back to
+    ``<basename>.{h5,hdf5,fits.gz,fits}`` in the same directory as the
+    input file, with HDF5 preferred (the LaRT v2 default).  The name is
+    kept for backwards compatibility — it returns whatever exists,
+    regardless of the actual on-disk format.
     """
     params = parse_input_file(infile)
     out_file = params.get('out_file', '').strip() if isinstance(
         params.get('out_file', ''), str) else ''
     indir = os.path.dirname(os.path.abspath(infile)) or '.'
     if out_file:
-        # may be absolute or relative
         if not os.path.isabs(out_file):
             out_file = os.path.join(indir, out_file)
-        return out_file
-    # default: base name of *.in -> .fits.gz (in same dir)
+        # If the namelist's value points at an existing file, return it
+        # as-is.  Otherwise try sibling files with the LaRT-recognised
+        # extensions: the simulation may have run with a different
+        # par%file_format than the namelist string suggests.
+        if os.path.exists(out_file):
+            return out_file
+        stem = out_file
+        for ext in ('.fits.gz', '.hdf5', '.fits', '.h5'):
+            if stem.lower().endswith(ext):
+                stem = stem[: -len(ext)]
+                break
+        resolved = find_lart_file(stem)
+        return resolved if resolved is not None else out_file
+    # default: <basename>.{h5,fits.gz,...} in the same dir as the .in file
     base = os.path.splitext(os.path.basename(infile))[0]
-    return os.path.join(indir, base + '.fits.gz')
+    stem = os.path.join(indir, base)
+    resolved = find_lart_file(stem)
+    if resolved is not None:
+        return resolved
+    # nothing exists yet; return the HDF5 default so the caller's
+    # FileNotFoundError points at the expected location.
+    return stem + '.h5'
 
 
 # ---------------------------------------------------------------------------
-# FITS reading
+# Backend-agnostic reading via lart_io (handles both FITS and HDF5)
 # ---------------------------------------------------------------------------
 
-def _find_hdu(hdul, extname: str):
-    """Return the first HDU with matching EXTNAME (case-insensitive), else None."""
-    for h in hdul:
-        ext = h.header.get('EXTNAME', '')
-        if ext.strip().lower() == extname.lower():
-            return h
-    return None
-
-
-def _peel_file_list(fits_file: str) -> List[str]:
+def _peel_file_list(main_file: str) -> List[str]:
     """Return sorted list of peel-off observer files corresponding to a
-    main output FITS file.
+    main output file.
 
-    Accepts both legacy (single observer): ``<base>_obs.fits.gz``, and
-    multi-observer: ``<base>_obs_001.fits.gz``, ``<base>_obs_002.fits.gz``
-    (3-digit zero-padded suffix written by Fortran `write(...,'(a,i3.3)')`).
+    Accepts both legacy (single observer): ``<base>_obs.{ext}``, and
+    multi-observer: ``<base>_obs_001.{ext}``, ``<base>_obs_002.{ext}``
+    (3-digit zero-padded suffix written by Fortran ``write(...,'(a,i3.3)')``).
+    Both FITS and HDF5 extensions are searched.
     """
-    # strip .fits / .fits.gz
-    base = fits_file
-    for ext in ('.fits.gz', '.fits'):
-        if base.endswith(ext):
-            base = base[:-len(ext)]
+    # strip the recognised output extensions
+    base = main_file
+    for ext in ('.fits.gz', '.hdf5', '.fits', '.h5'):
+        if base.lower().endswith(ext):
+            base = base[: -len(ext)]
             break
 
-    candidates = []
-    # multi-observer form: <base>_obs_NNN.fits.gz
-    candidates.extend(sorted(glob.glob(base + '_obs_???.fits.gz')))
-    candidates.extend(sorted(glob.glob(base + '_obs_???.fits')))
-    # single-observer form: <base>_obs.fits.gz (only if no NNN matches)
+    # multi-observer form: <base>_obs_NNN.<ext>
+    candidates = sorted(glob_lart(base + '_obs_???'))
+    # single-observer form: <base>_obs.<ext> (only if no NNN matches)
     if not candidates:
-        for cand in (base + '_obs.fits.gz', base + '_obs.fits'):
-            if os.path.exists(cand):
-                candidates.append(cand)
+        single = find_lart_file(base, suffix='_obs')
+        if single is not None:
+            candidates.append(single)
     return candidates
 
 
 def _read_peel_observation(fname: str) -> Optional[PeelObservation]:
-    """Read one peel-off FITS file. Returns None if the file is missing or
-    does not contain a 'Scattered' image extension."""
+    """Read one peel-off file (FITS or HDF5).  Returns None if the file
+    is missing or does not contain a ``Scattered`` section."""
     if not os.path.exists(fname):
         return None
-    with fits.open(fname) as hdul:
-        scatt_hdu = _find_hdu(hdul, 'Scattered')
-        if scatt_hdu is None:
-            return None
-        h = scatt_hdu.header
-        scatt = np.asarray(scatt_hdu.data)            # (nyim, nxim, nxfreq)
-        direc_hdu = _find_hdu(hdul, 'Direct')
-        direc = (np.asarray(direc_hdu.data)
-                 if direc_hdu is not None else np.zeros_like(scatt))
-        direc0_hdu = _find_hdu(hdul, 'Direct0')
-        direc0 = (np.asarray(direc0_hdu.data)
-                  if direc0_hdu is not None else None)
-        nyim, nxim, _ = scatt.shape
-        cdx = abs(float(h.get('CD2_2', 0.0)))
-        cdy = abs(float(h.get('CD3_3', cdx)))
-        sr_pix = cdx * cdy * (np.pi/180.0)**2
-        return PeelObservation(
-            file_name = fname,
-            alpha     = float(h.get('alpha', 0.0)),
-            beta      = float(h.get('beta', 0.0)),
-            gamma     = float(h.get('gamma', 0.0)),
-            distance  = float(h.get('DISTANCE', 1.0)),
-            dist_cm   = float(h.get('DIST_CM', 1.0)),
-            nphotons  = float(h.get('nphotons', 0.0)),
-            sr_pix    = sr_pix,
-            nxim      = nxim,
-            nyim      = nyim,
-            cube      = scatt + direc,
-            scatt     = scatt,
-            direc     = direc,
-            direc0    = direc0,
-            header    = dict(h),
-        )
+    lf = load_lart(fname)
+    scattered = lf.section('Scattered')
+    if scattered is None or scattered.data is None:
+        return None
+    scatt = np.asarray(scattered.data)               # (nyim, nxim, nxfreq)
+    direct = lf.section('Direct')
+    direc = (np.asarray(direct.data) if direct is not None and direct.data is not None
+             else np.zeros_like(scatt))
+    direct0 = lf.section('Direct0')
+    direc0 = (np.asarray(direct0.data)
+              if direct0 is not None and direct0.data is not None else None)
+    nyim, nxim, _ = scatt.shape
+    cdx = abs(float(scattered.attr('CD2_2', 0.0)))
+    cdy = abs(float(scattered.attr('CD3_3', cdx)))
+    sr_pix = cdx * cdy * (np.pi/180.0)**2
+    # Build a header-ish dict for backwards-compat callers that use
+    # ``po.header['KEY']``.  Provide case-variant aliases for the few
+    # mixed-case keywords that LaRT writes (alpha/beta/gamma/nphotons).
+    hdr = dict(scattered.attrs)
+    for key in ('alpha', 'beta', 'gamma', 'nphotons'):
+        if key in hdr and key.upper() not in hdr:
+            hdr[key.upper()] = hdr[key]
+    return PeelObservation(
+        file_name = fname,
+        alpha     = float(scattered.attr('alpha', 0.0)),
+        beta      = float(scattered.attr('beta', 0.0)),
+        gamma     = float(scattered.attr('gamma', 0.0)),
+        distance  = float(scattered.attr('DISTANCE', 1.0)),
+        dist_cm   = float(scattered.attr('DIST_CM', 1.0)),
+        nphotons  = float(scattered.attr('nphotons', 0.0)),
+        sr_pix    = sr_pix,
+        nxim      = nxim,
+        nyim      = nyim,
+        cube      = scatt + direc,
+        scatt     = scatt,
+        direc     = direc,
+        direc0    = direc0,
+        header    = hdr,
+    )
 
 
 def read_lart(name: str) -> LaRTOutput:
-    """Read a LaRT output FITS file.
+    """Read a LaRT output file (FITS or HDF5).
 
     `name` may be:
-      - a *.in input file ('t1tau2.in')
-      - the stem of one     ('t1tau2')      — '.in' is added automatically
-      - the FITS file path  ('t1tau2.fits.gz')
+      - a *.in input file       ('t1tau2.in')
+      - the stem of one         ('t1tau2')        — '.in' is added automatically
+      - a LaRT output file path ('t1tau2.fits.gz' or 't1tau2.h5')
 
-    Peel-off files matching `<base>_obs*.fits.gz` are auto-loaded into
+    Peel-off files matching ``<base>_obs*.<ext>`` (with `.<ext>` in
+    `.h5`, `.hdf5`, `.fits.gz`, `.fits`) are auto-loaded into
     ``LaRTOutput.peelings`` when present.
     """
     infile = resolve_input_file(name)
-    if infile.endswith('.fits') or infile.endswith('.fits.gz'):
-        # caller passed the FITS file directly
+    lower  = infile.lower()
+    if lower.endswith(('.fits', '.fits.gz', '.h5', '.hdf5')):
+        # caller passed the output file directly
         fits_file = infile
         infile    = ''                              # no namelist available
         params    = {}
@@ -1761,70 +1780,74 @@ def read_lart(name: str) -> LaRTOutput:
             params = {}
     if not os.path.exists(fits_file):
         raise FileNotFoundError(
-            f"Output FITS file not found: {fits_file}\n"
+            f"Output file not found: {fits_file}\n"
             f"  (input was {infile})"
         )
 
-    with fits.open(fits_file) as hdul:
-        spec = _find_hdu(hdul, 'Spectrum')
-        if spec is None:
-            raise RuntimeError(
-                f"No 'Spectrum' HDU found in {fits_file}.  "
-                f"Available HDUs: "
-                f"{[h.header.get('EXTNAME','') for h in hdul]}"
-            )
+    lf = load_lart(fits_file)
+    spec = lf.section('Spectrum')
+    if spec is None:
+        raise RuntimeError(
+            f"No 'Spectrum' section found in {fits_file}.  "
+            f"Available sections: {[s.name for s in lf.sections]}"
+        )
 
-        cols  = spec.data.columns.names
-        get   = lambda name: (np.asarray(spec.data[name])
-                              if name in cols else None)
-        xfreq      = get('Xfreq')
-        velocity   = get('velocity')
-        wavelength = get('wavelength')
-        Jout       = get('Jout')
-        Jin        = get('Jin')
-        Jabs       = get('Jabs')
-        Jabs2      = get('Jabs2')
-        spec_hdr   = dict(spec.header)
+    xfreq      = spec.col('Xfreq')
+    velocity   = spec.col('velocity')
+    wavelength = spec.col('wavelength')
+    Jout       = spec.col('Jout')
+    Jin        = spec.col('Jin')
+    Jabs       = spec.col('Jabs')
+    Jabs2      = spec.col('Jabs2')
+    # Backwards-compat header dict: include both original-case attrs and
+    # uppercase aliases so legacy callers using either style still work.
+    spec_hdr = dict(spec.attrs)
+    for k in list(spec_hdr):
+        if k.upper() not in spec_hdr:
+            spec_hdr[k.upper()] = spec_hdr[k]
 
-        # Jmu (optional)
-        jmu_hdu  = _find_hdu(hdul, 'Jmu')
-        mu_arr      = None
-        mu_edges    = None
-        Jmu_arr     = None
-        nmu         = None
-        mu_min      = None
-        dmu         = None
-        jmu_hdr_d   = {}
+    # Jmu (optional)
+    jmu_sec = lf.section('Jmu')
+    mu_arr      = None
+    mu_edges    = None
+    Jmu_arr     = None
+    nmu         = None
+    mu_min      = None
+    dmu         = None
+    jmu_hdr_d   = {}
 
-        if jmu_hdu is not None:
-            jmu_hdr_d = dict(jmu_hdu.header)
-            data      = np.asarray(jmu_hdu.data)
-            # Fortran-order (nxfreq, nmu) is read by astropy as numpy
-            # shape (nmu, nxfreq).
-            nmu = jmu_hdu.header.get('nmu', None)
-            nmu = int(nmu) if nmu is not None else None
-            nxfreq = len(xfreq) if xfreq is not None else None
-            if nmu is None:
-                # try to infer from shape + nxfreq
-                if nxfreq is not None and data.shape[0] == nxfreq:
-                    nmu = data.shape[1]
-                elif nxfreq is not None and data.shape[1] == nxfreq:
-                    nmu = data.shape[0]
-                else:
-                    nmu = min(data.shape)
-            if data.shape == (nmu, data.size // nmu):
-                Jmu_arr = data
-            elif data.shape == (data.size // nmu, nmu):
-                Jmu_arr = data.T
+    if jmu_sec is not None and jmu_sec.data is not None:
+        jmu_hdr_d = dict(jmu_sec.attrs)
+        for k in list(jmu_hdr_d):
+            if k.upper() not in jmu_hdr_d:
+                jmu_hdr_d[k.upper()] = jmu_hdr_d[k]
+        data = np.asarray(jmu_sec.data)
+        # Fortran-order (nxfreq, nmu) is read by astropy as numpy shape
+        # (nmu, nxfreq).  HDF5 follows the same convention thanks to the
+        # writer-side dimension ordering in iofile_mod.
+        nmu = jmu_sec.attr('nmu', None)
+        nmu = int(nmu) if nmu is not None else None
+        nxfreq = len(xfreq) if xfreq is not None else None
+        if nmu is None:
+            if nxfreq is not None and data.shape[0] == nxfreq:
+                nmu = data.shape[1]
+            elif nxfreq is not None and data.shape[1] == nxfreq:
+                nmu = data.shape[0]
             else:
-                raise RuntimeError(
-                    f"Unexpected Jmu shape {data.shape}; nmu={nmu}, "
-                    f"nxfreq={nxfreq}."
-                )
-            mu_min  = float(jmu_hdu.header.get('mu_min', -1.0))
-            dmu     = float(jmu_hdu.header.get('dmu', 2.0/nmu))
-            mu_arr  = mu_min + (np.arange(nmu) + 0.5) * dmu
-            mu_edges = mu_min + np.arange(nmu + 1) * dmu
+                nmu = min(data.shape)
+        if data.shape == (nmu, data.size // nmu):
+            Jmu_arr = data
+        elif data.shape == (data.size // nmu, nmu):
+            Jmu_arr = data.T
+        else:
+            raise RuntimeError(
+                f"Unexpected Jmu shape {data.shape}; nmu={nmu}, "
+                f"nxfreq={nxfreq}."
+            )
+        mu_min  = float(jmu_sec.attr('mu_min', -1.0))
+        dmu     = float(jmu_sec.attr('dmu', 2.0/nmu))
+        mu_arr  = mu_min + (np.arange(nmu) + 0.5) * dmu
+        mu_edges = mu_min + np.arange(nmu + 1) * dmu
 
     # Peel-off observers (optional)
     peelings: List[PeelObservation] = []

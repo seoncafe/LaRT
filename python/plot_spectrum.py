@@ -3,9 +3,9 @@ import matplotlib.pyplot as plt
 import matplotlib as mpl
 from   mpl_toolkits.axes_grid1.inset_locator import inset_axes
 import numpy as np
-from   astropy.io import fits
 import glob
 from   radial_profile import radial_profile
+from   lart_io       import load_lart, find_lart_file, glob_lart
 import os
 
 np.seterr(divide='ignore', invalid='ignore')
@@ -38,49 +38,43 @@ def find_minmax(array, nbins=500, frac=0.10, log_scale=True):
    return xmin, xmax
 
 def plot_spectrum(fname, maxI=None, maxI0=None, display=True):
-   hdu         = fits.open(fname+'.fits.gz')
-   hdr         = hdu[1].header
-   wavelength  = hdu[1].data['WAVELENGTH']
-   #hdu.close()
-   
-   try:
-      hdu_obs = fits.open(fname+'_obs.fits.gz')
-      hdr1    = hdu_obs[0].header
-      dxim    = hdr1['CD1_1'] * np.pi/180.0
-      dyim    = hdr1['CD2_2'] * np.pi/180.0
-      try:
-         flux_factor = hdr1['FLUXFAC']
-      except:
-         flux_factor = 1.0
+   # Load the spectrum (Spectrum BinTable HDU in FITS, /Spectrum group in HDF5).
+   main_path = find_lart_file(fname)
+   if main_path is None:
+      raise FileNotFoundError(f'No LaRT output found for {fname!r}')
+   main = load_lart(main_path)
+   spec = main.section('Spectrum')
+   wavelength = spec.col('wavelength')
 
-      scatt   = hdu_obs[0].data * flux_factor
-      direc   = hdu_obs[1].data
-      #-- integrate over frequency or wavelength.
-      Spec_scatt  = np.sum(scatt,  axis=(0,1)) * (dxim * dyim)
-      Spec_direc  = np.sum(direc,  axis=(0,1)) * (dxim * dyim)
+   obs_path = find_lart_file(fname, suffix='_obs')
+   if obs_path is not None:
+      obs = load_lart(obs_path)
+      scattered = obs.section('Scattered')
+      direct    = obs.section('Direct')
+      dxim = float(scattered.attr('CD1_1', 1.0)) * np.pi/180.0
+      dyim = float(scattered.attr('CD2_2', 1.0)) * np.pi/180.0
+      flux_factor = float(scattered.attr('FLUXFAC', 1.0))
+
+      scatt = scattered.data * flux_factor
+      direc = direct.data
+      Spec_scatt  = np.sum(scatt, axis=(0,1)) * (dxim * dyim)
+      Spec_direc  = np.sum(direc, axis=(0,1)) * (dxim * dyim)
       Spec_tot    = Spec_scatt + Spec_direc
-      try:
-         direc0  = hdu_obs[2].data
-         Spec_direc0 = np.sum(direc0, axis=(0,1)) * (dxim * dyim)
+      direct0 = obs.section('Direct0')
+      if direct0 is not None:
+         Spec_direc0 = np.sum(direct0.data, axis=(0,1)) * (dxim * dyim)
          draw_direc0 = True
-      except:
+      else:
          draw_direc0 = False
-         #try:
-         #   Spec_direc0  = hdu[1].data.Jin
-         #   draw_direc0 = True
-         #except:
-         #   draw_direc0 = False
-      hdu_obs.close()
       peeloff = True
-   except:
-      #-- integrate over frequency or wavelength.
-      Spec_tot    = hdu[1].data.Jout
-      try:
-         Spec_direc0  = hdu[1].data.Jin
+   else:
+      Spec_tot = spec.col('Jout')
+      jin = spec.col('Jin')
+      if jin is not None:
+         Spec_direc0 = jin
          draw_direc0 = True
-      except:
+      else:
          draw_direc0 = False
-      hdu.close()
       peeloff = False
 
    #-- plot images
@@ -147,9 +141,17 @@ def plot_spectrum(fname, maxI=None, maxI0=None, display=True):
 #-------------------------
 #display = False
 display = True
-flist   = glob.glob('*_obs.fits.gz')
+
+def _strip_ext(path):
+   lower = path.lower()
+   for ext in ('.fits.gz', '.hdf5', '.fits', '.h5'):
+      if lower.endswith(ext):
+         return path[: -len(ext)]
+   return path
+
+flist = glob_lart('*', suffix='_obs')
 if len(flist) == 0:
-   flist   = glob.glob('*.fits.gz')
+   flist   = glob_lart('*')
    peeloff = False
 else:
    peeloff = True
@@ -157,10 +159,8 @@ flist.sort()
 nf    = len(flist)
 
 for i in np.arange(nf):
-   if peeloff == True:
-      fname = flist[i][0:-12]
-   else:
-      fname = flist[i][0:-8]
+   stem = _strip_ext(flist[i])
+   fname = stem[:-4] if peeloff else stem   # strip '_obs' suffix
    print('plotting %s...' % fname)
    plot_spectrum(fname, display=display)
 
@@ -168,10 +168,8 @@ for i in np.arange(nf):
 #--- combine output pdf files.
 pdf_list = ''
 for i in np.arange(nf):
-   if peeloff == True:
-      fname = flist[i][0:-12]
-   else:
-      fname = flist[i][0:-8]
+   stem = _strip_ext(flist[i])
+   fname = stem[:-4] if peeloff else stem
    pdf_list = pdf_list+' '+fname+'_spectrum.pdf'
 
 if nf > 1:
@@ -179,5 +177,7 @@ if nf > 1:
    os.system("gs -q -dNOPAUSE -dBATCH -sDEVICE=pdfwrite -sOutputFile=%s %s" % (all_pdf, pdf_list))
    #-- remove the individual pdf files.
    for i in np.arange(nf):
-      pdf_file = flist[i][0:-12]+'_spectrum.pdf'
+      stem = _strip_ext(flist[i])
+      fname = stem[:-4] if peeloff else stem
+      pdf_file = fname+'_spectrum.pdf'
       os.remove(pdf_file)

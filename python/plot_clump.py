@@ -14,51 +14,66 @@ import os
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
-from astropy.io import fits
+from lart_io import load_lart, find_lart_file
 
 # -----------------------------------------------------------------------
 # Helpers
 # -----------------------------------------------------------------------
 
 def load_spectrum(fname):
-    """Return (velocity, Jout, Jin) arrays from a LaRT FITS spectrum file."""
-    with fits.open(fname) as hdul:
-        tbl = hdul[1].data
-        vel  = tbl['velocity']
-        Jout = tbl['Jout']
-        Jin  = tbl.field('Jin') if 'Jin' in tbl.names else None
+    """Return (velocity, Jout, Jin) arrays from a LaRT spectrum file
+    (FITS .fits.gz or HDF5 .h5)."""
+    lf = load_lart(fname)
+    spec = lf.section('Spectrum')
+    vel  = spec.col('velocity')
+    Jout = spec.col('Jout')
+    Jin  = spec.col('Jin')
     return vel, Jout, Jin
 
 
 def load_clumps(fname):
-    """Return (x, y, z, vx, vy, vz) arrays from a *_clumps.fits.gz file."""
-    with fits.open(fname) as hdul:
-        tbl = hdul[1].data
-        x  = tbl['X'];   y  = tbl['Y'];   z  = tbl['Z']
-        vx = tbl['VX'];  vy = tbl['VY'];  vz = tbl['VZ']
-    return x, y, z, vx, vy, vz
+    """Return (x, y, z, vx, vy, vz) arrays from a *_clumps.* file."""
+    lf = load_lart(fname)
+    # The clumps file has a single table section (named 'Clumps', or just
+    # 'section_001' if the writer didn't set EXTNAME — fall back to the
+    # first section in either case).
+    sec = lf.section('Clumps') or (lf.sections[0] if lf.sections else None)
+    if sec is None:
+        raise ValueError(f'No section found in {fname!r}')
+    return sec.col('X'), sec.col('Y'), sec.col('Z'), \
+           sec.col('VX'), sec.col('VY'), sec.col('VZ')
 
 
 def load_peeloff(fname):
-    """Return peel-off image cube (nyim, nxim, nxfreq) from _obs.fits.gz."""
-    with fits.open(fname) as hdul:
-        return hdul[0].data   # shape: (nyim, nxim, nxfreq) or (nyim, nxim)
+    """Return peel-off image cube (nyim, nxim, nxfreq) from a peel-off file."""
+    lf = load_lart(fname)
+    sec = lf.section('Scattered') or (lf.sections[0] if lf.sections else None)
+    if sec is None or sec.data is None:
+        raise ValueError(f'No scattered cube found in {fname!r}')
+    return sec.data   # shape: (nyim, nxim, nxfreq) or (nyim, nxim)
+
+
+def load_clump_header(fname):
+    """Return attrs dict (case-insensitive lookup) of the clumps file."""
+    lf = load_lart(fname)
+    sec = lf.section('Clumps') or (lf.sections[0] if lf.sections else None)
+    return sec.attrs if sec is not None else {}
 
 
 # -----------------------------------------------------------------------
 # Per-run plots
 # -----------------------------------------------------------------------
 
-def plot_run(base, save_pdf=False, plot_Jin=False):
-    spec_file   = base + '.fits.gz'
-    clump_file  = base + '_clumps.fits.gz'
-    obs_file    = base + '_obs.fits.gz'
+def plot_run(base, save_pdf=False):
+    spec_file  = find_lart_file(base)
+    clump_file = find_lart_file(base, suffix='_clumps')
+    obs_file   = find_lart_file(base, suffix='_obs')
 
-    if not os.path.exists(spec_file):
-        print(f'  [skip] {spec_file} not found')
+    if spec_file is None:
+        print(f'  [skip] no spectrum file found for {base!r}')
         return
 
-    fig, axes = plt.subplots(1, 3 if os.path.exists(clump_file) else 2,
+    fig, axes = plt.subplots(1, 3 if clump_file is not None else 2,
                              figsize=(14, 4))
     fig.suptitle(os.path.basename(base), fontsize=12)
 
@@ -66,7 +81,7 @@ def plot_run(base, save_pdf=False, plot_Jin=False):
     ax = axes[0]
     vel, Jout, Jin = load_spectrum(spec_file)
     ax.plot(vel, Jout, lw=1.5, label='Jout (escaped)')
-    if plot_Jin==True and Jin is not None:
+    if Jin is not None:
         ax.plot(vel, Jin,  lw=1.0, ls='--', label='Jin (total interior)')
     ax.set_xlabel('Velocity  [km/s]')
     ax.set_ylabel('J  [arbitrary]')
@@ -75,7 +90,7 @@ def plot_run(base, save_pdf=False, plot_Jin=False):
 
     # --- Peel-off image (collapsed along frequency) ---
     ax = axes[1]
-    if os.path.exists(obs_file):
+    if obs_file is not None:
         cube = load_peeloff(obs_file)
         if cube.ndim == 3:
             #im = cube.sum(axis=0)   # collapse frequency axis
@@ -95,16 +110,17 @@ def plot_run(base, save_pdf=False, plot_Jin=False):
     ax.set_xlabel('x pixel');  ax.set_ylabel('y pixel')
 
     # --- Clump positions (z-slice |z| < 0.1) ---
-    if os.path.exists(clump_file) and len(axes) > 2:
+    if clump_file is not None and len(axes) > 2:
         ax = axes[2]
         x, y, z, vx, vy, vz = load_clumps(clump_file)
-        with fits.open(clump_file) as hdul:
-            hdr    = hdul[1].header
-            R      = hdr.get('SPHERE_R', 1.0)
-            r_cl   = hdr.get('CL_RAD',   0.01)
-            n_cl   = hdr.get('N_CLUMPS', len(x))
-            f_vol  = hdr.get('F_VOL',    0.0)
-            n_cov  = hdr.get('N_COV',    0.0)
+        # Case-insensitive header access (works for both FITS and HDF5).
+        lf_cl = load_lart(clump_file)
+        cl_sec = lf_cl.section('Clumps') or (lf_cl.sections[0] if lf_cl.sections else None)
+        R      = float(cl_sec.attr('SPHERE_R', 1.0))
+        r_cl   = float(cl_sec.attr('CL_RAD',   0.01))
+        n_cl   = int  (cl_sec.attr('N_CLUMPS', len(x)))
+        f_vol  = float(cl_sec.attr('F_VOL',    0.0))
+        n_cov  = float(cl_sec.attr('N_COV',    0.0))
         mask = np.abs(z) < 0.1
         ax.scatter(x[mask], y[mask], s=max(1, int(300 * r_cl)), alpha=0.5)
         ax.set_xlim(-R * 1.05, R * 1.05)
@@ -130,8 +146,8 @@ def plot_spectra_comparison(bases, title='Clumpy sphere spectra', save_pdf=False
     fig, ax = plt.subplots(figsize=(8, 5))
     ax.set_title(title)
     for base in bases:
-        fname = base + '.fits.gz'
-        if not os.path.exists(fname):
+        fname = find_lart_file(base)
+        if fname is None:
             continue
         vel, Jout, _ = load_spectrum(fname)
         ax.plot(vel, Jout, lw=1.5, label=os.path.basename(base))

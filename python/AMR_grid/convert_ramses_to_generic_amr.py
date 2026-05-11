@@ -651,9 +651,78 @@ def write_generic_fits(
     fits.HDUList([primary, table]).writeto(filename, overwrite=True)
 
 
+def write_generic_hdf5(
+    filename: Path,
+    x: np.ndarray,
+    y: np.ndarray,
+    z: np.ndarray,
+    level: np.ndarray,
+    nH: np.ndarray,
+    T: np.ndarray,
+    vx: np.ndarray,
+    vy: np.ndarray,
+    vz: np.ndarray,
+    boxlen: float,
+    unit_l_cgs: float,
+    bitpix: int = 0,
+) -> None:
+    """Mirror of `write_generic_fits` for HDF5 output.
+
+    Schema matches what `read_ramses_amr.f90:generic_amr_read_fits` expects
+    when LaRT consumes the file: one group at the file root containing one
+    1-D dataset per BinTable column (x, y, z, level, gasDen, T, vx, vy, vz),
+    in creation order, plus group attributes BOXLEN, ORIGIN[XYZ], NLEAF,
+    UNITLCGS, NAXIS2 (FITS-compat alias for NLEAF).
+    """
+    try:
+        import h5py
+    except ImportError as e:
+        raise ImportError("Writing HDF5 output requires h5py.") from e
+
+    float_cols = [
+        ("x", x), ("y", y), ("z", z),
+        ("level", level),
+        ("gasDen", nH), ("T", T),
+        ("vx", vx), ("vy", vy), ("vz", vz),
+    ]
+
+    if filename.exists():
+        filename.unlink()
+    with h5py.File(filename, "w", libver="latest", track_order=True) as f:
+        g = f.create_group("AMRGRID", track_order=True)
+        for name, arr in float_cols:
+            if name == "level":
+                col_arr = arr.astype(np.int32)
+            else:
+                bp = _auto_bitpix_col(arr) if bitpix == 0 else bitpix
+                col_arr = arr.astype(np.float32 if bp == -32 else np.float64)
+            kwargs = {}
+            if col_arr.size > 4096:
+                kwargs["chunks"] = (min(col_arr.size, 4096),)
+                kwargs["compression"] = "gzip"
+                kwargs["compression_opts"] = 4
+            g.create_dataset(name, data=col_arr, **kwargs)
+
+        g.attrs["EXTNAME"]  = "AMRGRID"
+        g.attrs["CREATOR"]  = "convert_ramses_to_generic_amr.py"
+        g.attrs["DATE"]     = datetime.now().strftime("%Y-%m-%dT%H:%M")
+        g.attrs["BOXLEN"]   = float(boxlen)
+        g.attrs["UNITLCGS"] = float(unit_l_cgs)
+        g.attrs["ORIGINX"]  = 0.0
+        g.attrs["ORIGINY"]  = 0.0
+        g.attrs["ORIGINZ"]  = 0.0
+        g.attrs["NLEAF"]    = np.int32(len(x))
+        g.attrs["NAXIS2"]   = np.int32(len(x))
+
+
 def output_is_fits(filename: Path) -> bool:
     name = filename.name.lower()
     return name.endswith(".fits") or name.endswith(".fits.gz")
+
+
+def output_is_hdf5(filename: Path) -> bool:
+    name = filename.name.lower()
+    return name.endswith(".h5") or name.endswith(".hdf5")
 
 
 def suggest_lart_distance(output_unit: str) -> str:
@@ -712,7 +781,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "-o", "--output",
         required=True,
-        help="Output generic AMR file (.dat, .fits, or .fits.gz). Use .fits.gz for compressed FITS.",
+        help="Output generic AMR file (.h5/.hdf5, .fits/.fits.gz, or .dat). HDF5 is the default-recommended LaRT v2 container.",
     )
     parser.add_argument(
         "--output-unit",
@@ -821,7 +890,13 @@ def main() -> None:
     boxlen_out, _ = convert_positions_unit(np.array([info.boxlen_cm]), args.output_unit)
     boxlen_out = float(boxlen_out[0])
 
-    if output_is_fits(output):
+    if output_is_hdf5(output):
+        write_generic_hdf5(
+            output, x_out, y_out, z_out, data["level"], data["nH"], data["T"],
+            data["vx"], data["vy"], data["vz"], boxlen_out, info.unit_l,
+            bitpix=args.bitpix,
+        )
+    elif output_is_fits(output):
         write_generic_fits(
             output, x_out, y_out, z_out, data["level"], data["nH"], data["T"],
             data["vx"], data["vy"], data["vz"], boxlen_out, info.unit_l,

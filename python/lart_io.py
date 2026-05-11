@@ -51,6 +51,47 @@ import numpy as np
 _HDF5_EXTS = ('.h5', '.hdf5')
 _FITS_EXTS = ('.fits', '.fits.gz', '.fit')
 
+# Order matters: HDF5 first because the LaRT v2 default is now HDF5.
+_LART_EXTS = ('.h5', '.hdf5', '.fits.gz', '.fits')
+
+
+def find_lart_file(stem: str, suffix: str = '') -> Optional[str]:
+    """Return the first existing LaRT output file for ``<stem><suffix><ext>``.
+
+    ``stem`` may be either a bare base name (no extension) or a path that
+    already carries a `.h5` / `.hdf5` / `.fits` / `.fits.gz` extension --
+    in the latter case the extension is stripped first.  ``suffix`` is an
+    optional insertion (e.g. ``'_obs'``, ``'_tau'``) placed between stem
+    and extension.  Returns ``None`` if no matching file exists.
+    """
+    import os
+    base = stem
+    lower = base.lower()
+    for ext in _LART_EXTS:
+        if lower.endswith(ext):
+            base = base[: -len(ext)]
+            break
+    for ext in _LART_EXTS:
+        candidate = base + suffix + ext
+        if os.path.exists(candidate):
+            return candidate
+    return None
+
+
+def glob_lart(pattern_stem: str, suffix: str = '') -> List[str]:
+    """Glob LaRT output files whose stems match ``pattern_stem``.
+
+    ``pattern_stem`` is a glob pattern *without* the extension, e.g.
+    ``'*'``, ``'foo*'``.  Returns a sorted list of matching files across
+    all recognised LaRT extensions.  Use ``suffix='_obs'`` etc. to match
+    peel-off / sight-line derived files.
+    """
+    import glob
+    out = []
+    for ext in _LART_EXTS:
+        out.extend(glob.glob(pattern_stem + suffix + ext))
+    return sorted(set(out))
+
 
 def detect_format(path: str) -> str:
     """Return 'fits' or 'hdf5' based on the filename extension."""
@@ -95,6 +136,25 @@ class Section:
     def is_table(self) -> bool:
         return self.data is None and len(self.columns) > 0
 
+    def col(self, name: str, default: Any = None) -> Any:
+        """Case-insensitive column lookup.  Returns ``default`` if absent.
+
+        Handy when reading files written in either FITS (uppercase
+        column names, e.g. ``'WAVELENGTH'``) or HDF5 (lowercase,
+        ``'wavelength'``) without having to special-case the caller.
+        """
+        for k, v in self.columns.items():
+            if k.lower() == name.lower():
+                return v
+        return default
+
+    def attr(self, name: str, default: Any = None) -> Any:
+        """Case-insensitive attribute lookup."""
+        for k, v in self.attrs.items():
+            if k.lower() == name.lower():
+                return v
+        return default
+
 
 @dataclass
 class LartFile:
@@ -104,8 +164,10 @@ class LartFile:
     root_attrs: Dict[str, Any] = field(default_factory=dict)
 
     def section(self, name: str) -> Optional[Section]:
+        """Case-insensitive section lookup."""
+        target = name.lower()
         for s in self.sections:
-            if s.name == name:
+            if s.name.lower() == target:
                 return s
         return None
 

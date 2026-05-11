@@ -193,6 +193,7 @@ applying a custom ``refine()`` criterion::
     grid.refine(my_criterion, level_max=7)        # physics refinement on top
 """
 
+import os
 import numpy as np
 from datetime import datetime
 
@@ -200,6 +201,11 @@ try:
     from astropy.io import fits
 except ImportError:
     fits = None
+
+try:
+    import h5py
+except ImportError:
+    h5py = None
 
 
 # ---------------------------------------------------------------------------
@@ -1332,11 +1338,24 @@ class AMRGrid:
         return name.endswith('.fits') or name.endswith('.fits.gz')
 
     @staticmethod
+    def _is_hdf5_filename(filename):
+        name = str(filename).lower()
+        return name.endswith('.h5') or name.endswith('.hdf5')
+
+    @staticmethod
     def _require_fits():
         if fits is None:
             raise ImportError(
                 "FITS I/O requires astropy. Install astropy to read/write "
                 ".fits or .fits.gz AMR files."
+            )
+
+    @staticmethod
+    def _require_h5py():
+        if h5py is None:
+            raise ImportError(
+                "HDF5 I/O requires h5py. Install h5py to read/write "
+                ".h5 or .hdf5 AMR files."
             )
 
     def _leaf_table_array(self):
@@ -1401,6 +1420,101 @@ class AMRGrid:
             table.header[key] = (val, comment)
         fits.HDUList([primary, table]).writeto(filename, overwrite=True)
         print(f'Written {len(data)} leaf cells to {filename}')
+
+    # ------------------------------------------------------------------ #
+    # HDF5 I/O — mirrors the schema the Fortran `generic_amr_read_fits`
+    # routine in `read_ramses_amr.f90` expects: one group at the file root
+    # containing one 1-D dataset per BinTable column (x, y, z, level,
+    # dens, T, vx, vy, vz), plus group attributes BOXLEN, ORIGIN[XYZ],
+    # NLEAF (and NAXIS2 as a FITS-compat alias for NLEAF).  Creation order
+    # is tracked so columns are iterated in the order LaRT expects.
+    # ------------------------------------------------------------------ #
+
+    def _write_hdf5(self, filename, bitpix=0):
+        self._require_h5py()
+        data = self._leaf_table_array()
+        nleaf = len(data)
+
+        def _resolve_bp(col_data):
+            if col_data.dtype.kind != 'f':
+                return None
+            return self._auto_bitpix_col(col_data) if bitpix == 0 else bitpix
+
+        if os.path.exists(filename):
+            os.remove(filename)
+        with h5py.File(filename, 'w', libver='latest', track_order=True) as f:
+            g = f.create_group('AMR_GRID', track_order=True)
+
+            for name in data.dtype.names:
+                col_data = data[name]
+                bp = _resolve_bp(col_data)
+                if bp is None:
+                    arr = col_data.astype(np.int32)
+                elif bp == -32:
+                    arr = col_data.astype(np.float32)
+                else:
+                    arr = col_data.astype(np.float64)
+                # chunk + gzip for arrays large enough to benefit
+                kwargs = {}
+                if arr.size > 4096:
+                    kwargs['chunks'] = (min(arr.size, 4096),)
+                    kwargs['compression'] = 'gzip'
+                    kwargs['compression_opts'] = 4
+                g.create_dataset(name, data=arr, **kwargs)
+
+            g.attrs['EXTNAME'] = 'AMR_GRID'
+            g.attrs['CREATOR'] = 'AMR_grid.py'
+            g.attrs['DATE']    = datetime.now().strftime('%Y-%m-%dT%H:%M')
+            g.attrs['BOXLEN']  = float(self.boxlen)
+            g.attrs['ORIGINX'] = float(self.origin[0])
+            g.attrs['ORIGINY'] = float(self.origin[1])
+            g.attrs['ORIGINZ'] = float(self.origin[2])
+            g.attrs['NLEAF']   = np.int32(nleaf)
+            # FITS-compat aliases so Fortran io_get_keyword('NAXIS2', ...)
+            # finds the row count when reading this file.
+            g.attrs['NAXIS2']  = np.int32(nleaf)
+            for key, (val, _comment) in self.metadata.items():
+                g.attrs[key] = val
+        print(f'Written {nleaf} leaf cells to {filename}')
+
+    @classmethod
+    def _read_hdf5(cls, filename):
+        cls._require_h5py()
+        with h5py.File(filename, 'r') as f:
+            # First group at root is the leaf table.
+            first_group = None
+            for k in f.keys():
+                if isinstance(f[k], h5py.Group):
+                    first_group = f[k]
+                    break
+            if first_group is None:
+                raise ValueError(f'No HDF5 group with column datasets found in {filename}')
+
+            boxlen = float(first_group.attrs['BOXLEN'])
+            h = boxlen * 0.5
+            origin = (
+                float(first_group.attrs.get('ORIGINX', -h)),
+                float(first_group.attrs.get('ORIGINY', -h)),
+                float(first_group.attrs.get('ORIGINZ', -h)),
+            )
+
+            cols = list(first_group.keys())
+            dens_key = ('dens' if 'dens' in cols
+                        else 'gasDen' if 'gasDen' in cols
+                        else 'nH')
+            data = np.column_stack([
+                np.asarray(first_group['x'][:], dtype=float),
+                np.asarray(first_group['y'][:], dtype=float),
+                np.asarray(first_group['z'][:], dtype=float),
+                np.asarray(first_group['level'][:], dtype=int),
+                np.asarray(first_group[dens_key][:], dtype=float),
+                np.asarray(first_group['T'][:], dtype=float),
+                np.asarray(first_group['vx'][:], dtype=float),
+                np.asarray(first_group['vy'][:], dtype=float),
+                np.asarray(first_group['vz'][:], dtype=float),
+            ])
+
+        return cls._build_from_rows(boxlen, data, origin=origin)
 
     @classmethod
     def _read_fits(cls, filename):
@@ -1475,18 +1589,26 @@ class AMRGrid:
         """
         Write the AMR grid to a LaRT generic file.
 
-        Text output is used by default. If ``filename`` ends with ``.fits``
-        or ``.fits.gz``, the grid is written as a FITS binary table.
+        Output format is chosen from the filename extension:
+
+        * ``.h5`` / ``.hdf5``  -- HDF5 (default; matches the LaRT v2 default
+          ``par%file_format = 'hdf5'``).
+        * ``.fits`` / ``.fits.gz`` -- FITS binary table.
+        * other extensions (``.dat``, ``.txt``, no extension) -- plain text
+          (the legacy generic-AMR format).
 
         Parameters
         ----------
         filename : str
             Output file path.
         bitpix : int, optional
-            FITS column data type: 0 = auto-detect per column (default),
+            Column data type: 0 = auto-detect per column (default),
             -32 = force float32, -64 = force float64.
             Ignored for plain-text output.
         """
+        if self._is_hdf5_filename(filename):
+            self._write_hdf5(filename, bitpix=bitpix)
+            return
         if self._is_fits_filename(filename):
             self._write_fits(filename, bitpix=bitpix)
             return
@@ -1523,6 +1645,8 @@ class AMRGrid:
         filename : str
             Path to the AMR data file.
         """
+        if cls._is_hdf5_filename(filename):
+            return cls._read_hdf5(filename)
         if cls._is_fits_filename(filename):
             return cls._read_fits(filename)
 

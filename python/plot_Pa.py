@@ -3,11 +3,11 @@ import matplotlib.pyplot as plt
 import numpy as np
 import copy
 import matplotlib as mpl
-from   astropy.io import fits
 from   matplotlib.ticker import AutoMinorLocator, MultipleLocator
 from   mpl_toolkits.axes_grid1.inset_locator import inset_axes
 from   scipy.ndimage  import gaussian_filter
 from   radial_profile import radial_profile
+from   lart_io        import load_lart, find_lart_file, glob_lart
 import glob
 import os
 
@@ -50,18 +50,32 @@ def plot_Pa(model_type, gauss_sigma=1.0, frac=0.05, display=True, Lum=5e39):
    fname = model_type
 
    #--- Read P-alpha
-   #--- open FITS files and read data.
-   hdu   = fits.open(dir+fname+'.fits.gz')
-   xfreq = hdu[1].data['Xfreq'].squeeze()
-   Pa    = hdu[2].data
-   zmax  = hdu[1].header['ZMAX']
-   rmax  = zmax
-   hdu.close()
+   main_path = find_lart_file(dir+fname)
+   if main_path is None:
+      raise FileNotFoundError(f'No LaRT output found for {dir+fname!r}')
+   main = load_lart(main_path)
+   spec = main.section('Spectrum')
+   xfreq = np.asarray(spec.col('Xfreq')).squeeze()
+   #--- Pa is the next section after Spectrum.  In FITS this was HDU 2 (an
+   #    image extension); in HDF5 it shows up as the second group at root
+   #    (typically /Pa_2D or /Pa_3D depending on geometry_JPa).
+   pa_sec = None
+   for s in main.sections:
+      if s.name.lower().startswith('pa'):
+         pa_sec = s
+         break
+   if pa_sec is None or pa_sec.data is None:
+      raise ValueError(f'No P-alpha image found in {main_path!r}')
+   Pa = pa_sec.data
+   zmax = float(spec.attr('ZMAX', 1.0))
+   rmax = zmax
 
-   hdu_obs       = fits.open(dir+fname+'_obs.fits.gz')
-   hdr           = hdu_obs[0].header
-   distance_unit = hdr['DIST_CM']
-   hdu_obs.close()
+   obs_path = find_lart_file(dir+fname, suffix='_obs')
+   if obs_path is not None:
+      obs = load_lart(obs_path)
+      distance_unit = float(obs.section('Scattered').attr('DIST_CM', 1.0))
+   else:
+      distance_unit = 1.0
 
    nz, nr = Pa.shape
    if (nr//2)*2 == nr:
@@ -133,19 +147,26 @@ def plot_Pa(model_type, gauss_sigma=1.0, frac=0.05, display=True, Lum=5e39):
 #display = False
 display = True
 
-flist = glob.glob('*_obs.fits.gz')
+def _strip_ext(path):
+   lower = path.lower()
+   for ext in ('.fits.gz', '.hdf5', '.fits', '.h5'):
+      if lower.endswith(ext):
+         return path[: -len(ext)]
+   return path
+
+flist = glob_lart('*', suffix='_obs')
 flist.sort()
 nf    = len(flist)
 
 for i in np.arange(nf):
-    fname = flist[i][0:-12]
+    fname = _strip_ext(flist[i])[:-4]   # strip '_obs'
     plot_Pa(fname, display=display)
 
 #----------------------------------------------
 #--- combine output pdf files.
 pdf_list = ''
 for i in np.arange(nf):
-   fname    = flist[i][0:-12]
+   fname    = _strip_ext(flist[i])[:-4]
    pdf_list = pdf_list+' '+fname+'_Pa.pdf'
 
 if nf > 1:
@@ -153,5 +174,6 @@ if nf > 1:
    os.system("gs -q -dNOPAUSE -dBATCH -sDEVICE=pdfwrite -sOutputFile=%s %s" % (all_pdf, pdf_list))
    #-- remove the individual pdf files.
    for i in np.arange(nf):
-      pdf_file = flist[i][0:-12]+'_Pa.pdf'
+      fname    = _strip_ext(flist[i])[:-4]
+      pdf_file = fname+'_Pa.pdf'
       os.remove(pdf_file)

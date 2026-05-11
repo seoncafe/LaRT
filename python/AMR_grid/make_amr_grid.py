@@ -374,8 +374,8 @@ def parse_args():
                         '(auto-enabled for uniform density)')
 
     # ── output ────────────────────────────────────────────────────────────────
-    p.add_argument('-o', '--output', default='amr_grid.dat',
-                   help='Output file name (default: amr_grid.dat)')
+    p.add_argument('-o', '--output', default='amr_grid.h5',
+                   help='Output file name (default: amr_grid.h5)')
     p.add_argument('--plot', action='store_true',
                    help='Save a z=0 slice plot (density + velocity)')
     p.add_argument('--plot_log', action='store_true',
@@ -428,7 +428,7 @@ def make_slice_plot(grid, args, outfile):
         fontsize=10
     )
     plt.tight_layout()
-    png = outfile.replace('.dat', '').replace('.fits.gz', '').replace('.fits', '')
+    png = outfile.replace('.dat', '').replace('.fits.gz', '').replace('.fits', '').replace('.hdf5', '').replace('.h5', '')
     png += '_slice.png'
     plt.savefig(png, dpi=120, bbox_inches='tight')
     plt.show()

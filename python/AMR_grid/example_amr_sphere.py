@@ -42,7 +42,7 @@ def make_sphere(boxlen=2.0,
                 dens_threshold=0.1,
                 vel_threshold=0.1,
                 nprobe=2,
-                outfile='sphere_amr.dat'):
+                outfile='sphere_amr.h5'):
     """
     Build and write an AMR sphere grid.
 
@@ -196,8 +196,8 @@ if __name__ == '__main__':
                         help='Velocity-gradient refinement threshold (default: 0.1)')
     parser.add_argument('--nprobe', type=int, default=2,
                         help='Probe count per axis for refinement criteria (default: 2)')
-    parser.add_argument('--outfile',  default='sphere_amr.dat',
-                        help='Output AMR data file (default: sphere_amr.dat)')
+    parser.add_argument('--outfile',  default='sphere_amr.h5',
+                        help='Output AMR data file (default: sphere_amr.h5)')
     parser.add_argument('--tau',      type=float, default=1e4,
                         help='taumax for the LaRT input file (default: 1e4)')
     parser.add_argument('--nphotons', type=float, default=1e6,

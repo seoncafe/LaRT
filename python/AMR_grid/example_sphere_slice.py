@@ -81,5 +81,5 @@ plt.close(fig)
 
 # ---- level 7  -----------------------------------------------------------
 grid = make_sphere_grid(r_scale=r_scale, level_min=3,level_max=7,refine_boundary=True)
-outfile = 'uniform_amr_sphere.fits.gz'
+outfile = 'uniform_amr_sphere.h5'
 grid.write(outfile)

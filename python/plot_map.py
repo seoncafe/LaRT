@@ -4,8 +4,8 @@ import matplotlib as mpl
 from   mpl_toolkits.axes_grid1.inset_locator import inset_axes
 import numpy as np
 from   scipy.ndimage import gaussian_filter
-from   astropy.io import fits
 import glob
+from   lart_io import load_lart, find_lart_file, glob_lart
 import os
 
 np.seterr(divide='ignore', invalid='ignore')
@@ -38,44 +38,49 @@ def find_minmax(array, nbins=500, frac=0.10, log_scale=True):
    return xmin, xmax
 
 def plot_intensity_map(fname, maxI=None, maxI0=None, display=False):
-   hdu         = fits.open(fname+'.fits.gz')
-   wavelength  = hdu[1].data['WAVELENGTH']
-   dwavelength = hdu[1].header['DWAVE']
-   zmax        = hdu[1].header['ZMAX']
+   main_path = find_lart_file(fname)
+   if main_path is None:
+      raise FileNotFoundError(f'No LaRT output found for {fname!r}')
+   main = load_lart(main_path)
+   spec = main.section('Spectrum')
+   wavelength  = spec.col('wavelength')
+   dwavelength = float(spec.attr('DWAVE', 1.0))
+   zmax        = float(spec.attr('ZMAX', 1.0))
    rmax        = zmax
-   hdu.close()
-   
-   hdu_obs = fits.open(fname+'_obs.fits.gz')
-   hdr     = hdu_obs[0].header
-   dxim    = hdr['CD1_1']
-   dyim    = hdr['CD2_2']
-   try:
-      intensity_unit = hdr['I_UNIT']
-   except:
-      intensity_unit = 0
-   if intensity_unit == 0: bin_unit = hdr['DXFREQ']
-   if intensity_unit == 1: bin_unit = hdr['DWAVE']
-   distance_unit = hdr['DIST_CM']
-   distance_in   = hdr['DISTANCE']
-   obsx          = hdr['OBSX']
-   obsy          = hdr['OBSY']
-   obsz          = hdr['OBSZ']
+
+   obs_path = find_lart_file(fname, suffix='_obs')
+   if obs_path is None:
+      raise FileNotFoundError(f'No peel-off (_obs) file found for {fname!r}')
+   obs       = load_lart(obs_path)
+   scattered = obs.section('Scattered')
+   direct    = obs.section('Direct')
+   dxim = float(scattered.attr('CD1_1', 1.0))
+   dyim = float(scattered.attr('CD2_2', 1.0))
+   intensity_unit = int(scattered.attr('I_UNIT', 0))
+   if intensity_unit == 0:
+      bin_unit = float(scattered.attr('DXFREQ', 1.0))
+   else:
+      bin_unit = float(scattered.attr('DWAVE', 1.0))
+   distance_unit = float(scattered.attr('DIST_CM', 1.0))
+   distance_in   = float(scattered.attr('DISTANCE', 0.0))
+   obsx = float(scattered.attr('OBSX', 0.0))
+   obsy = float(scattered.attr('OBSY', 0.0))
+   obsz = float(scattered.attr('OBSZ', 0.0))
 
    distance = np.sqrt(obsx**2 + obsy**2 + obsz**2)
- 
-   scatt   = hdu_obs[0].data
-   direc   = hdu_obs[1].data
+
+   scatt   = scattered.data
+   direc   = direct.data
    #-- integrate over frequency or wavelength.
    Iscatt  = np.sum(scatt,  axis=2) * bin_unit
    Idirec  = np.sum(direc,  axis=2) * bin_unit
    Itot    = Iscatt + Idirec
-   try:
-      direc0  = hdu_obs[2].data
-      Idirec0 = np.sum(direc0, axis=2) * bin_unit
+   direct0 = obs.section('Direct0')
+   if direct0 is not None:
+      Idirec0 = np.sum(direct0.data, axis=2) * bin_unit
       draw_direc0 = True
-   except:
+   else:
       draw_direc0 = False
-   hdu_obs.close()
 
    #-- Note that rmax == rp_max if only par%nxim and par%nyim are given in the input file.
    #             (in this case, par%dxim and par%dyim are automatically determined.)
@@ -193,12 +198,19 @@ def plot_intensity_map(fname, maxI=None, maxI0=None, display=False):
 #display = False
 display = True
 
-flist = glob.glob('*_obs.fits.gz')
+def _strip_ext(path):
+   lower = path.lower()
+   for ext in ('.fits.gz', '.hdf5', '.fits', '.h5'):
+      if lower.endswith(ext):
+         return path[: -len(ext)]
+   return path
+
+flist = glob_lart('*', suffix='_obs')
 flist.sort()
 nf    = len(flist)
 
 for i in np.arange(nf):
-    fname = flist[i][0:-12]
+    fname = _strip_ext(flist[i])[:-4]  # strip '_obs'
     print('\n>>> plotting %s...' % fname)
     try:
        plot_intensity_map(fname, display=display)
@@ -209,7 +221,7 @@ for i in np.arange(nf):
 #--- combine output pdf files.
 pdf_list = ''
 for i in np.arange(nf):
-   fname    = flist[i][0:-12]
+   fname    = _strip_ext(flist[i])[:-4]
    pdf_list = pdf_list+' '+fname+'_map.pdf'
 
 if nf > 1:
@@ -217,5 +229,6 @@ if nf > 1:
    os.system("gs -q -dNOPAUSE -dBATCH -sDEVICE=pdfwrite -sOutputFile=%s %s" % (all_pdf, pdf_list))
    #-- remove the individual pdf files.
    for i in np.arange(nf):
-      pdf_file = flist[i][0:-12]+'_map.pdf'
+      fname    = _strip_ext(flist[i])[:-4]
+      pdf_file = fname+'_map.pdf'
       os.remove(pdf_file)

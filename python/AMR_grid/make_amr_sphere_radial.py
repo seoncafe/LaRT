@@ -272,6 +272,23 @@ def print_shell_table(radii, level_min, level_max):
 
 
 # ---------------------------------------------------------------------------
+# Filename helpers
+# ---------------------------------------------------------------------------
+
+def _suffix_filename(path, suffix):
+    """Insert ``suffix`` before the recognised AMR-file extension.
+
+    ``foo.h5`` + ``_bar`` → ``foo_bar.h5``; same for ``.hdf5``, ``.fits.gz``,
+    ``.fits``, ``.dat``, ``.txt``.  Unknown extensions: append after the path.
+    """
+    lower = path.lower()
+    for ext in ('.fits.gz', '.hdf5', '.fits', '.h5', '.dat', '.txt'):
+        if lower.endswith(ext):
+            return path[: -len(ext)] + suffix + path[-len(ext):]
+    return path + suffix
+
+
+# ---------------------------------------------------------------------------
 # LaRT input snippet
 # ---------------------------------------------------------------------------
 
@@ -456,7 +473,7 @@ def make_slice_plot(grids, labels, outfile, log=False, show_velocity=False):
     fig.suptitle(suptitle, fontsize=10)
     fig.tight_layout()
 
-    png = outfile.replace('.dat', '').replace('.fits.gz', '').replace('.fits', '')
+    png = outfile.replace('.dat', '').replace('.fits.gz', '').replace('.fits', '').replace('.hdf5', '').replace('.h5', '')
     png += '_radial_slice.png'
     plt.savefig(png, dpi=140, bbox_inches='tight')
     print(f'Slice plot saved to {png}')
@@ -531,8 +548,8 @@ def parse_args():
     vg.add_argument('--rinner', type=float, default=None,
                     help='[rotating_galaxy_halo] inner solid-body radius in code units')
 
-    p.add_argument('-o', '--output', default='sphere_radial.dat',
-                   help='Output AMR data file (default: sphere_radial.dat)')
+    p.add_argument('-o', '--output', default='sphere_radial.h5',
+                   help='Output AMR data file (default: sphere_radial.h5)')
     p.add_argument('--taumax', type=float, default=1e4,
                    help='taumax for the LaRT input snippet (default: 1e4)')
     p.add_argument('--plot', action='store_true',
@@ -582,7 +599,7 @@ def main():
         print(grid_base.info())
         print_shell_table(radii_base, args.level_min, args.level_max)
 
-        out_base = args.output.replace('.dat', '_no_boundary.dat')
+        out_base = _suffix_filename(args.output, '_no_boundary')
         grid_base.write(out_base)
 
         print()
@@ -594,7 +611,7 @@ def main():
         print(grid_bnd.info())
         print_shell_table(radii_bnd, args.level_min, args.level_max)
 
-        out_bnd = args.output.replace('.dat', '_with_boundary.dat')
+        out_bnd = _suffix_filename(args.output, '_with_boundary')
         grid_bnd.write(out_bnd)
 
         if args.plot:
