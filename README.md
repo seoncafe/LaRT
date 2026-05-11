@@ -7,6 +7,7 @@ This version adds support for adaptive mesh refinement (AMR) grids, including bo
 ## Status
 
 - AMR support has been added; testing and validation are ongoing.
+- Clump overlap handling added: file-loaded or internally generated overlapping clumps are handled with an event-based multi-component raytrace; enabled via `par%clump_allow_overlap = .true.` for internally generated populations.
 - Both RAMSES AMR snapshots and a generic text/FITS AMR format are supported.
 - The usage guide is still being prepared.
 

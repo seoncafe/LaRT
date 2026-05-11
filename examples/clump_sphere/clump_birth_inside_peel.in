@@ -1,0 +1,23 @@
+&parameters
+ par%use_clump_medium    = .true.
+ par%rmax                = 1.0
+ par%clump_radius        = 0.3
+ par%clump_f_cov         = 2.0
+ par%clump_tau0          = 1.0e3
+ par%temperature         = 1.0e4
+ par%clump_allow_overlap = .true.
+ par%no_photons          = 1e5
+ par%spectral_type       = 'voigt'
+ par%source_geometry     = 'uniform_sphere'
+ par%source_rmax         = 0.5
+ par%nxfreq              = 101
+ par%velocity_min        = -200.0
+ par%velocity_max        =  200.0
+ par%nx = 11, par%ny = 11, par%nz = 11
+ par%save_peeloff        = .true.
+ par%save_sightline_tau  = .true.
+ par%nxim                = 65
+ par%nyim                = 65
+ par%save_clump_info     = .true.
+ par%out_file            = 'clump_birth_inside_peel.fits.gz'
+/

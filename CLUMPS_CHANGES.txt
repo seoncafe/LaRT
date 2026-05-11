@@ -918,6 +918,7 @@ STANDALONE DRIVER (make_sightline_tau.f90)
     par%save_peeloff       = .true.
     par%save_sightline_tau = .true.
     allocate concrete grid (v2.10) / call grid_create_* (v2.00)
+    [v2.00 clump mode: call setup_clump_overlap() here]
     observer_create()
     make_sightline_tau()
     observer_destroy() / grid_destroy*
@@ -1348,3 +1349,366 @@ ADDENDUM (2026-05-09)
   After the fix, clump_NHI18_fcov1.in reports N_gashomo = 1.000e18
   exactly (matches par%N_HImax target).
 
+================================================================================
+2026-05-10  Overlap-aware raytrace for overlapping clumps
+================================================================================
+
+PROBLEM
+-------
+  clump_mod.f90 allowed clump positions to be loaded from an external FITS file
+  (par%clump_input_file).  Unlike RSA-generated populations, file-loaded clumps
+  are not guaranteed to be non-overlapping.  The existing raytrace assumed
+  non-overlap:
+    - At clump-A exit, photon%icell_clump was unconditionally reset to 0 (vacuum)
+      without checking whether the photon was simultaneously inside clump B.
+    - Opacity in the overlap region was under-counted.
+    - Frequency shifts at clump boundaries were mis-applied in the overlap region.
+  Internally generated (RSA) clumps are guaranteed non-overlapping; those paths
+  are completely unaffected by these changes.
+
+PHYSICAL INTERPRETATION
+-----------------------
+  Two overlapping clumps with different bulk velocities are treated as two
+  independent gas components coexisting at the same spatial location -- the
+  standard multi-component RT picture.  The total line opacity at global-frame
+  frequency x is:
+
+    kap_total(x) = SUM_i  cl_rhokap(i) * H(x - u_los_i, a_i)
+
+  When a scattering event falls in an overlap region the interacting atom belongs
+  to one specific clump, chosen by opacity-weighted sampling:
+
+    P(scatter in clump i) = kap_i(x) / kap_total(x)
+
+FREQUENCY CONVENTION
+--------------------
+  In the non-overlap path photon%xfreq is Doppler-shifted in place at every
+  clump entry/exit.  In the overlap path photon%xfreq is kept in the GLOBAL
+  rest frame throughout the spatial raytrace.  The Doppler shift to a specific
+  clump's frame is applied only at scatter time inside the wrapper routines
+  scatter_resonance_clump_nostokes / scatter_resonance_clump_stokes.
+
+OVERLAP DETECTION (one-time at init)
+-------------------------------------
+  After the CSR grid is built, check_has_overlap() scans all clump pairs using
+  the existing CSR structure (O(N * k_neighbors) time).  The result is stored in
+  the module variable has_overlap (new, default .false.).  For RSA-generated
+  populations has_overlap is never set to .true.: zero runtime overhead.
+
+NEW SUBROUTINES (clump_mod.f90)
+--------------------------------
+  check_has_overlap()
+    Scans CSR 27-neighbor cells for pairs with center distance < r_i + r_j.
+    Sets has_overlap and broadcasts via MPI.  Reports on stdout (p_rank=0).
+
+  active_set_at_point(xp, yp, zp, active, n_active)
+    Returns all clump indices containing a given point (used to initialize the
+    active set at raytrace start).
+
+  collect_ray_events_overlap(xp, yp, zp, kx, ky, kz, t_max,
+                              ev_t, ev_icl, ev_type, n_ev)
+    Full DDA scan -- no early exit -- collecting every clump ENTER(+1) /
+    EXIT(-1) event as a sorted list.  Clumps that already contain the origin
+    emit only an EXIT event.
+
+NEW SUBROUTINES (raytrace_clump.f90)
+-------------------------------------
+  Helper functions (not pure, called at scatter time):
+    sum_kap_active(active, n_active, xfreq_g, kx, ky, kz)
+      Total opacity from all active clumps at global-frame frequency xfreq_g.
+    sample_owner_clump(active, n_active, xfreq_g, kx, ky, kz)
+      Opacity-weighted random selection of the scattering clump from the
+      active set.
+
+  Full overlap raytrace suite (all use the sorted event list from
+  collect_ray_events_overlap):
+    raytrace_to_tau_clump_overlap      -- advance to scatter point
+    raytrace_to_edge_clump_overlap     -- accumulate tau to sphere edge
+    raytrace_to_edge_tau_gas_clump_overlap   -- same (tau_gas alias)
+    raytrace_to_edge_column_clump_overlap    -- accumulate N_HI column
+    raytrace_to_dist_clump_overlap     -- fixed-distance version
+    raytrace_to_dist_tau_gas_clump_overlap   -- same (tau_gas alias)
+    raytrace_to_dist_column_clump_overlap    -- N_HI to distance
+    (* v2.00 also has _capped variants; v2.10 uses optional tau_max argument)
+
+NEW SUBROUTINES (scattering_car.f90)
+--------------------------------------
+  scatter_resonance_clump_nostokes(photon, grid)
+  scatter_resonance_clump_stokes(photon, grid)
+    Wrappers that Doppler-shift photon%xfreq from global frame into the owner
+    clump frame before calling the base scatter routine, then shift back after.
+    Selected at dispatch time via par%use_stokes.
+
+DISPATCH CHANGES
+----------------
+  v2.00 (setup.f90 / procedure pointers):
+    setup_procedure() sets the initial non-overlap clump pointers:
+      raytrace_to_tau => raytrace_to_tau_clump  (and similar for all variants)
+      scatter_resonance => scatter_resonance_{nostokes|stokes}
+
+    A NEW subroutine setup_clump_overlap() (also in setup.f90) is called
+    from main.f90 (and make_sightline_tau.f90) AFTER grid_create_clump()
+    sets has_overlap.  If has_overlap = .true., it upgrades all seven
+    raytrace pointers and scatter_resonance to the _overlap variants:
+      raytrace_to_tau          => raytrace_to_tau_clump_overlap
+      raytrace_to_edge         => raytrace_to_edge_clump_overlap
+      raytrace_to_edge_tau_gas => raytrace_to_edge_tau_gas_clump_overlap
+      raytrace_to_edge_column  => raytrace_to_edge_column_clump_overlap
+      raytrace_to_dist         => raytrace_to_dist_clump_overlap
+      raytrace_to_dist_tau_gas => raytrace_to_dist_tau_gas_clump_overlap
+      raytrace_to_dist_column  => raytrace_to_dist_column_clump_overlap
+      scatter_resonance => scatter_resonance_clump_{nostokes|stokes}
+    NOTE: setup_procedure() runs before grid_create_clump() (before has_overlap
+    is known), so the upgrade CANNOT happen inside setup_procedure.  See the
+    2026-05-11 critical bug-fix entry below for details.
+
+  v2.10 (grid_class.f90 / type-bound dispatch):
+    clump_raytrace_to_tau, clump_raytrace_to_edge, clump_scattering check
+    has_overlap at call time and delegate to the _overlap variants when set.
+    No timing issue: grid%grid_init() (which sets has_overlap) runs before
+    any photon-loop or sightline call.
+
+SIGHTLINE FIX
+-------------
+  sightline_tau_clump.f90 was calling raytrace_to_edge_tau_gas_clump and
+  raytrace_to_edge_column_clump as concrete (direct) calls, bypassing the
+  procedure-pointer dispatch.  This meant the non-overlap variants were always
+  used even when has_overlap = .true.
+
+  v2.00 fix: removed the use raytrace_clump_mod import from make_sightline_tau_clump;
+    replaced the two concrete calls with the global procedure pointers
+    raytrace_to_edge_tau_gas and raytrace_to_edge_column from define (these
+    are upgraded to the _overlap variants by setup_clump_overlap() before
+    make_sightline_tau is called).
+
+  v2.10 fix: added has_overlap import from clump_mod; added inline
+    if (has_overlap) / else dispatch selecting the _overlap or standard variant.
+
+FILES MODIFIED
+--------------
+  clump_mod.f90         -- has_overlap flag; check_has_overlap(); active_set_at_point();
+                           collect_ray_events_overlap(); check called in init_clumps
+                           after build_clump_csr for both file-loaded and internally
+                           generated (overlap-allowed) populations
+  raytrace_clump.f90    -- sum_kap_active, sample_owner_clump, full _overlap suite
+  scattering_car.f90    -- scatter_resonance_clump_nostokes/_stokes wrappers
+  setup.f90             -- overlap dispatch block (v2.00 only)
+  grid_class.f90        -- has_overlap checks in clump_raytrace_to_tau/edge/scattering
+                           (v2.10 only)
+  sightline_tau_clump.f90 -- correct dispatch through pointer / has_overlap (both)
+  define.f90            -- icell_clump comment updated; clump_allow_overlap parameter
+
+VALIDATION
+----------
+  clump_overlap_mono.in  (rmax=1, clump_radius=0.3, f_cov=2, clump_allow_overlap=T,
+                          spectral_type='monochromatic', no_photons=1e5):
+    "Overlap check: overlapping clumps detected -- using overlap-aware raytrace."
+    Nscatt_gas ~ 5.0e3.  Runs clean in both v2.00 and v2.10.
+
+  clump_overlap_sigv.in  (same + clump_sigma_v=100 km/s, spectral_type='voigt'):
+    Same overlap detection.  Runs clean.
+
+  clump_overlap_peel.in  (same + save_peeloff=T, save_sightline_tau=T):
+    _tau.fits.gz produced; TAU_gas nonzero in 53-56% of pixels (sphere interior);
+    max tau ~ 2400-3000, N_gas max ~ 9.6e16 cm^-2 (physically reasonable).
+    Confirmed sightline fix is effective.
+
+================================================================================
+2026-05-10  par%clump_allow_overlap: bypass RSA rejection for overlapping clumps
+================================================================================
+
+NEW PARAMETER
+-------------
+  par%clump_allow_overlap   logical, default = .false.
+    When .true., the RSA overlap-rejection step is skipped during internal
+    clump generation.  Clumps are placed at uniformly random positions without
+    checking for overlap.  After placement, check_has_overlap() is called
+    automatically; if any overlapping pair is found (virtually guaranteed when
+    clumps are large and numerous), the overlap-aware raytrace is engaged.
+
+    When .false. (default), the original RSA algorithm is used and clumps are
+    guaranteed non-overlapping; has_overlap remains .false. and the original
+    raytrace path is taken.
+
+  Typical test configuration (large clumps, low covering factor):
+    par%clump_allow_overlap = .true.
+    par%clump_radius        = 0.3       ! large -- guarantees many overlaps
+    par%clump_f_cov         = 2.0       ! low -- few clumps, fast placement
+    par%no_photons          = 1e5       ! fast run
+
+  Stdout message:
+    overlap allowed:  " Random placement done (overlap allowed)."
+    RSA (default):    " RSA done, acceptance rate = XX.X%"
+
+IMPLEMENTATION
+--------------
+  clump_mod.f90 :: generate_clumps
+    Changed:  if (overlap) cycle
+    To:       if (overlap .and. .not. par%clump_allow_overlap) cycle
+    And replaced the acceptance-rate print with the conditional message above.
+
+  clump_mod.f90 :: init_clumps
+    After build_clump_csr() + barrier:
+      if (par%clump_allow_overlap) call check_has_overlap()
+    (For file-loaded clumps check_has_overlap is called unconditionally;
+    for RSA-generated non-overlap clumps no check is needed.)
+
+FILES MODIFIED
+--------------
+  define.f90      -- new field params_type :: clump_allow_overlap (logical)
+  clump_mod.f90   -- generate_clumps and init_clumps
+
+NEW EXAMPLE INPUTS (examples/clump_sphere/)
+-------------------------------------------
+  clump_overlap_mono.in   -- monochromatic, no velocity
+  clump_overlap_sigv.in   -- voigt spectrum, clump_sigma_v = 100 km/s
+  clump_overlap_peel.in   -- voigt + peel-off + sightline_tau
+
+================================================================================
+2026-05-11  v2.00 CRITICAL BUG FIX: overlap procedure pointers never assigned
+================================================================================
+
+ROOT CAUSE
+----------
+In v2.00, setup_procedure() was called BEFORE grid_create_clump() in main.f90.
+The if (has_overlap) block inside setup_procedure() (lines ~650-663) therefore
+always evaluated .false. -- has_overlap is set by check_has_overlap() inside
+init_clumps(), which runs inside grid_create_clump(). The overlap-aware raytrace
+and scatter procedure pointers (raytrace_to_tau, raytrace_to_edge, scatter_resonance,
+etc.) were NEVER assigned to their _overlap variants in v2.00, even when overlapping
+clumps were detected. The simulation silently used the non-overlap code path.
+
+v2.10 is unaffected: type-bound methods evaluate has_overlap at call time during
+the photon loop, well after grid_init() has set has_overlap.
+
+FIX
+---
+New subroutine setup_clump_overlap() in setup.f90:
+  - called from main.f90 immediately after grid_create_clump()
+  - checks has_overlap and, if true, assigns all seven raytrace procedure
+    pointers to their _overlap variants plus scatter_resonance to the
+    clump scatter wrapper
+  - prints: '[overlap] procedure pointers upgraded to overlap-aware variants'
+
+The dead if (has_overlap) block is removed from setup_procedure() and replaced
+with a comment explaining the timing issue.
+
+FILES MODIFIED
+--------------
+  setup.f90   -- new setup_clump_overlap() subroutine; removed dead if (has_overlap)
+                 block from setup_procedure()
+  main.f90    -- added: call setup_clump_overlap() after grid_create_clump()
+
+================================================================================
+2026-05-11  Birth-inside-clump: icell_clump init and xfreq frame fix
+================================================================================
+
+PROBLEM
+-------
+When a photon is generated at a position that falls inside a clump
+(source_geometry = 'uniform_sphere', 'exponential_sphere', etc.) the
+code always set photon%icell_clump = 0 at birth, effectively treating
+the photon as if it started in vacuum even when it was embedded in a
+clump.  Two consequences:
+
+  1. RAYTRACE (non-overlap path only):
+     raytrace_to_tau_clump checks photon%icell_clump > 0 at the top of
+     the photon loop to detect whether the photon is currently inside a
+     clump and must first traverse the rest of that clump before entering
+     the inter-clump vacuum.  With icell_clump = 0 this initial segment
+     was silently skipped, so the clump opacity from the birth point to
+     the clump surface was never accumulated.
+
+     The overlap path is unaffected: raytrace_to_tau_clump_overlap calls
+     active_set_at_point(photon%x, ...) at the start of every step,
+     reconstructing the active clump set from the photon's spatial
+     position rather than relying on icell_clump.
+
+  2. PEEL-OFF (non-overlap path):
+     peeling_direct_outside computes the lab-frame frequency of the birth
+     photon for spectral binning.  For a photon born inside a clump with
+     bulk velocity V_cl the stored xfreq must be in the clump rest frame,
+     and the conversion to the lab frame requires adding V_cl . k_obs.
+     With icell_clump = 0 the clump branch was never taken and the
+     spectrum was binned in the clump frame, matching the error described
+     in the xfreq-frame section above.
+
+FIX
+---
+In generate_photon (v2.00), immediately after the photon position,
+direction, and frequency are fully initialized but BEFORE the peel-off
+call, check whether the birth position falls inside any clump using
+active_set_at_point.
+
+  if (par%use_clump_medium .and. .not. has_overlap) then
+     call active_set_at_point(photon%x, photon%y, photon%z, active_birth, n_ab)
+     if (n_ab > 0) then
+        photon%icell_clump = int(active_birth(1))
+        u_los_birth = cl_vx(active_birth(1))*photon%kx
+                    + cl_vy(active_birth(1))*photon%ky
+                    + cl_vz(active_birth(1))*photon%kz
+        photon%xfreq = photon%xfreq - u_los_birth   ! global -> clump frame
+     end if
+  end if
+
+  The check is skipped for the overlap path (has_overlap = .true.) because
+  the overlap raytrace already calls active_set_at_point at runtime.
+
+Additionally, peeling_direct_outside gains a new first branch in the
+xfreq_ref block that handles the born-inside-clump case:
+
+  if (par%use_clump_medium .and. photon%icell_clump > 0) then
+     u1 = cl_vx(photon%icell_clump)*pobs%kx + ...
+     xfreq_ref = photon%xfreq + u1   ! clump frame -> lab frame
+  else if (.not. par%comoving_source) then
+     ...  (unchanged)
+
+  (The pobs = photon copy above already sets pobs%xfreq to the clump-frame
+  value, which is what raytrace_to_edge_clump expects when icell_clump > 0.)
+
+XFREQ FRAME CONVENTIONS (non-overlap vs. overlap)
+--------------------------------------------------
+The two raytrace paths use different photon%xfreq conventions:
+
+  Non-overlap (has_overlap = .false.):
+    photon%xfreq tracks the CURRENT FRAME of the photon:
+      - In inter-clump vacuum: global (lab) frame
+      - Inside a clump:        that clump's rest frame
+    Frame transitions happen at clump boundaries:
+      entry: photon%xfreq -= u_los   (global -> clump frame)
+      exit:  photon%xfreq += u_los   (clump frame -> global)
+    The Voigt opacity call uses xfreq directly because it is already
+    in the clump frame.
+
+  Overlap (has_overlap = .true.):
+    photon%xfreq is ALWAYS in the global (lab) frame.
+    The per-clump Doppler shift is applied on-the-fly inside
+    sum_kap_active and collect_ray_events_overlap:
+      x_cl = xfreq_g - u_los(icl)   (evaluated per active clump)
+    This is necessary because the photon may be inside several clumps
+    with different velocities simultaneously and there is no single
+    "current clump frame".
+
+  Consequence for peel-off (peeling_*_outside, all variants):
+    The lab-frame conversion
+      xfreq_ref = photon%xfreq + u1
+    requires u1 = V_cl . k_obs when photon%icell_clump > 0 (non-overlap,
+    photon in clump frame), and u1 = 0 when photon%icell_clump = 0
+    (vacuum or overlap path, xfreq already in global frame).
+
+  Note: unifying both paths to the global-frame convention is possible in
+  principle (the non-overlap path would compute x_cl = xfreq_g - u_los
+  at each opacity evaluation instead of at entry/exit).  This was
+  currently not recommended because the non-overlap path is well-tested,
+  the per-clump convention is natural when only one clump is active, and
+  the change would require rewriting all seven raytrace_*_clump functions.
+  It could be revisited if future requirements make a unified
+  global-frame convention desirable.
+
+FILES MODIFIED
+--------------
+  generate_photon.f90          -- birth-clump detection before peel-off;
+                                  uses active_set_at_point from clump_mod
+  peelingoff_rect.f90          -- new clump branch in peeling_direct_outside
+                                  xfreq_ref computation
+  docs/LaRT_clump_description.tex -- updated §Peel-Off and §Frequency Convention

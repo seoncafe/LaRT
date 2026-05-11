@@ -24,6 +24,7 @@
   call setup_procedure()
   if (par%use_clump_medium) then
      call grid_create_clump(grid)
+     call setup_clump_overlap()   ! re-dispatch after has_overlap is known
   else if (par%use_amr_grid) then
      call grid_create_amr(grid)
      call amr_sync_to_grid(grid)

@@ -78,6 +78,7 @@ module clump_mod
   logical,       save :: profiles_active  = .false.    ! .true. if any profile != 'constant'
   logical,       save :: clumps_from_file = .false.    ! .true. if init_clumps loaded the population
                                                        !  from par%clump_input_file (via read_clumps_fits)
+  logical,       save :: has_overlap      = .false.    ! .true. if file-loaded clumps contain overlapping pairs
 
   !--- Tabulated radial CDF for inverse-CDF sampling of clump positions.
   integer, parameter :: NPROF = 4001                   ! 1-D radial table size
@@ -589,6 +590,7 @@ contains
   !    cl_radius_max and reference scalars; builds the CSR acceleration grid.
   if (len_trim(par%clump_input_file) > 0) then
      call read_clumps_fits(trim(par%clump_input_file), R_sphere)
+     call check_has_overlap()
      return
   end if
 
@@ -794,6 +796,10 @@ contains
   call build_clump_csr()
   call MPI_BARRIER(mpar%hostcomm, ierr)
 
+  !--- For internally generated clumps with overlap allowed, run overlap
+  !    detection so the overlap-aware raytrace path is engaged if needed.
+  if (par%clump_allow_overlap) call check_has_overlap()
+
   end subroutine init_clumps
   !===========================================================================
 
@@ -945,7 +951,7 @@ contains
            end do
         end do
      end do outer
-     if (overlap) cycle
+     if (overlap .and. .not. par%clump_allow_overlap) cycle
 
      !--- accept
      icl = icl + 1_int64
@@ -992,9 +998,14 @@ contains
         write(*,'(a,i14,a,i14)') '   placed ', icl, ' / ', N_clumps
   end do
 
-  if (mpar%p_rank == 0) write(*,'(a,f6.1,a)') &
-     ' RSA done, acceptance rate = ', &
-     real(N_clumps,wp)/real(n_attempts,wp)*100.0_wp, '%'
+  if (mpar%p_rank == 0) then
+     if (par%clump_allow_overlap) then
+        write(*,'(a)') ' Random placement done (overlap allowed).'
+     else
+        write(*,'(a,f6.1,a)') ' RSA done, acceptance rate = ', &
+           real(N_clumps,wp)/real(n_attempts,wp)*100.0_wp, '%'
+     end if
+  end if
 
   deallocate(head, nxt)
   end subroutine generate_clumps
@@ -1371,6 +1382,225 @@ contains
   if (disc < 0.0_wp) disc = 0.0_wp
   sphere_exit_dist = max(0.0_wp, -b + sqrt(disc))
   end function sphere_exit_dist
+  !===========================================================================
+
+  !===========================================================================
+  subroutine check_has_overlap()
+  !---------------------------------------------------------------------------
+  ! Scan all clump pairs using the CSR grid to detect any overlapping pair.
+  ! Sets has_overlap = .true. on rank 0 if found, then broadcasts.
+  ! O(N * k_neighbors) time; called once at init after read_clumps_fits.
+  !---------------------------------------------------------------------------
+  implicit none
+  integer        :: imin, imax, jmin, jmax, kmin, kmax
+  integer        :: i, j, k, icell, ip
+  integer(int64) :: icl_i, icl_j
+  real(kind=dp)  :: dx, dy, dz, dist2, r_sum
+  integer        :: ierr
+
+  has_overlap = .false.
+  if (mpar%h_rank == 0) then
+     outer: do icl_i = 1_int64, N_clumps
+        call clump_cell_range(icl_i, imin, imax, jmin, jmax, kmin, kmax)
+        do k = kmin, kmax
+           do j = jmin, jmax
+              do i = imin, imax
+                 icell = cg_cell_idx(i, j, k)
+                 do ip = cg_start(icell), cg_start(icell+1) - 1
+                    icl_j = int(cg_list(ip), int64)
+                    if (icl_j <= icl_i) cycle
+                    dx    = cl_x(icl_j) - cl_x(icl_i)
+                    dy    = cl_y(icl_j) - cl_y(icl_i)
+                    dz    = cl_z(icl_j) - cl_z(icl_i)
+                    dist2 = dx*dx + dy*dy + dz*dz
+                    r_sum = real(cl_radius(icl_i) + cl_radius(icl_j), dp)
+                    if (dist2 < r_sum*r_sum) then
+                       has_overlap = .true.
+                       exit outer
+                    end if
+                 end do
+              end do
+           end do
+        end do
+     end do outer
+  end if
+  call MPI_BCAST(has_overlap, 1, MPI_LOGICAL, 0, mpar%SAME_HRANK_COMM, ierr)
+  if (mpar%p_rank == 0) then
+     if (has_overlap) then
+        write(*,'(a)') ' Overlap check: overlapping clumps detected — using overlap-aware raytrace.'
+     else
+        write(*,'(a)') ' Overlap check: no overlaps found — using standard raytrace.'
+     end if
+  end if
+  end subroutine check_has_overlap
+  !===========================================================================
+
+  !===========================================================================
+  subroutine active_set_at_point(xp, yp, zp, active, n_active)
+  !---------------------------------------------------------------------------
+  ! Return all clump indices containing point (xp,yp,zp).
+  ! active(1:n_active) are the 1-based clump indices.
+  ! The caller must provide active(:) with size >= some upper bound.
+  !---------------------------------------------------------------------------
+  implicit none
+  real(kind=wp),  intent(in)  :: xp, yp, zp
+  integer(int64), intent(out) :: active(:)
+  integer,        intent(out) :: n_active
+
+  integer        :: ci, cj, ck, i, j, k, icell, ip
+  integer(int64) :: icl
+  real(kind=dp)  :: rx, ry, rz
+
+  n_active = 0
+  ci = max(0, min(cgx-1, int((xp - cg_xmin) * cg_inv_dx)))
+  cj = max(0, min(cgy-1, int((yp - cg_ymin) * cg_inv_dy)))
+  ck = max(0, min(cgz-1, int((zp - cg_zmin) * cg_inv_dz)))
+
+  do k = max(0, ck-1), min(cgz-1, ck+1)
+     do j = max(0, cj-1), min(cgy-1, cj+1)
+        do i = max(0, ci-1), min(cgx-1, ci+1)
+           icell = cg_cell_idx(i, j, k)
+           do ip = cg_start(icell), cg_start(icell+1) - 1
+              icl = int(cg_list(ip), int64)
+              rx  = real(xp, dp) - cl_x(icl)
+              ry  = real(yp, dp) - cl_y(icl)
+              rz  = real(zp, dp) - cl_z(icl)
+              if (rx*rx + ry*ry + rz*rz <= real(cl_radius2(icl), dp)) then
+                 !--- avoid duplicates (a clump can register in multiple CSR cells)
+                 if (n_active == 0 .or. all(active(1:n_active) /= icl)) then
+                    n_active = n_active + 1
+                    active(n_active) = icl
+                 end if
+              end if
+           end do
+        end do
+     end do
+  end do
+  end subroutine active_set_at_point
+  !===========================================================================
+
+  !===========================================================================
+  subroutine collect_ray_events_overlap(xp, yp, zp, kx, ky, kz, t_max, &
+                                         ev_t, ev_icl, ev_type, n_ev)
+  !---------------------------------------------------------------------------
+  ! Full DDA scan: collect every clump entry/exit event along the ray
+  !   P(t) = (xp,yp,zp) + t*(kx,ky,kz),   0 < t <= t_max.
+  ! ev_type: +1 = ENTER, -1 = EXIT.
+  ! Clumps that already contain the ray origin emit only an EXIT event.
+  ! Events are returned sorted in ascending t order (insertion sort; n_ev small).
+  ! The caller must provide arrays sized >= some upper bound (e.g. 2*N_clumps).
+  !---------------------------------------------------------------------------
+  implicit none
+  real(kind=wp),  intent(in)  :: xp, yp, zp, kx, ky, kz, t_max
+  real(kind=wp),  intent(out) :: ev_t(:)
+  integer(int64), intent(out) :: ev_icl(:)
+  integer,        intent(out) :: ev_type(:)
+  integer,        intent(out) :: n_ev
+
+  integer  :: ci, cj, ck, si, sj, sk, icell, ip, ie, ii
+  integer(int64) :: icl
+  real(kind=wp)  :: tx, ty, tz, delx, dely, delz, d
+  real(kind=wp)  :: t_entry, t_exit
+  real(kind=wp)  :: ev_t_tmp
+  integer(int64) :: ev_icl_tmp
+  integer        :: ev_type_tmp
+  logical        :: hit
+
+  n_ev = 0
+
+  !--- DDA initialization (same pattern as find_next_clump)
+  ci = max(0, min(cgx-1, int((xp - cg_xmin) * cg_inv_dx)))
+  cj = max(0, min(cgy-1, int((yp - cg_ymin) * cg_inv_dy)))
+  ck = max(0, min(cgz-1, int((zp - cg_zmin) * cg_inv_dz)))
+
+  if (kx > 0.0_wp) then
+     si   =  1;  delx = cg_dx / kx
+     tx   = (cg_xmin + real(ci+1,wp)*cg_dx - xp) / kx
+  else if (kx < 0.0_wp) then
+     si   = -1;  delx = -cg_dx / kx
+     tx   = (cg_xmin + real(ci,wp)*cg_dx - xp) / kx
+  else
+     si = 0;  delx = hugest;  tx = hugest
+  end if
+  if (ky > 0.0_wp) then
+     sj   =  1;  dely = cg_dy / ky
+     ty   = (cg_ymin + real(cj+1,wp)*cg_dy - yp) / ky
+  else if (ky < 0.0_wp) then
+     sj   = -1;  dely = -cg_dy / ky
+     ty   = (cg_ymin + real(cj,wp)*cg_dy - yp) / ky
+  else
+     sj = 0;  dely = hugest;  ty = hugest
+  end if
+  if (kz > 0.0_wp) then
+     sk   =  1;  delz = cg_dz / kz
+     tz   = (cg_zmin + real(ck+1,wp)*cg_dz - zp) / kz
+  else if (kz < 0.0_wp) then
+     sk   = -1;  delz = -cg_dz / kz
+     tz   = (cg_zmin + real(ck,wp)*cg_dz - zp) / kz
+  else
+     sk = 0;  delz = hugest;  tz = hugest
+  end if
+  d = 0.0_wp
+
+  do
+     if (d > t_max) exit
+     if (ci < 0 .or. ci >= cgx .or. cj < 0 .or. cj >= cgy .or. ck < 0 .or. ck >= cgz) exit
+     icell = cg_cell_idx(ci, cj, ck)
+     do ip = cg_start(icell), cg_start(icell+1) - 1
+        icl = int(cg_list(ip), int64)
+        call ray_sphere_isect(xp, yp, zp, kx, ky, kz, &
+             real(cl_x(icl),wp), real(cl_y(icl),wp), real(cl_z(icl),wp), &
+             icl, t_entry, t_exit, hit)
+        if (.not. hit) cycle
+        if (t_exit <= 0.0_wp) cycle
+        if (t_entry > t_max) cycle
+        !--- avoid duplicate events (clump registered in multiple CSR cells)
+        do ie = 1, n_ev
+           if (ev_icl(ie) == icl) goto 10
+        end do
+        if (n_ev + 2 > size(ev_t)) goto 10
+        if (t_entry > 0.0_wp) then
+           !--- ENTER event
+           n_ev = n_ev + 1
+           ev_t(n_ev)    = t_entry
+           ev_icl(n_ev)  = icl
+           ev_type(n_ev) = +1
+        end if
+        !--- EXIT event (always)
+        n_ev = n_ev + 1
+        ev_t(n_ev)    = min(t_exit, t_max)
+        ev_icl(n_ev)  = icl
+        ev_type(n_ev) = -1
+10      continue
+     end do
+     !--- advance DDA
+     if (tx <= ty .and. tx <= tz) then
+        d = tx;  tx = tx + delx;  ci = ci + si
+     else if (ty <= tz) then
+        d = ty;  ty = ty + dely;  cj = cj + sj
+     else
+        d = tz;  tz = tz + delz;  ck = ck + sk
+     end if
+  end do
+
+  !--- insertion sort by ev_t (n_ev is typically small)
+  do ie = 2, n_ev
+     ev_t_tmp    = ev_t(ie)
+     ev_icl_tmp  = ev_icl(ie)
+     ev_type_tmp = ev_type(ie)
+     ii = ie - 1
+     do while (ii >= 1 .and. ev_t(ii) > ev_t_tmp)
+        ev_t(ii+1)    = ev_t(ii)
+        ev_icl(ii+1)  = ev_icl(ii)
+        ev_type(ii+1) = ev_type(ii)
+        ii = ii - 1
+     end do
+     ev_t(ii+1)    = ev_t_tmp
+     ev_icl(ii+1)  = ev_icl_tmp
+     ev_type(ii+1) = ev_type_tmp
+  end do
+
+  end subroutine collect_ray_events_overlap
   !===========================================================================
 
   !===========================================================================

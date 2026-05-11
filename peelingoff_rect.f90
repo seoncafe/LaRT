@@ -6,7 +6,8 @@ module peelingoff_rect
   use mathlib
   use utility
   use line_mod
-  use raytrace_clump_mod, only: raytrace_to_edge_clump_capped, tau_huge_clump
+  use raytrace_clump_mod, only: raytrace_to_edge_clump_capped, tau_huge_clump, &
+                                 raytrace_to_edge_clump_overlap_capped
   !--- Clump-mode bulk velocity: when photon is inside a clump
   !    (par%use_clump_medium .and. photon%icell_clump > 0), grid%vfx/y/z = 0
   !    and the photon's xfreq is in the clump's rest frame. We must add the
@@ -17,7 +18,7 @@ module peelingoff_rect
   !    previously used grid%vfx=0, which caused peel-off spectra to be in
   !    the clump frame and disagree with the Jout spectrum, e.g., for
   !    rotating-halo or Hubble-flow clump runs.)
-  use clump_mod, only: cl_vx, cl_vy, cl_vz
+  use clump_mod, only: cl_vx, cl_vy, cl_vz, has_overlap
 contains
   !--------------------------------------------------
   subroutine peeling_direct_outside(photon,grid)
@@ -61,7 +62,13 @@ contains
 
     !--- bug-fixed, 2020.08.19
     !--- xfreq_ref = lab (observer) frame frequency
-     if (.not. par%comoving_source) then
+     if (par%use_clump_medium .and. photon%icell_clump > 0) then
+        !--- photon%xfreq is in the owner clump's rest frame (set at birth);
+        !    shift to lab frame using the peel-off direction bulk velocity.
+        u1 = cl_vx(photon%icell_clump)*pobs%kx + cl_vy(photon%icell_clump)*pobs%ky &
+           + cl_vz(photon%icell_clump)*pobs%kz
+        xfreq_ref = photon%xfreq + u1
+     else if (.not. par%comoving_source) then
         !--- transform the frequency back to the lab frame.
         u1 = grid%vfx(photon%icell,photon%jcell,photon%kcell)*photon%kx + &
              grid%vfy(photon%icell,photon%jcell,photon%kcell)*photon%ky + &
@@ -705,12 +712,20 @@ contains
   ! to the exp(-tau) underflow point; the cap is ABSENT in
   ! raytrace_to_edge_tau_gas_clump where the sight-line FITS output
   ! requires the full integrated tau.)
+  !
+  ! When overlapping clumps are present (has_overlap = .true.) the overlap-
+  ! aware variant is used so that the peel-off attenuation correctly sums
+  ! contributions from all clumps along the photon-to-observer line of sight.
   !---------------------------------------------------------------------------
   type(photon_type), intent(in)  :: pobs
   type(grid_type),   intent(in)  :: grid
   real(kind=wp),     intent(out) :: tau
   if (par%use_clump_medium) then
-     call raytrace_to_edge_clump_capped(pobs, grid, tau, tau_max=tau_huge_clump)
+     if (has_overlap) then
+        call raytrace_to_edge_clump_overlap_capped(pobs, grid, tau, tau_max=tau_huge_clump)
+     else
+        call raytrace_to_edge_clump_capped(pobs, grid, tau, tau_max=tau_huge_clump)
+     end if
   else
      call raytrace_to_edge(pobs, grid, tau)
   end if

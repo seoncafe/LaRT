@@ -9,6 +9,7 @@ contains
   use stellar_illumination_mod
   use point_illumination_mod
   use octree_mod, only: amr_grid, amr_find_leaf
+  use clump_mod,  only: has_overlap, active_set_at_point, cl_vx, cl_vy, cl_vz
   !--- now, peelingoff subrotines are defined in define.f90 (2023.01.16).
   !use peelingoff_mod
   implicit none
@@ -19,8 +20,11 @@ contains
   real(kind=wp) :: xfreq_lab, u1
   real(kind=wp) :: DnuHK
   real(kind=wp) :: del_xfreq, p1,p2,p3,ptot,pcum1,pcum2,xi
+  real(kind=wp)  :: u_los_birth
   integer       :: iup, idown
   integer       :: ix, idx, il
+  integer(int64) :: active_birth(1)
+  integer        :: n_ab
   real(kind=wp) :: Dfreq_local, voigt_a_local, vfx_local, vfy_local, vfz_local
 
   !=== set up photon's position vector.
@@ -274,6 +278,17 @@ contains
         endif
      endif
   endif
+
+  !--- for non-overlap clump medium, determine birth clump before peel-off
+  if (par%use_clump_medium .and. .not. has_overlap) then
+     call active_set_at_point(photon%x, photon%y, photon%z, active_birth, n_ab)
+     if (n_ab > 0) then
+        photon%icell_clump = int(active_birth(1))
+        u_los_birth = cl_vx(active_birth(1))*photon%kx + cl_vy(active_birth(1))*photon%ky &
+                    + cl_vz(active_birth(1))*photon%kz
+        photon%xfreq = photon%xfreq - u_los_birth
+     end if
+  end if
 
   if (par%save_peeloff) then
      call peeling_direct(photon,grid)

@@ -645,6 +645,8 @@ contains
      !    mode (rhokap = 0).  Use the clump-aware variant that intersects
      !    the bounding sphere and traverses the CSR clump grid.
      make_sightline_tau         => make_sightline_tau_clump
+     ! Overlap-aware pointer upgrade is done by setup_clump_overlap() in
+     ! main.f90, called after grid_create_clump() sets has_overlap.
      return
   end if
 
@@ -814,5 +816,37 @@ contains
   endif
 
   end subroutine setup_procedure
+  !+++++++++++++++++++++++++++++++++++++++++++
+  subroutine setup_clump_overlap()
+  !---------------------------------------------------------------------------
+  ! Re-assign raytrace and scatter procedure pointers for the overlap case.
+  !
+  ! setup_procedure() runs BEFORE grid_create_clump(), so has_overlap is
+  ! always .false. when setup_procedure executes.  This subroutine must be
+  ! called from main.f90 AFTER grid_create_clump() — at that point
+  ! check_has_overlap() has already set has_overlap = .true. if any clump
+  ! pair overlaps, and this routine upgrades the pointers accordingly.
+  !---------------------------------------------------------------------------
+  use define
+  use clump_mod,       only: has_overlap
+  use raytrace_clump_mod
+  use scatter_mod
+  implicit none
+  if (.not. has_overlap) return
+  raytrace_to_tau          => raytrace_to_tau_clump_overlap
+  raytrace_to_edge         => raytrace_to_edge_clump_overlap
+  raytrace_to_edge_tau_gas => raytrace_to_edge_tau_gas_clump_overlap
+  raytrace_to_edge_column  => raytrace_to_edge_column_clump_overlap
+  raytrace_to_dist         => raytrace_to_dist_clump_overlap
+  raytrace_to_dist_tau_gas => raytrace_to_dist_tau_gas_clump_overlap
+  raytrace_to_dist_column  => raytrace_to_dist_column_clump_overlap
+  if (par%use_stokes) then
+     scatter_resonance => scatter_resonance_clump_stokes
+  else
+     scatter_resonance => scatter_resonance_clump_nostokes
+  end if
+  if (mpar%p_rank == 0) write(*,'(A)') &
+     '  [overlap] procedure pointers upgraded to overlap-aware variants'
+  end subroutine setup_clump_overlap
   !+++++++++++++++++++++++++++++++++++++++++++
 end module setup_mod

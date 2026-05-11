@@ -87,7 +87,8 @@ public
      real(kind=wp) :: nx,ny,nz
      integer       :: icell,jcell,kcell
      integer       :: icell_amr   = 0       ! AMR leaf cell index (AMR mode only)
-     integer       :: icell_clump = 0       ! current clump index (0 = vacuum; clump mode only)
+     integer       :: icell_clump = 0       ! current/owner clump index (0 = vacuum; clump mode only;
+                                            !  overlap path: set to opacity-sampled owner at scatter time)
      real(kind=wp) :: xfreq
      real(kind=wp) :: xfreq_ref
      real(kind=wp) :: wgt
@@ -316,7 +317,11 @@ public
      !    The inner radius is the system-level par%rmin (default -999, treated
      !    as 0 in clump placement) so a hollow-shell medium can be configured
      !    via the same parameter used by the Cartesian grid mode.
-     logical       :: clump_fully_inside = .true.
+     logical       :: clump_fully_inside   = .true.
+     !--- When .true., skip RSA overlap rejection so internally generated clumps
+     !    may overlap. check_has_overlap() is called after placement and, if
+     !    overlaps are detected, the overlap-aware raytrace is used automatically.
+     logical       :: clump_allow_overlap  = .false.
      !--- radial-profile inputs (Phase 2 onwards). When all three profiles
      !    are 'constant' (default), the uniform clump behavior is used.
      !    Each axis selects its own shape independently:

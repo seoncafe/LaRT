@@ -32,8 +32,6 @@ contains
 
   subroutine make_sightline_tau_clump(g)
     use mpi
-    use raytrace_clump_mod, only: raytrace_to_edge_tau_gas_clump, &
-                                  raytrace_to_edge_column_clump
     use sightline_tau_rect, only: write_sightline_tau_outside
     implicit none
     type(grid_type), intent(in) :: g    ! passed to write routine; unused there
@@ -113,17 +111,17 @@ contains
         !    sphere), so the photon starts outside any clump.
         pobs%icell_clump = 0
 
-        !--- Gas optical depth per frequency bin.  raytrace_to_edge_tau_gas_clump
-        !    treats pobs%xfreq as the reference-frame x; internally it shifts
-        !    by the per-clump bulk velocity at every clump entry/exit.
+        !--- Gas optical depth per frequency bin.  Routes through the global
+        !    procedure pointer which points to the overlap-aware variant when
+        !    has_overlap = .true., or the standard variant otherwise.
         do kk = 1, observer(i)%nxfreq
           pobs%xfreq = g%xfreq(kk)
-          call raytrace_to_edge_tau_gas_clump(pobs, g, tau_gas)
+          call raytrace_to_edge_tau_gas(pobs, g, tau_gas)
           observer(i)%tau_gas(kk, ix, iy) = tau_gas
         end do
 
         !--- Frequency-independent column density and dust tau.
-        call raytrace_to_edge_column_clump(pobs, g, N_gas, tau_dust)
+        call raytrace_to_edge_column(pobs, g, N_gas, tau_dust)
         observer(i)%N_gas(ix, iy) = N_gas
         if (par%DGR > 0.0_wp) observer(i)%tau_dust(ix, iy) = tau_dust
 

@@ -1,0 +1,122 @@
+
+Running ../../LaRT.x on lart3,lart2,lart1.
+   with the machinefile /tmp/host_file_18295
+
++++++ clump_NHI20_fcov50.in +++++
+ >>> START @ 2026/05/11 05:49:59
+Use_Master_Slave          : T
+Line ID                   : ly_alpha
+Dust Parameters(a, g)     :  0.3253 0.6761
+Dust-to-Gas Ratio         :    0.000E+00
+Total number of photons   :    1.000E+06
+ Clumps: N_clumps  =       74000000
+ Clumps: f_vol     =     0.074074
+ Clumps: f_cov     =     50.00000
+ Clumps: rmin/rmax =      0.10000     1.00000
+ Clumps: cl_rhokap =   8.8521E+07
+ Clumps: voigt_a   =      0.00047
+ Clumps: cl_Dfreq  =   1.0566E+11
+ RSA: grid   420^3, placing       74000000 clumps...
+ RSA: clump_fully_inside = .false. (only centers inside the shell)
+ RSA: shell rmin/rmax    =      0.10000     1.00000
+   placed        1000000 /       74000000
+   placed        2000000 /       74000000
+   placed        3000000 /       74000000
+   placed        4000000 /       74000000
+   placed        5000000 /       74000000
+   placed        6000000 /       74000000
+   placed        7000000 /       74000000
+   placed        8000000 /       74000000
+   placed        9000000 /       74000000
+   placed       10000000 /       74000000
+   placed       11000000 /       74000000
+   placed       12000000 /       74000000
+   placed       13000000 /       74000000
+   placed       14000000 /       74000000
+   placed       15000000 /       74000000
+   placed       16000000 /       74000000
+   placed       17000000 /       74000000
+   placed       18000000 /       74000000
+   placed       19000000 /       74000000
+   placed       20000000 /       74000000
+   placed       21000000 /       74000000
+   placed       22000000 /       74000000
+   placed       23000000 /       74000000
+   placed       24000000 /       74000000
+   placed       25000000 /       74000000
+   placed       26000000 /       74000000
+   placed       27000000 /       74000000
+   placed       28000000 /       74000000
+   placed       29000000 /       74000000
+   placed       30000000 /       74000000
+   placed       31000000 /       74000000
+   placed       32000000 /       74000000
+   placed       33000000 /       74000000
+   placed       34000000 /       74000000
+   placed       35000000 /       74000000
+   placed       36000000 /       74000000
+   placed       37000000 /       74000000
+   placed       38000000 /       74000000
+   placed       39000000 /       74000000
+   placed       40000000 /       74000000
+   placed       41000000 /       74000000
+   placed       42000000 /       74000000
+   placed       43000000 /       74000000
+   placed       44000000 /       74000000
+   placed       45000000 /       74000000
+   placed       46000000 /       74000000
+   placed       47000000 /       74000000
+   placed       48000000 /       74000000
+   placed       49000000 /       74000000
+   placed       50000000 /       74000000
+   placed       51000000 /       74000000
+   placed       52000000 /       74000000
+   placed       53000000 /       74000000
+   placed       54000000 /       74000000
+   placed       55000000 /       74000000
+   placed       56000000 /       74000000
+   placed       57000000 /       74000000
+   placed       58000000 /       74000000
+   placed       59000000 /       74000000
+   placed       60000000 /       74000000
+   placed       61000000 /       74000000
+   placed       62000000 /       74000000
+   placed       63000000 /       74000000
+   placed       64000000 /       74000000
+   placed       65000000 /       74000000
+   placed       66000000 /       74000000
+   placed       67000000 /       74000000
+   placed       68000000 /       74000000
+   placed       69000000 /       74000000
+   placed       70000000 /       74000000
+   placed       71000000 /       74000000
+   placed       72000000 /       74000000
+   placed       73000000 /       74000000
+   placed       74000000 /       74000000
+ RSA done, acceptance rate =   70.7%
+ Clumps: velocity_type   = rotating_galaxy_halo
+ CSR grid:    211704944 registrations in   420^3 cells.
+ Clump derived: tauhomo  =    5.89826E+06
+ Clump derived: taumax   =    5.89826E+06
+ Clump derived: N_gashomo=    1.00000E+20
+voigt_a          :        4.719E-04
+temperature (K)  :        1.000E+04
+N(H  I)_pole     :        1.000E+20
+N(H  I)_homo     :        9.900E+19
+tau_pole  (H  I) :        5.898E+06
+tau_homo  (H  I) :        5.839E+06
+tau_pole  (dust) :        0.000E+00
+tau_homo  (dust) :        0.000E+00
+ Clump grid: rmax      =      1.00000
+ Clump grid: nx,ny,nz  =    11   11   11
+ Clump grid: cl_Dfreq_ref  =   1.0566E+11
+ Clump grid: cl_vtherm_ref =     12.84424 km/s
+ Clump grid: voigt_a   =      0.00047
+---> Now starting simulation...  @   11.547 mins
+   1.00000E+05 photons calculated:   46.606 mins
+   2.00000E+05 photons calculated:   78.630 mins
+   3.00000E+05 photons calculated:  110.349 mins
+   4.00000E+05 photons calculated:  142.241 mins
+   5.00000E+05 photons calculated:  173.864 mins
+   6.00000E+05 photons calculated:  205.166 mins
+   7.00000E+05 photons calculated:  237.326 mins

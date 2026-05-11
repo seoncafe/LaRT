@@ -536,4 +536,47 @@ contains
   end subroutine add_to_Pa
 #endif
 
+  !=====================================
+  subroutine scatter_resonance_clump_nostokes(photon, grid)
+  !---------------------------------------------------------------------------
+  ! Wrapper for the overlap-aware clump path (nostokes).
+  ! photon%xfreq arrives in the GLOBAL frame.  Apply Doppler shift to the
+  ! owner clump's frame, scatter, then shift back to global.
+  !---------------------------------------------------------------------------
+  use clump_mod, only: cl_vx, cl_vy, cl_vz
+  implicit none
+  type(photon_type), intent(inout) :: photon
+  type(grid_type),   intent(inout) :: grid
+  integer(int64) :: icl
+  real(kind=wp)  :: u_in, u_out
+  icl  = int(photon%icell_clump, int64)
+  u_in = real(cl_vx(icl),wp)*photon%kx + real(cl_vy(icl),wp)*photon%ky + real(cl_vz(icl),wp)*photon%kz
+  photon%xfreq = photon%xfreq - u_in
+  call scatter_resonance_nostokes(photon, grid)
+  u_out = real(cl_vx(icl),wp)*photon%kx + real(cl_vy(icl),wp)*photon%ky + real(cl_vz(icl),wp)*photon%kz
+  photon%xfreq = photon%xfreq + u_out
+  end subroutine scatter_resonance_clump_nostokes
+  !=====================================
+
+  !=====================================
+  subroutine scatter_resonance_clump_stokes(photon, grid)
+  !---------------------------------------------------------------------------
+  ! Wrapper for the overlap-aware clump path (stokes).
+  ! Same Doppler logic as the nostokes variant.
+  !---------------------------------------------------------------------------
+  use clump_mod, only: cl_vx, cl_vy, cl_vz
+  implicit none
+  type(photon_type), intent(inout) :: photon
+  type(grid_type),   intent(inout) :: grid
+  integer(int64) :: icl
+  real(kind=wp)  :: u_in, u_out
+  icl  = int(photon%icell_clump, int64)
+  u_in = real(cl_vx(icl),wp)*photon%kx + real(cl_vy(icl),wp)*photon%ky + real(cl_vz(icl),wp)*photon%kz
+  photon%xfreq = photon%xfreq - u_in
+  call scatter_resonance_stokes(photon, grid)
+  u_out = real(cl_vx(icl),wp)*photon%kx + real(cl_vy(icl),wp)*photon%ky + real(cl_vz(icl),wp)*photon%kz
+  photon%xfreq = photon%xfreq + u_out
+  end subroutine scatter_resonance_clump_stokes
+  !=====================================
+
 end module scatter_mod

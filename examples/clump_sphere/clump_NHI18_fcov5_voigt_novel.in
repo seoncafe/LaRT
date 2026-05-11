@@ -16,7 +16,7 @@
  par%velocity_min     = -1000.0
  par%velocity_max     =  1000.0
  par%nx = 11, par%ny = 11, par%nz = 11
- par%save_clump_info  = .true.
+ par%save_clump_info  = .false.
  par%save_Jmu         = .true.
 
  par%nxim             = 129
