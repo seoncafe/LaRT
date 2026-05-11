@@ -27,7 +27,7 @@ import os
 import re
 import sys
 from dataclasses import dataclass, field
-from typing import List, Optional, Tuple
+from typing import Any, List, Optional, Tuple
 
 import numpy as np
 from lart_io import load_lart, find_lart_file, glob_lart
@@ -162,17 +162,330 @@ class PeelObservation:
                             np.nan)
 
 
+# ---------------------------------------------------------------------------
+# Clump-input dataclass + analysis
+# ---------------------------------------------------------------------------
+
+@dataclass
+class ClumpsOutput:
+    """A LaRT clump-input file loaded into per-clump arrays + attributes.
+
+    Built by :func:`read_clumps` from either format (HDF5 or FITS).  Carries
+    the analysis / plotting methods that operate purely on the clump
+    population, so it can be used standalone (no LaRT output required) as
+    well as embedded inside a :class:`LaRTOutput` via the ``clumps`` field.
+    """
+
+    clumps_file: str
+    input_file:  str  = ''
+    params:      dict = field(default_factory=dict)
+    # core per-clump arrays (None if the column is absent from the file)
+    x:           Optional[np.ndarray] = None
+    y:           Optional[np.ndarray] = None
+    z:           Optional[np.ndarray] = None
+    vx:          Optional[np.ndarray] = None
+    vy:          Optional[np.ndarray] = None
+    vz:          Optional[np.ndarray] = None
+    radius:      Optional[np.ndarray] = None        # R_CLUMP column
+    rhokap:      Optional[np.ndarray] = None
+    temp:        Optional[np.ndarray] = None
+    # group / HDU attributes -- case-insensitive lookup via ``attr()``
+    attrs:       dict = field(default_factory=dict)
+
+    # ------------------------------------------------------------------
+    # Convenience accessors
+    # ------------------------------------------------------------------
+    @property
+    def pos(self) -> np.ndarray:
+        """(N, 3) array of clump centres in code units."""
+        return np.column_stack([self.x, self.y, self.z])
+
+    @property
+    def vel(self) -> Optional[np.ndarray]:
+        """(N, 3) bulk velocities in km/s, or None if the VX/VY/VZ columns
+        are absent."""
+        if self.vx is None or self.vy is None or self.vz is None:
+            return None
+        return np.column_stack([self.vx, self.vy, self.vz])
+
+    def attr(self, name: str, default: Any = None) -> Any:
+        """Case-insensitive attribute lookup."""
+        if name in self.attrs:
+            return self.attrs[name]
+        lname = name.lower()
+        for k, v in self.attrs.items():
+            if k.lower() == lname:
+                return v
+        return default
+
+    @property
+    def n_clumps(self) -> int:
+        v = self.attr('N_CLUMPS')
+        return int(v) if v is not None else (len(self.x) if self.x is not None else 0)
+
+    @property
+    def sphere_r(self) -> float:
+        return float(self.attr('SPHERE_R', self.attr('RMAX', 1.0)))
+
+    @property
+    def r_min(self) -> float:
+        """Inner placement radius (code units).  Reads the ``RMIN``
+        attribute; defaults to 0."""
+        return float(self.attr('RMIN', 0.0))
+
+    def _radii_array(self) -> Optional[np.ndarray]:
+        """Per-clump radii used by the f_vol / f_cov formulas: prefer the
+        ``R_CLUMP`` column, fall back to the scalar ``CL_RAD`` attribute
+        broadcast to every clump.  Returns ``None`` if neither is available.
+        """
+        if self.radius is not None:
+            return np.asarray(self.radius, dtype=float)
+        r0 = self.attr('CL_RAD')
+        if r0 is not None and self.x is not None:
+            return np.full(len(self.x), float(r0))
+        return None
+
+    def compute_f_vol(self) -> Optional[float]:
+        """Recompute the realised volume filling factor from the loaded
+        clump radii.  Mirrors LaRT's ``write_clumps_fits`` from-file branch:
+
+        .. math::  f_{\\rm vol} = \\frac{\\sum r_i^3}{R^3 - r_{\\rm min}^3}
+
+        where :math:`R` is ``sphere_r`` and :math:`r_{\\rm min}` is ``r_min``
+        (both read from the file attributes).  Returns ``None`` if the
+        clump radii cannot be determined.
+        """
+        radii = self._radii_array()
+        if radii is None:
+            return None
+        R, rmin = self.sphere_r, self.r_min
+        denom = max(R**3 - rmin**3, np.finfo(float).tiny)
+        return float(np.sum(radii**3) / denom)
+
+    def compute_f_cov(self) -> Optional[float]:
+        r"""Recompute the realised line-of-sight covering factor.  Mirrors
+        LaRT's ``write_clumps_fits`` from-file branch:
+
+        .. math::  f_{\rm cov} = \frac{3}{4}
+            \frac{\sum r_i^2}{R^2 + R\,r_{\rm min} + r_{\rm min}^2}.
+
+        Reduces to :math:`\tfrac34 \sum r_i^2 / R^2` when ``r_min = 0``.
+        Returns ``None`` if the clump radii cannot be determined.
+        """
+        radii = self._radii_array()
+        if radii is None:
+            return None
+        R, rmin = self.sphere_r, self.r_min
+        denom = max(R*R + R*rmin + rmin*rmin, np.finfo(float).tiny)
+        return float(0.75 * np.sum(radii**2) / denom)
+
+    @property
+    def f_vol(self) -> Optional[float]:
+        """Volume filling factor.  Returns the ``F_VOL`` attribute when
+        present, otherwise falls back to :meth:`compute_f_vol`."""
+        v = self.attr('F_VOL')
+        return float(v) if v is not None else self.compute_f_vol()
+
+    @property
+    def f_cov(self) -> Optional[float]:
+        """LOS covering factor.  Returns the ``F_COV`` attribute when
+        present, otherwise falls back to :meth:`compute_f_cov`."""
+        v = self.attr('F_COV')
+        return float(v) if v is not None else self.compute_f_cov()
+
+    def summary(self) -> str:
+        lines = [f"Clumps file: {self.clumps_file}",
+                 f"Input file : {self.input_file or '(none)'}",
+                 f"N_clumps   : {self.n_clumps}",
+                 f"sphere_R   : {self.sphere_r:.4g}"]
+        if self.f_vol is not None:
+            lines.append(f"f_vol      : {self.f_vol:.4g}")
+        if self.f_cov is not None:
+            lines.append(f"f_cov      : {self.f_cov:.4g}")
+        if self.radius is not None:
+            lines.append(f"R_clump    : min/max = {self.radius.min():.3e} / "
+                         f"{self.radius.max():.3e}")
+        if self.rhokap is not None:
+            lines.append(f"RHOKAP     : min/max = {self.rhokap.min():.3e} / "
+                         f"{self.rhokap.max():.3e}")
+        if self.temp is not None:
+            lines.append(f"TEMP       : min/max = {self.temp.min():.3e} / "
+                         f"{self.temp.max():.3e}")
+        return '\n'.join(lines)
+
+    # ------------------------------------------------------------------
+    # Plotting: clump cross-section slice
+    # ------------------------------------------------------------------
+    def plot_clump_slice(self,
+                         axis: str = 'z',
+                         value: float = 0.0,
+                         colorby: Optional[str] = None,
+                         fill: bool = True,
+                         cmap: str = 'viridis',
+                         vmin: Optional[float] = None,
+                         vmax: Optional[float] = None,
+                         linewidth: float = 0.5,
+                         alpha: Optional[float] = None,
+                         show_sphere: bool = True,
+                         ax=None,
+                         figsize: Tuple[float, float] = (7.0, 7.0),
+                         title: Optional[str] = None,
+                         show: bool = False,
+                         savefig: Optional[str] = None):
+        r"""Plot the cross-section of clumps that intersect a coordinate
+        slice plane.
+
+        Operates purely on the in-memory clump arrays loaded by
+        :func:`read_clumps`; nothing about the on-disk format matters by
+        the time this method is called.
+
+        Parameters
+        ----------
+        axis : {'x', 'y', 'z'}, default 'z'
+        value : float, default 0
+        colorby : {'rhokap', 'radius', 'rcross', 'temp', 'none'}, optional
+            Default ``'rhokap'`` if the RHOKAP column is loaded, else
+            ``'radius'``.
+        See :meth:`LaRTOutput.plot_clump_slice` for the rest of the
+        parameters; the API is identical apart from the absent
+        ``clumps_file`` override (already fixed by ``read_clumps``).
+        """
+        if axis not in ('x', 'y', 'z'):
+            raise ValueError(f"axis must be 'x', 'y', or 'z', got {axis!r}")
+        if colorby is not None and colorby not in (
+                'none', 'rhokap', 'radius', 'rcross', 'temp'):
+            raise ValueError(f"colorby must be one of 'none', 'rhokap', "
+                             f"'radius', 'rcross', 'temp'; got {colorby!r}")
+        if self.x is None or self.radius is None:
+            raise RuntimeError(
+                f"{self.clumps_file!r} did not contain the X/Y/Z and "
+                f"R_CLUMP columns required for slice plotting.")
+
+        try:
+            from plot_clump_slice import slice_clumps, AXIS_TRIPLE
+        except ImportError:
+            here = os.path.dirname(os.path.abspath(__file__))
+            if here not in sys.path:
+                sys.path.insert(0, here)
+            from plot_clump_slice import slice_clumps, AXIS_TRIPLE
+
+        import matplotlib.pyplot as plt
+        from matplotlib.patches import Circle
+        from matplotlib.collections import PatchCollection
+
+        a, b, rcross, idx = slice_clumps(self.pos, self.radius, axis, value)
+
+        if colorby is None:
+            colorby = 'rhokap' if self.rhokap is not None else 'radius'
+        if colorby == 'none':
+            color_vals, color_label = None, None
+        elif colorby == 'rhokap':
+            if self.rhokap is None:
+                raise ValueError(
+                    f"colorby='rhokap' requested but {os.path.basename(self.clumps_file)} "
+                    f"has no RHOKAP column.")
+            color_vals = np.asarray(self.rhokap)[idx]
+            color_label = 'RHOKAP'
+        elif colorby == 'radius':
+            color_vals = np.asarray(self.radius)[idx]
+            color_label = r'$R_{\rm clump}$'
+        elif colorby == 'rcross':
+            color_vals = rcross
+            color_label = r'$r_{\rm cross}$'
+        else:  # 'temp'
+            if self.temp is None:
+                raise ValueError(
+                    f"colorby='temp' requested but {os.path.basename(self.clumps_file)} "
+                    f"has no TEMP column.")
+            color_vals = np.asarray(self.temp)[idx]
+            color_label = 'Temperature  [K]'
+
+        if ax is None:
+            fig, ax = plt.subplots(figsize=figsize)
+        else:
+            fig = ax.figure
+
+        R_sphere = self.sphere_r
+        if show_sphere and abs(value) < R_sphere:
+            r_outer = np.sqrt(R_sphere**2 - value**2)
+            ax.add_patch(Circle((0.0, 0.0), r_outer, fill=False,
+                                edgecolor='black', linestyle='--',
+                                linewidth=1.0,
+                                label=f'sphere @ {axis}={value:g}'))
+
+        patches = [Circle((ai, bi), ri) for ai, bi, ri in zip(a, b, rcross)]
+        fill_alpha = (alpha if alpha is not None
+                      else (0.6 if fill else 1.0))
+
+        if color_vals is None:
+            col = PatchCollection(
+                patches,
+                facecolors=('tab:blue' if fill else 'none'),
+                edgecolors='tab:blue',
+                linewidths=linewidth,
+                alpha=fill_alpha,
+            )
+            ax.add_collection(col)
+        else:
+            col = PatchCollection(
+                patches, cmap=cmap,
+                edgecolors=('face' if fill else None),
+                linewidths=linewidth,
+                alpha=fill_alpha,
+            )
+            col.set_array(np.asarray(color_vals))
+            if vmin is not None or vmax is not None:
+                col.set_clim(vmin=vmin, vmax=vmax)
+            if not fill:
+                col.set_facecolor('none')
+            ax.add_collection(col)
+            cb = fig.colorbar(col, ax=ax, fraction=0.046, pad=0.04)
+            cb.set_label(color_label)
+
+        _, _, _, lab_a, lab_b = AXIS_TRIPLE[axis]
+        ax.set_xlabel(lab_a)
+        ax.set_ylabel(lab_b)
+        ax.set_aspect('equal')
+        lim = R_sphere * 1.05
+        ax.set_xlim(-lim, lim); ax.set_ylim(-lim, lim)
+
+        n_in_plane = len(rcross)
+        if title is None:
+            title = (f'{os.path.basename(self.clumps_file)}\n'
+                     f'slice {axis} = {value:g}  |  '
+                     f'{n_in_plane} / {len(self.pos)} clumps cross plane')
+            if self.f_cov is not None and self.f_vol is not None:
+                title += (f'\nf_cov={self.f_cov:.3f}  '
+                          f'f_vol={self.f_vol:.4f}')
+        ax.set_title(title, fontsize=10)
+        if show_sphere and abs(value) < R_sphere:
+            ax.legend(loc='lower right', fontsize=8)
+
+        fig.tight_layout()
+        if savefig:
+            fig.savefig(savefig, dpi=150)
+        if show:
+            plt.show()
+        return fig, ax
+
+
 @dataclass
 class LaRTOutput:
-    """Holds arrays + headers from a LaRT FITS output."""
+    """Holds arrays + headers from a LaRT output file (FITS or HDF5).
+
+    In the "clumps-only" pre-run state (LaRT has not been executed yet but
+    the namelist's ``par%clump_input_file`` exists on disk) the spectrum
+    arrays are ``None`` and only ``input_file``, ``params``, plus the
+    ``_clumps_file_path``-driven plotting hooks are usable.
+    """
 
     fits_file:   str
     input_file:  str
-    # --- Spectrum table (always present) ---
-    xfreq:       np.ndarray
-    velocity:    np.ndarray
-    wavelength:  np.ndarray
-    Jout:        np.ndarray
+    # --- Spectrum table (None in the clumps-only pre-run state) ---
+    xfreq:       Optional[np.ndarray] = None
+    velocity:    Optional[np.ndarray] = None
+    wavelength:  Optional[np.ndarray] = None
+    Jout:        Optional[np.ndarray] = None
     Jin:         Optional[np.ndarray] = None
     Jabs:        Optional[np.ndarray] = None
     Jabs2:       Optional[np.ndarray] = None
@@ -189,12 +502,27 @@ class LaRTOutput:
     spectrum_header: dict = field(default_factory=dict)
     jmu_header:      dict = field(default_factory=dict)
     params:          dict = field(default_factory=dict)   # parsed *.in namelist
+    # --- Clump-input population (optional, lazy-loaded by plot_clump_slice) ---
+    clumps:          Optional['ClumpsOutput'] = None
+
+    @property
+    def is_clumps_only(self) -> bool:
+        """True if no LaRT output has been read (pre-run state with a
+        clump input file)."""
+        return self.Jout is None and self.xfreq is None
 
     def summary(self) -> str:
         nxfreq_str = str(len(self.xfreq)) if self.xfreq is not None else '(absent)'
         lines = [f"FITS file: {self.fits_file}",
                  f"Input    : {self.input_file}",
                  f"nxfreq   : {nxfreq_str}"]
+        if self.is_clumps_only:
+            cfile = self.params.get('clump_input_file') if self.params else None
+            lines.insert(0,
+                "Mode     : clump-input only (LaRT output not yet generated)")
+            if cfile:
+                lines.append(f"Clumps   : {cfile}")
+            return '\n'.join(lines)
         for name in ('Jout', 'Jin', 'Jabs', 'Jabs2'):
             arr = getattr(self, name)
             lines.append(f"{name:8s} : {'present' if arr is not None else '(absent)'}")
@@ -1244,207 +1572,67 @@ class LaRTOutput:
     # Plotting: clump cross-section slice
     # ------------------------------------------------------------------
     def _clumps_file_path(self) -> str:
-        """Return the path of the corresponding ``*_clumps.fits.gz`` file
-        derived from the main output FITS file."""
+        """Return the path of the corresponding clump file (HDF5 or FITS).
+
+        Resolution order:
+          1. ``par%clump_input_file`` from the namelist (if set) — resolved
+             relative to the input-file directory when not absolute.
+          2. ``<output-stem>_clumps.{h5,hdf5,fits.gz,fits}`` siblings of the
+             main LaRT output file.
+        Returns the first match that exists on disk; if nothing exists, the
+        HDF5 default ``<output-stem>_clumps.h5`` is returned so a downstream
+        FileNotFoundError points at the expected location.
+        """
+        cfile = self.params.get('clump_input_file') if self.params else None
+        if isinstance(cfile, str) and cfile.strip():
+            cfile = cfile.strip()
+            if not os.path.isabs(cfile):
+                indir = (os.path.dirname(os.path.abspath(self.input_file))
+                         if self.input_file else
+                         os.path.dirname(os.path.abspath(self.fits_file or '.')))
+                cfile = os.path.join(indir or '.', cfile)
+            if os.path.exists(cfile):
+                return cfile
+        # fall back to siblings of the output file
         base = self.fits_file
-        for ext in ('.fits.gz', '.fits'):
-            if base.endswith(ext):
+        for ext in ('.fits.gz', '.hdf5', '.fits', '.h5'):
+            if base.lower().endswith(ext):
                 base = base[:-len(ext)]
                 break
-        for ext in ('_clumps.fits.gz', '_clumps.fits'):
+        for ext in ('_clumps.h5', '_clumps.hdf5', '_clumps.fits.gz', '_clumps.fits'):
             cand = base + ext
             if os.path.exists(cand):
                 return cand
-        return base + '_clumps.fits.gz'
+        return base + '_clumps.h5'
 
-    def plot_clump_slice(self,
-                         axis: str = 'z',
-                         value: float = 0.0,
-                         colorby: Optional[str] = None,
-                         fill: bool = True,
-                         cmap: str = 'viridis',
-                         vmin: Optional[float] = None,
-                         vmax: Optional[float] = None,
-                         linewidth: float = 0.5,
-                         alpha: Optional[float] = None,
-                         show_sphere: bool = True,
-                         clumps_file: Optional[str] = None,
-                         ax=None,
-                         figsize: Tuple[float, float] = (7.0, 7.0),
-                         title: Optional[str] = None,
-                         show: bool = False,
-                         savefig: Optional[str] = None):
+    def plot_clump_slice(self, *args, clumps_file: Optional[str] = None, **kwargs):
         r"""Plot the cross-section of clumps that intersect a coordinate
         slice plane.
 
-        Loads the corresponding ``*_clumps.fits.gz`` file (or the path
-        given via ``clumps_file``) and reuses :func:`plot_clump_slice.load_clumps`,
-        :func:`plot_clump_slice.slice_clumps` and
-        :func:`plot_clump_slice.make_color_array` from the same directory
-        for the geometry.
+        Thin wrapper around :meth:`ClumpsOutput.plot_clump_slice`:
+        loads the matching clump file via :func:`read_clumps` on first
+        call (cached in ``self.clumps`` for reuse), then forwards all
+        arguments.  Pass ``clumps_file=PATH`` to override the auto-located
+        path.
 
-        Parameters
-        ----------
-        axis : {'x', 'y', 'z'}
-            Slice axis (default 'z').
-        value : float
-            Slice coordinate (default 0).
-        colorby : {'rhokap', 'radius', 'rcross', 'temp', 'none'}, optional
-            Per-clump quantity used to colour the disks.  Default
-            ``'rhokap'`` if the clumps file has a RHOKAP column,
-            otherwise auto-falls back to ``'radius'``.  ``'radius'``
-            colours by full 3D ``R_CLUMP``.
-        fill : bool
-            If True (default), fill the cross-section disks; otherwise
-            draw outlines only.
-        cmap : str
-            Matplotlib colormap (default 'viridis').
-        vmin, vmax : float, optional
-            Color-scale bounds for the chosen quantity.
-        linewidth : float
-            Outline thickness.
-        alpha : float, optional
-            Disk alpha.  Default 0.6 when ``fill=True``, 1.0 when outline.
-        show_sphere : bool
-            Draw the outer sphere boundary at this slice as a dashed
-            circle (default True).
-        clumps_file : str, optional
-            Override the auto-located ``*_clumps.fits.gz`` path.
-        ax : matplotlib.axes.Axes, optional
-            Existing axes to draw on; created if None.
-        figsize, title, show, savefig : convenience options.
-
-        Returns
-        -------
-        fig, ax : matplotlib.figure.Figure, matplotlib.axes.Axes
+        See :meth:`ClumpsOutput.plot_clump_slice` for the full parameter
+        list.
         """
-        if axis not in ('x', 'y', 'z'):
-            raise ValueError(f"axis must be 'x', 'y', or 'z', got {axis!r}")
-        if colorby is not None and colorby not in (
-                'none', 'rhokap', 'radius', 'rcross', 'temp'):
-            raise ValueError(f"colorby must be one of 'none', 'rhokap', "
-                             f"'radius', 'rcross', 'temp'; got {colorby!r}")
-
-        cfile = clumps_file if clumps_file else self._clumps_file_path()
-        if not os.path.exists(cfile):
-            raise FileNotFoundError(
-                f"Clumps file not found: {cfile}\n"
-                f"  (derived from {self.fits_file}; pass clumps_file=... "
-                f"to override)")
-
-        # Reuse helpers from plot_clump_slice.py in the same directory.
-        try:
-            from plot_clump_slice import load_clumps, slice_clumps, AXIS_TRIPLE
-        except ImportError:
-            here = os.path.dirname(os.path.abspath(__file__))
-            if here not in sys.path:
-                sys.path.insert(0, here)
-            from plot_clump_slice import load_clumps, slice_clumps, AXIS_TRIPLE
-
-        import matplotlib.pyplot as plt
-        from matplotlib.patches import Circle
-        from matplotlib.collections import PatchCollection
-
-        clumps = load_clumps(cfile)
-        a, b, rcross, idx = slice_clumps(clumps['pos'], clumps['radius'],
-                                         axis, value)
-
-        # Resolve colorby: default rhokap if available, else radius.
-        if colorby is None:
-            colorby = 'rhokap' if clumps.get('rhokap') is not None else 'radius'
-        # Validate availability and produce (values, label) ourselves so we
-        # don't depend on the CLI helper's sys.exit error path.
-        if colorby == 'none':
-            color_vals, color_label = None, None
-        elif colorby == 'rhokap':
-            if clumps.get('rhokap') is None:
-                raise ValueError(
-                    f"colorby='rhokap' requested but the clumps file "
-                    f"{os.path.basename(cfile)} has no RHOKAP column.")
-            color_vals = np.asarray(clumps['rhokap'])[idx]
-            color_label = 'RHOKAP'
-        elif colorby == 'radius':
-            color_vals = np.asarray(clumps['radius'])[idx]
-            color_label = r'$R_{\rm clump}$'
-        elif colorby == 'rcross':
-            color_vals = rcross
-            color_label = r'$r_{\rm cross}$'
-        else:  # 'temp'
-            if clumps.get('temp') is None:
-                raise ValueError(
-                    f"colorby='temp' requested but the clumps file "
-                    f"{os.path.basename(cfile)} has no TEMP column.")
-            color_vals = np.asarray(clumps['temp'])[idx]
-            color_label = 'Temperature  [K]'
-
-        if ax is None:
-            fig, ax = plt.subplots(figsize=figsize)
+        if clumps_file is not None:
+            co = read_clumps(clumps_file)
+            if self.clumps is None:
+                self.clumps = co
         else:
-            fig = ax.figure
-
-        # Outer sphere boundary at this slice
-        R_sphere = clumps['sphere_R']
-        if show_sphere and abs(value) < R_sphere:
-            r_outer = np.sqrt(R_sphere**2 - value**2)
-            ax.add_patch(Circle((0.0, 0.0), r_outer, fill=False,
-                                edgecolor='black', linestyle='--',
-                                linewidth=1.0,
-                                label=f'sphere @ {axis}={value:g}'))
-
-        patches = [Circle((ai, bi), ri) for ai, bi, ri in zip(a, b, rcross)]
-        fill_alpha = (alpha if alpha is not None
-                      else (0.6 if fill else 1.0))
-
-        if color_vals is None:
-            col = PatchCollection(
-                patches,
-                facecolors=('tab:blue' if fill else 'none'),
-                edgecolors='tab:blue',
-                linewidths=linewidth,
-                alpha=fill_alpha,
-            )
-            ax.add_collection(col)
-        else:
-            col = PatchCollection(
-                patches, cmap=cmap,
-                edgecolors=('face' if fill else None),
-                linewidths=linewidth,
-                alpha=fill_alpha,
-            )
-            col.set_array(np.asarray(color_vals))
-            if vmin is not None or vmax is not None:
-                col.set_clim(vmin=vmin, vmax=vmax)
-            if not fill:
-                col.set_facecolor('none')
-            ax.add_collection(col)
-            cb = fig.colorbar(col, ax=ax, fraction=0.046, pad=0.04)
-            cb.set_label(color_label)
-
-        _, _, _, lab_a, lab_b = AXIS_TRIPLE[axis]
-        ax.set_xlabel(lab_a)
-        ax.set_ylabel(lab_b)
-        ax.set_aspect('equal')
-        lim = R_sphere * 1.05
-        ax.set_xlim(-lim, lim); ax.set_ylim(-lim, lim)
-
-        n_in_plane = len(rcross)
-        if title is None:
-            title = (f'{os.path.basename(cfile)}\n'
-                     f'slice {axis} = {value:g}  |  '
-                     f'{n_in_plane} / {len(clumps["pos"])} clumps cross plane')
-            if clumps['f_cov'] is not None and clumps['f_vol'] is not None:
-                title += (f'\nf_cov={clumps["f_cov"]:.3f}  '
-                          f'f_vol={clumps["f_vol"]:.4f}')
-        ax.set_title(title, fontsize=10)
-        if show_sphere and abs(value) < R_sphere:
-            ax.legend(loc='lower right', fontsize=8)
-
-        fig.tight_layout()
-        if savefig:
-            fig.savefig(savefig, dpi=150)
-        if show:
-            plt.show()
-        return fig, ax
+            if self.clumps is None:
+                cfile = self._clumps_file_path()
+                if not os.path.exists(cfile):
+                    raise FileNotFoundError(
+                        f"Clumps file not found: {cfile}\n"
+                        f"  (derived from {self.fits_file}; pass clumps_file=... "
+                        f"to override)")
+                self.clumps = read_clumps(cfile)
+            co = self.clumps
+        return co.plot_clump_slice(*args, **kwargs)
 
 
 # ---------------------------------------------------------------------------
@@ -1753,6 +1941,107 @@ def _read_peel_observation(fname: str) -> Optional[PeelObservation]:
     )
 
 
+def _resolve_clump_path(name: str) -> Tuple[str, str, dict]:
+    """Resolve a user-supplied name to ``(clumps_file, input_file, params)``.
+
+    Accepts:
+      * an existing clump file with an HDF5/FITS extension --- returned
+        as-is (input_file/params blank).
+      * an input file (``run.in`` or stem) --- ``par%clump_input_file`` is
+        read from the namelist and resolved relative to the input dir.
+      * a stem with a matching ``<stem>_clumps.{h5,hdf5,fits.gz,fits}`` ---
+        returned with empty input metadata.
+
+    Raises ``FileNotFoundError`` if no clump file can be located.
+    """
+    # 1. Direct clump file given?
+    if name.lower().endswith(('.h5', '.hdf5', '.fits', '.fits.gz')) \
+            and os.path.exists(name):
+        return name, '', {}
+
+    # 2. Try to resolve as an input file
+    infile = resolve_input_file(name)
+    params: dict = {}
+    if os.path.isfile(infile) and infile.endswith('.in'):
+        try:
+            params = parse_input_file(infile)
+        except OSError:
+            params = {}
+        cval = params.get('clump_input_file', '')
+        if isinstance(cval, str) and cval.strip():
+            cpath = cval.strip()
+            if not os.path.isabs(cpath):
+                cpath = os.path.join(
+                    os.path.dirname(os.path.abspath(infile)) or '.', cpath)
+            if os.path.exists(cpath):
+                return cpath, infile, params
+
+    # 3. Try '<stem>_clumps.*' siblings
+    stem = name
+    for ext in ('.in', '.fits.gz', '.hdf5', '.fits', '.h5'):
+        if stem.lower().endswith(ext):
+            stem = stem[: -len(ext)]
+            break
+    resolved = find_lart_file(stem, suffix='_clumps')
+    if resolved is not None:
+        return resolved, (infile if infile.endswith('.in') and os.path.isfile(infile) else ''), params
+
+    raise FileNotFoundError(
+        f"No clump file could be located from {name!r} "
+        f"(checked direct path, par%clump_input_file in {infile!r}, "
+        f"and <stem>_clumps.{{h5,hdf5,fits.gz,fits}}).")
+
+
+def read_clumps(name: str) -> ClumpsOutput:
+    """Load a LaRT clump-input file (HDF5 or FITS) into a :class:`ClumpsOutput`.
+
+    ``name`` may be:
+      * a clump file path: ``'foo_clumps.h5'`` or ``'foo_clumps.fits.gz'``
+      * an input file: ``'run.in'`` -- reads ``par%clump_input_file`` and
+        loads it (relative paths resolved against the input-file directory)
+      * a stem: ``'run'`` -- tries ``'run.in'`` first, then a sibling
+        ``run_clumps.{h5,hdf5,fits.gz,fits}``.
+
+    Returns a :class:`ClumpsOutput` with the per-clump arrays and group
+    attributes populated.
+    """
+    cpath, infile, params = _resolve_clump_path(name)
+    lf = load_lart(cpath)
+    sec = lf.section('Clumps') or (lf.sections[0] if lf.sections else None)
+    if sec is None:
+        raise RuntimeError(f"No clump section found in {cpath!r}; "
+                           f"available sections: {[s.name for s in lf.sections]}")
+
+    def _col(col_name: str) -> Optional[np.ndarray]:
+        v = sec.col(col_name)
+        return np.asarray(v) if v is not None else None
+
+    attrs = dict(sec.attrs)
+    for k in list(attrs):
+        if k.upper() not in attrs:
+            attrs[k.upper()] = attrs[k]
+
+    return ClumpsOutput(
+        clumps_file = cpath,
+        input_file  = infile,
+        params      = params,
+        x           = _col('X'),
+        y           = _col('Y'),
+        z           = _col('Z'),
+        vx          = _col('VX'),
+        vy          = _col('VY'),
+        vz          = _col('VZ'),
+        radius      = _col('R_CLUMP'),
+        rhokap      = _col('RHOKAP'),
+        temp        = _col('TEMP'),
+        attrs       = attrs,
+    )
+
+
+# Backward-compat singular alias.
+read_clump = read_clumps
+
+
 def read_lart(name: str) -> LaRTOutput:
     """Read a LaRT output file (FITS or HDF5).
 
@@ -1779,6 +2068,23 @@ def read_lart(name: str) -> LaRTOutput:
         except OSError:
             params = {}
     if not os.path.exists(fits_file):
+        # Clumps-only fallback: LaRT has not been run yet, but the namelist
+        # points at an existing par%clump_input_file.  Delegate to
+        # read_clumps() so we get the full ClumpsOutput (per-clump arrays
+        # + attrs + plot_clump_slice method) without duplicating logic.
+        try:
+            clumps = read_clumps(infile) if infile else None
+        except (FileNotFoundError, OSError):
+            clumps = None
+        if clumps is not None:
+            print(f"read_lart: output {fits_file} not yet present; "
+                  f"loading clump input only ({clumps.clumps_file}).")
+            return LaRTOutput(
+                fits_file = fits_file,
+                input_file = infile,
+                params = params,
+                clumps = clumps,
+            )
         raise FileNotFoundError(
             f"Output file not found: {fits_file}\n"
             f"  (input was {infile})"
