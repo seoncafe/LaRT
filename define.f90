@@ -358,6 +358,10 @@ public
      character(len=128) :: out_file        = ''
      logical            :: out_merge       = .false.
      integer            :: out_bitpix      = 0    ! 0=auto, -32=float32, -64=float64
+     !--- output file format: 'fits' (default; .fits.gz) or 'hdf5' (.h5).
+     !    Used by all write_output_* routines to pick the right extension
+     !    when constructing derived filenames (peeloff, sightline, ...).
+     character(len=8)   :: file_format     = 'hdf5'
      !--- master-slave mode, dust weighting method, stokes
      !integer       :: num_send_at_once     = 100
      integer(int64):: num_send_at_once     = 100

@@ -1,7 +1,7 @@
-program convert_ramses_to_generic_fits
+program convert_ramses_to_generic
   use define, only: wp, kpc2cm, pc2cm, au2cm
   use read_ramses_amr_mod, only: ramses_read_leaf_cells
-  use fitsio_mod
+  use iofile_mod
   use, intrinsic :: iso_fortran_env, only: int32
   implicit none
 
@@ -14,7 +14,8 @@ program convert_ramses_to_generic_fits
   integer(int32), allocatable :: leaf_level_i4(:)
   integer :: snapnum, nleaf
   real(wp) :: boxlen_cm, unit2cm, unit_l_cgs
-  integer :: status, unit
+  integer :: status
+  type(io_file_type) :: iofh
 
   call parse_args(repository, snapnum, output_file, output_unit)
   call read_ramses_unit_l(trim(repository), snapnum, unit_l_cgs)
@@ -35,31 +36,31 @@ program convert_ramses_to_generic_fits
   leaf_level_i4 = int(leaf_level, int32)
 
   status = 0
-  call fits_open_new(unit, trim(output_file), status)
-  if (status /= 0) stop 'convert_ramses_to_generic_fits: cannot create output FITS file'
+  call io_open_new(iofh, trim(output_file), status)
+  if (status /= 0) stop 'convert_ramses_to_generic: cannot create output file'
 
-  call fits_write_table_column(unit, 'x',      xleaf,         status)
-  call fits_write_table_column(unit, 'y',      yleaf,         status)
-  call fits_write_table_column(unit, 'z',      zleaf,         status)
-  call fits_write_table_column(unit, 'level',  leaf_level_i4, status)
-  call fits_write_table_column(unit, 'gasDen', nH_cgs,        status)
-  call fits_write_table_column(unit, 'T',      T_cgs,         status)
-  call fits_write_table_column(unit, 'vx',     vx_kms,        status)
-  call fits_write_table_column(unit, 'vy',     vy_kms,        status)
-  call fits_write_table_column(unit, 'vz',     vz_kms,        status)
+  call io_write_table_column(iofh, 'x',      xleaf,         status)
+  call io_write_table_column(iofh, 'y',      yleaf,         status)
+  call io_write_table_column(iofh, 'z',      zleaf,         status)
+  call io_write_table_column(iofh, 'level',  leaf_level_i4, status)
+  call io_write_table_column(iofh, 'gasDen', nH_cgs,        status)
+  call io_write_table_column(iofh, 'T',      T_cgs,         status)
+  call io_write_table_column(iofh, 'vx',     vx_kms,        status)
+  call io_write_table_column(iofh, 'vy',     vy_kms,        status)
+  call io_write_table_column(iofh, 'vz',     vz_kms,        status)
 
-  call fits_put_keyword(unit, 'BOXLEN',  boxlen_cm,               'Simulation box length', status)
-  call fits_put_keyword(unit, 'ORIGINX', 0.0_wp,                  'Box origin x',          status)
-  call fits_put_keyword(unit, 'ORIGINY', 0.0_wp,                  'Box origin y',          status)
-  call fits_put_keyword(unit, 'ORIGINZ', 0.0_wp,                  'Box origin z',          status)
-  call fits_put_keyword(unit, 'NLEAF',   int(nleaf, int32),       'Number of AMR leaf cells', status)
-  call fits_put_keyword(unit, 'UNITLCGS', unit_l_cgs,             'RAMSES unit_l in cm',   status)
-  call fits_put_keyword(unit, 'UNITPOS', trim(output_unit),       'Position unit in table', status)
+  call io_put_keyword(iofh, 'BOXLEN',  boxlen_cm,               'Simulation box length', status)
+  call io_put_keyword(iofh, 'ORIGINX', 0.0_wp,                  'Box origin x',          status)
+  call io_put_keyword(iofh, 'ORIGINY', 0.0_wp,                  'Box origin y',          status)
+  call io_put_keyword(iofh, 'ORIGINZ', 0.0_wp,                  'Box origin z',          status)
+  call io_put_keyword(iofh, 'NLEAF',   int(nleaf, int32),       'Number of AMR leaf cells', status)
+  call io_put_keyword(iofh, 'UNITLCGS', unit_l_cgs,             'RAMSES unit_l in cm',   status)
+  call io_put_keyword(iofh, 'UNITPOS', trim(output_unit),       'Position unit in table', status)
 
-  call fits_close(unit, status)
-  if (status /= 0) stop 'convert_ramses_to_generic_fits: error while closing FITS file'
+  call io_close(iofh, status)
+  if (status /= 0) stop 'convert_ramses_to_generic: error while closing output file'
 
-  write(*,'(a)') 'Converted RAMSES snapshot to generic FITS'
+  write(*,'(a)') 'Converted RAMSES snapshot to generic format'
   write(*,'(a)') '  repository : '//trim(repository)
   write(*,'(a,i0)') '  snapnum    : ', snapnum
   write(*,'(a)') '  output     : '//trim(output_file)
@@ -99,7 +100,7 @@ contains
   end subroutine parse_args
 
   subroutine print_usage()
-    write(*,'(a)') 'Usage: convert_ramses_to_generic_fits.x <repository> <snapnum> <output.fits|output.fits.gz> [kpc|pc|au|cm]'
+    write(*,'(a)') 'Usage: convert_ramses_to_generic.x <repository> <snapnum> <output.{fits|fits.gz|h5|hdf5}> [kpc|pc|au|cm]'
   end subroutine print_usage
 
   subroutine get_unit_scale(unit_name, unit2cm)
@@ -116,7 +117,7 @@ contains
     case ('au')
       unit2cm = au2cm
     case default
-      stop 'convert_ramses_to_generic_fits: unsupported unit'
+      stop 'convert_ramses_to_generic: unsupported unit'
     end select
   end subroutine get_unit_scale
 
@@ -162,4 +163,4 @@ contains
     end do
   end function str_lower
 
-end program convert_ramses_to_generic_fits
+end program convert_ramses_to_generic

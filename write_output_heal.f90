@@ -1,6 +1,6 @@
 module write_output_heal
   use define
-  use fitsio_mod
+  use iofile_mod
   use output_sum_heal
   use utility
   implicit none
@@ -50,7 +50,8 @@ contains
   character(len=*), intent(in)    :: filename
   type(grid_type),  intent(inout) :: grid
   !--------------------
-  integer            :: unit0,unit,status=0
+  type(io_file_type) :: iofh0, iofh
+  integer            :: status=0
   character(len=128) :: filename1, filename2
   logical            :: file_exist, merge_ok
   integer            :: colnum
@@ -73,18 +74,18 @@ contains
      !--- make a backup file.
      if (par%save_backup) then
         fname_backup = name_for_backup(get_base_name(trim(filename)))
-        filename2    = trim(fname_backup)//'.fits.gz'
+        filename2    = trim(fname_backup)//trim(io_file_extension(par%file_format))
         call copy_file(trim(par%out_file), trim(filename2), status)
      endif
 
-     call fits_open_old(unit0,trim(filename),status)
-     call fits_move_to_next_hdu(unit0,status)
+     call io_open_old(iofh0,trim(filename),status)
+     call io_move_to_next_section(iofh0,status)
 
-     call fits_get_keyword(unit0,'exetime',  exetime1,    status)
-     call fits_get_keyword(unit0,'nphotons', nph1,        status)
-     call fits_get_keyword(unit0,'Nsc_gas',  nscatt_gas1, status)
-     call fits_get_keyword(unit0,'Nsc_dust', nscatt_dust1,status)
-     call fits_get_keyword(unit0,'Nsc_tot',  nscatt_tot1, status)
+     call io_get_keyword(iofh0,'exetime',  exetime1,    status)
+     call io_get_keyword(iofh0,'nphotons', nph1,        status)
+     call io_get_keyword(iofh0,'Nsc_gas',  nscatt_gas1, status)
+     call io_get_keyword(iofh0,'Nsc_dust', nscatt_dust1,status)
+     call io_get_keyword(iofh0,'Nsc_tot',  nscatt_tot1, status)
      !--- do not update par%exetime, which will give information for each run, not for all accumulated runs.
      !--- update the number of scatterings to improve statistics (2020.09.06).
      exetime         = par%exetime + exetime1
@@ -95,30 +96,30 @@ contains
      par%nscatt_tot  = (nscatt_tot1 *nph1 + par%nscatt_tot *nph2)/nph_tot
 
      !if (trim(par%source_geometry) == 'stellar_illumination' .or. trim(par%source_geometry) == 'point_illumination') then
-     !   call fits_get_keyword(unit0,'Raccept',  raccept1, status)
-     !   call fits_get_keyword(unit0,'fluxfac',  fluxfac1, status)
+     !   call io_get_keyword(iofh0,'Raccept',  raccept1, status)
+     !   call io_get_keyword(iofh0,'fluxfac',  fluxfac1, status)
      !   par%acceptance_rate  = (raccept1 *nph1 + par%acceptance_rate *nph2)/nph_tot
      !   par%flux_factor      = (fluxfac1 *nph1 + par%flux_factor     *nph2)/nph_tot
      !endif
 
      if (.not. allocated(arr_1D)) allocate(arr_1D, source=grid%xfreq)
-     call fits_get_column_number(unit0,'Jout',colnum,status)
-     call fits_read_table_column(unit0,colnum,arr_1D,status)
+     call io_get_column_number(iofh0,'Jout',colnum,status)
+     call io_read_table_column(iofh0,colnum,arr_1D,status)
      grid%Jout = (arr_1D * nph1 + grid%Jout * nph2)/nph_tot
 
      if (par%save_Jabs) then
-        call fits_get_column_number(unit0,'Jabs',colnum,status)
-        call fits_read_table_column(unit0,colnum,arr_1D,status)
+        call io_get_column_number(iofh0,'Jabs',colnum,status)
+        call io_read_table_column(iofh0,colnum,arr_1D,status)
         grid%Jabs = (arr_1D * nph1 + grid%Jabs * nph2)/nph_tot
      endif
      !if (trim(par%geometry) == 'plane_atmosphere' .or. trim(par%geometry) == 'spherical_atmosphere') then
-     !   call fits_get_column_number(unit0,'Jabs2',colnum,status)
-     !   call fits_read_table_column(unit0,colnum,arr_1D,status)
+     !   call io_get_column_number(iofh0,'Jabs2',colnum,status)
+     !   call io_read_table_column(iofh0,colnum,arr_1D,status)
      !   grid%Jabs2 = (arr_1D * nph1 + grid%Jabs2 * nph2)/nph_tot
      !endif
      if (par%save_Jin) then
-        call fits_get_column_number(unit0,'Jin',colnum,status)
-        call fits_read_table_column(unit0,colnum,arr_1D,status)
+        call io_get_column_number(iofh0,'Jin',colnum,status)
+        call io_read_table_column(iofh0,colnum,arr_1D,status)
         grid%Jin = (arr_1D * nph1 + grid%Jin * nph2)/nph_tot
      endif
      if (allocated(arr_1D)) deallocate(arr_1D)
@@ -126,8 +127,8 @@ contains
      !--- Jmu image (escaped spectrum binned by mu)
      if (associated(grid%Jmu)) then
         if (.not. allocated(arr_2D)) allocate(arr_2D, source=grid%Jmu)
-        call fits_move_to_next_hdu(unit0,status)
-        call fits_read_image(unit0,arr_2D,status)
+        call io_move_to_next_section(iofh0,status)
+        call io_read_image(iofh0,arr_2D,status)
         grid%Jmu = (arr_2D * nph1 + grid%Jmu * nph2)/nph_tot
         if (allocated(arr_2D)) deallocate(arr_2D)
      endif
@@ -136,8 +137,8 @@ contains
      if (associated(grid%Pa)) then
         !--- save P_alapha(x,y,z) : scattering number per atom per photon
         if (.not. allocated(arr_3D)) allocate(arr_3D, source=grid%Pa)
-        call fits_move_to_next_hdu(unit0,status)
-        call fits_read_image(unit0,arr_3D,status)
+        call io_move_to_next_section(iofh0,status)
+        call io_read_image(iofh0,arr_3D,status)
         grid%Pa = (arr_3D * nph1 + grid%Pa * nph2)/nph_tot
         if (allocated(arr_3D)) deallocate(arr_3D)
      endif
@@ -145,8 +146,8 @@ contains
      if (associated(grid%P1)) then
         !--- save radial or z profile, P_alpha
         if (.not. allocated(arr_1D)) allocate(arr_1D, source=grid%P1)
-        call fits_move_to_next_hdu(unit0,status)
-        call fits_read_image(unit0,arr_1D,status)
+        call io_move_to_next_section(iofh0,status)
+        call io_read_image(iofh0,arr_1D,status)
         grid%P1 = (arr_1D * nph1 + grid%P1 * nph2)/nph_tot
         if (allocated(arr_1D)) deallocate(arr_1D)
      endif
@@ -154,8 +155,8 @@ contains
      if (associated(grid%P2)) then
         !--- save cylindrical (r, z) profile, P_alpha
         if (.not. allocated(arr_2D)) allocate(arr_2D, source=grid%P2)
-        call fits_move_to_next_hdu(unit0,status)
-        call fits_read_image(unit0,arr_2D,status)
+        call io_move_to_next_section(iofh0,status)
+        call io_read_image(iofh0,arr_2D,status)
         grid%P2 = (arr_2D * nph1 + grid%P2 * nph2)/nph_tot
         if (allocated(arr_2D)) deallocate(arr_2D)
      endif
@@ -165,8 +166,8 @@ contains
      if (associated(grid%Pa_new)) then
         !--- save P_alapha(x,y,z) : scattering number per atom per photon
         if (.not. allocated(arr_3D)) allocate(arr_3D, source=grid%Pa_new)
-        call fits_move_to_next_hdu(unit0,status)
-        call fits_read_image(unit0,arr_3D,status)
+        call io_move_to_next_section(iofh0,status)
+        call io_read_image(iofh0,arr_3D,status)
         grid%Pa_new = (arr_3D * nph1 + grid%Pa_new * nph2)/nph_tot
         if (allocated(arr_3D)) deallocate(arr_3D)
      endif
@@ -174,8 +175,8 @@ contains
      if (associated(grid%P1_new)) then
         !--- save radial or z profile, P_alpha
         if (.not. allocated(arr_1D)) allocate(arr_1D, source=grid%P1_new)
-        call fits_move_to_next_hdu(unit0,status)
-        call fits_read_image(unit0,arr_1D,status)
+        call io_move_to_next_section(iofh0,status)
+        call io_read_image(iofh0,arr_1D,status)
         grid%P1_new = (arr_1D * nph1 + grid%P1_new * nph2)/nph_tot
         if (allocated(arr_1D)) deallocate(arr_1D)
      endif
@@ -183,8 +184,8 @@ contains
      if (associated(grid%P2_new)) then
         !--- save cylidrical (r, z)  profile, P_alpha
         if (.not. allocated(arr_2D)) allocate(arr_2D, source=grid%P2_new)
-        call fits_move_to_next_hdu(unit0,status)
-        call fits_read_image(unit0,arr_2D,status)
+        call io_move_to_next_section(iofh0,status)
+        call io_read_image(iofh0,arr_2D,status)
         grid%P2_new = (arr_2D * nph1 + grid%P2_new * nph2)/nph_tot
         if (allocated(arr_2D)) deallocate(arr_2D)
      endif
@@ -194,8 +195,8 @@ contains
      if (associated(grid%J)) then
         !--- save J(nu,x,y,z) : mean intensity spectrum at (x,y,z)
         if (.not. allocated(arr_4D)) allocate(arr_4D, source=grid%J)
-        call fits_move_to_next_hdu(unit0,status)
-        call fits_read_image(unit0,arr_4D,status)
+        call io_move_to_next_section(iofh0,status)
+        call io_read_image(iofh0,arr_4D,status)
         grid%J = (arr_4D * nph1 + grid%J * nph2)/nph_tot
         if (allocated(arr_4D)) deallocate(arr_4D)
      endif
@@ -203,8 +204,8 @@ contains
      if (associated(grid%J1)) then
         !--- save radial or z profile of mean intensity spectrum J(nu)
         if (.not. allocated(arr_2D)) allocate(arr_2D, source=grid%J1)
-        call fits_move_to_next_hdu(unit0,status)
-        call fits_read_image(unit0,arr_2D,status)
+        call io_move_to_next_section(iofh0,status)
+        call io_read_image(iofh0,arr_2D,status)
         grid%J1 = (arr_2D * nph1 + grid%J1 * nph2)/nph_tot
         if (allocated(arr_2D)) deallocate(arr_2D)
      endif
@@ -212,184 +213,184 @@ contains
      if (associated(grid%J2)) then
         !--- save cylindrical (r, z) profile of mean intensity spectrum J(nu)
         if (.not. allocated(arr_3D)) allocate(arr_3D, source=grid%J2)
-        call fits_move_to_next_hdu(unit0,status)
-        call fits_read_image(unit0,arr_3D,status)
+        call io_move_to_next_section(iofh0,status)
+        call io_read_image(iofh0,arr_3D,status)
         grid%J2 = (arr_3D * nph1 + grid%J2 * nph2)/nph_tot
         if (allocated(arr_3D)) deallocate(arr_3D)
      endif
 #endif
-     call fits_close(unit0,status)
+     call io_close(iofh0,status)
   endif
 
   !--- open main FITS file.
-  call fits_open_new(unit,trim(filename),status)
+  call io_open_new(iofh,trim(filename),status)
 
   !--- xfreq, (relative) frequency, velocity, and wavelength
-  call fits_append_table_column(unit,'Xfreq',   grid%xfreq,   status,bitpix=par%out_bitpix)
-  call fits_append_table_column(unit,'velocity',grid%velocity,status,bitpix=par%out_bitpix)
-  !call fits_append_table_column(unit,'wavelength',  grid%wavelength,  status,bitpix=par%out_bitpix)
+  call io_append_table_column(iofh,'Xfreq',   grid%xfreq,   status,bitpix=par%out_bitpix)
+  call io_append_table_column(iofh,'velocity',grid%velocity,status,bitpix=par%out_bitpix)
+  !call io_append_table_column(iofh,'wavelength',  grid%wavelength,  status,bitpix=par%out_bitpix)
   !--- wavelength should be saved in 64 bits. (2025.10.08)
-  call fits_append_table_column(unit,'wavelength', grid%wavelength, status,bitpix=-64)
+  call io_append_table_column(iofh,'wavelength', grid%wavelength, status,bitpix=-64)
 
   !--- Jout, emerging spectrum
-  call fits_append_table_column(unit,'Jout',grid%Jout,status,bitpix=par%out_bitpix)
+  call io_append_table_column(iofh,'Jout',grid%Jout,status,bitpix=par%out_bitpix)
 
   !--- Jabs, absorbed spectrum
   if (par%save_Jabs) then
-     call fits_append_table_column(unit,'Jabs',grid%Jabs,status,bitpix=par%out_bitpix)
+     call io_append_table_column(iofh,'Jabs',grid%Jabs,status,bitpix=par%out_bitpix)
   endif
   !if (trim(par%geometry) == 'plane_atmosphere' .or. trim(par%geometry) == 'spherical_atmosphere') then
-  !   call fits_append_table_column(unit,'Jabs2',grid%Jabs2,status,bitpix=par%out_bitpix)
+  !   call io_append_table_column(iofh,'Jabs2',grid%Jabs2,status,bitpix=par%out_bitpix)
   !endif
 
   !--- Jin, input spectrum
   if (par%save_Jin) then
-     call fits_append_table_column(unit,'Jin',grid%Jin,status,bitpix=par%out_bitpix)
+     call io_append_table_column(iofh,'Jin',grid%Jin,status,bitpix=par%out_bitpix)
   endif
 
-  call fits_put_keyword(unit,'ExeTime',  exetime,            'Excution Time (min)',status)
-  call fits_put_keyword(unit,'Nprocs',   mpar%nproc,         'No. of Threads',status)
-  call fits_put_keyword(unit,'recoil',   par%recoil,         'recoil',status)
-  call fits_put_keyword(unit,'coreskip', par%core_skip,      'coreskip algorithm',status)
-  call fits_put_keyword(unit,'xyz_sym',  par%xyz_symmetry,   'xyz_symmetry',status)
-  call fits_put_keyword(unit,'xy_per',   par%xy_periodic,    'xy_periodic',status)
-  call fits_put_keyword(unit,'save_all', par%save_all,       'save all 3D output?',status)
-  call fits_put_keyword(unit,'save_Jin', par%save_Jin,       'save input J?',status)
-  call fits_put_keyword(unit,'save_Jab', par%save_Jabs,      'save absorbed J?',status)
-  call fits_put_keyword(unit,'nphotons', nph_tot,            'number of photons',status)
-  call fits_put_keyword(unit,'taumax',   par%taumax,         'tau_max',status)
-  call fits_put_keyword(unit,'tauhomo',  par%tauhomo,        'tau_homo',status)
-  call fits_put_keyword(unit,'Ngasmax',  par%N_gasmax,       'N(gas)_max cm^-2',status)
-  call fits_put_keyword(unit,'Ngashomo', par%N_gashomo,      'N(gas)_homo cm^-2',status)
-  call fits_put_keyword(unit,'temp',     par%temperature,    'temperature (K)',status)
-  call fits_put_keyword(unit,'Vexp',     par%Vexp,           'Velocity (km/s)',status)
-  call fits_put_keyword(unit,'DGR',      par%DGR,            'Dust-to-Gas Ratio',status)
-  call fits_put_keyword(unit,'atau3',    par%atau3,          '(a*tau_max)^(1/3)',status)
-  call fits_put_keyword(unit,'voigta',   grid%voigt_amean,   'voigt_a',status)
-  call fits_put_keyword(unit,'Xfreq1',   grid%xfreq_min,     'Xfreq_min',status)
-  call fits_put_keyword(unit,'Xfreq2',   grid%xfreq_max,     'Xfreq_max',status)
-  call fits_put_keyword(unit,'Dxfreq',   grid%dxfreq,        'Dxfreq', status)
-  call fits_put_keyword(unit,'Dwave',    grid%dwave,         'Dwavelength (angstrom)', status)
-  call fits_put_keyword(unit,'I_unit',   par%intensity_unit, 'Intensity Unit (0:no dimension, 1:cm^-2 A^-1)', status)
-  call fits_put_keyword(unit,'Dfreq',    grid%Dfreq_ref,     'Doppler Freq. (Hz)',status)
-  call fits_put_keyword(unit,'Nsc_dust', par%nscatt_dust,    'Nscatt_dust/photon',status)
-  call fits_put_keyword(unit,'Nsc_gas',  par%nscatt_gas,     'Nscatt_gas/photon',status)
-  call fits_put_keyword(unit,'Nsc_tot',  par%nscatt_tot,     'Nscatt_tot/photon',status)
-  call fits_put_keyword(unit,'nx',       grid%nx,            'No. of x cells',status)
-  call fits_put_keyword(unit,'ny',       grid%ny,            'No. of y cells',status)
-  call fits_put_keyword(unit,'nz',       grid%nz,            'No. of z cells',status)
-  call fits_put_keyword(unit,'xmax',     par%xmax,           'xmax',status)
-  call fits_put_keyword(unit,'ymax',     par%ymax,           'ymax',status)
-  call fits_put_keyword(unit,'zmax',     par%zmax,           'zmax',status)
-  call fits_put_keyword(unit,'EXTNAME',  'Spectrum',         'Spectrum',status)
+  call io_put_keyword(iofh,'ExeTime',  exetime,            'Excution Time (min)',status)
+  call io_put_keyword(iofh,'Nprocs',   mpar%nproc,         'No. of Threads',status)
+  call io_put_keyword(iofh,'recoil',   par%recoil,         'recoil',status)
+  call io_put_keyword(iofh,'coreskip', par%core_skip,      'coreskip algorithm',status)
+  call io_put_keyword(iofh,'xyz_sym',  par%xyz_symmetry,   'xyz_symmetry',status)
+  call io_put_keyword(iofh,'xy_per',   par%xy_periodic,    'xy_periodic',status)
+  call io_put_keyword(iofh,'save_all', par%save_all,       'save all 3D output?',status)
+  call io_put_keyword(iofh,'save_Jin', par%save_Jin,       'save input J?',status)
+  call io_put_keyword(iofh,'save_Jab', par%save_Jabs,      'save absorbed J?',status)
+  call io_put_keyword(iofh,'nphotons', nph_tot,            'number of photons',status)
+  call io_put_keyword(iofh,'taumax',   par%taumax,         'tau_max',status)
+  call io_put_keyword(iofh,'tauhomo',  par%tauhomo,        'tau_homo',status)
+  call io_put_keyword(iofh,'Ngasmax',  par%N_gasmax,       'N(gas)_max cm^-2',status)
+  call io_put_keyword(iofh,'Ngashomo', par%N_gashomo,      'N(gas)_homo cm^-2',status)
+  call io_put_keyword(iofh,'temp',     par%temperature,    'temperature (K)',status)
+  call io_put_keyword(iofh,'Vexp',     par%Vexp,           'Velocity (km/s)',status)
+  call io_put_keyword(iofh,'DGR',      par%DGR,            'Dust-to-Gas Ratio',status)
+  call io_put_keyword(iofh,'atau3',    par%atau3,          '(a*tau_max)^(1/3)',status)
+  call io_put_keyword(iofh,'voigta',   grid%voigt_amean,   'voigt_a',status)
+  call io_put_keyword(iofh,'Xfreq1',   grid%xfreq_min,     'Xfreq_min',status)
+  call io_put_keyword(iofh,'Xfreq2',   grid%xfreq_max,     'Xfreq_max',status)
+  call io_put_keyword(iofh,'Dxfreq',   grid%dxfreq,        'Dxfreq', status)
+  call io_put_keyword(iofh,'Dwave',    grid%dwave,         'Dwavelength (angstrom)', status)
+  call io_put_keyword(iofh,'I_unit',   par%intensity_unit, 'Intensity Unit (0:no dimension, 1:cm^-2 A^-1)', status)
+  call io_put_keyword(iofh,'Dfreq',    grid%Dfreq_ref,     'Doppler Freq. (Hz)',status)
+  call io_put_keyword(iofh,'Nsc_dust', par%nscatt_dust,    'Nscatt_dust/photon',status)
+  call io_put_keyword(iofh,'Nsc_gas',  par%nscatt_gas,     'Nscatt_gas/photon',status)
+  call io_put_keyword(iofh,'Nsc_tot',  par%nscatt_tot,     'Nscatt_tot/photon',status)
+  call io_put_keyword(iofh,'nx',       grid%nx,            'No. of x cells',status)
+  call io_put_keyword(iofh,'ny',       grid%ny,            'No. of y cells',status)
+  call io_put_keyword(iofh,'nz',       grid%nz,            'No. of z cells',status)
+  call io_put_keyword(iofh,'xmax',     par%xmax,           'xmax',status)
+  call io_put_keyword(iofh,'ymax',     par%ymax,           'ymax',status)
+  call io_put_keyword(iofh,'zmax',     par%zmax,           'zmax',status)
+  call io_put_keyword(iofh,'EXTNAME',  'Spectrum',         'Spectrum',status)
 #ifdef CALCP
-  call fits_put_keyword(unit,'calc_P',   .true.,             'calculated Pa within media?',status)
+  call io_put_keyword(iofh,'calc_P',   .true.,             'calculated Pa within media?',status)
 #else
-  call fits_put_keyword(unit,'calc_P',   .false.,            'calculated Pa within media?',status)
+  call io_put_keyword(iofh,'calc_P',   .false.,            'calculated Pa within media?',status)
 #endif
 #ifdef CALCPnew
-  call fits_put_keyword(unit,'calc_Pnew',   .true.,          'calculated Pa within media?',status)
+  call io_put_keyword(iofh,'calc_Pnew',   .true.,          'calculated Pa within media?',status)
 #else
-  call fits_put_keyword(unit,'calc_Pnew',   .false.,         'calculated Pa within media?',status)
+  call io_put_keyword(iofh,'calc_Pnew',   .false.,         'calculated Pa within media?',status)
 #endif
 #ifdef CALCJ
-  call fits_put_keyword(unit,'calc_J',   .true.,             'calculated J within media?',status)
+  call io_put_keyword(iofh,'calc_J',   .true.,             'calculated J within media?',status)
 #else
-  call fits_put_keyword(unit,'calc_J',   .false.,            'calculated J within media?',status)
+  call io_put_keyword(iofh,'calc_J',   .false.,            'calculated J within media?',status)
 #endif
   !if (trim(par%source_geometry) == 'stellar_illumination') then
-  !   call fits_put_keyword(unit,'LimbDark', par%stellar_limb_darkening,'Limb Darkening Function', status)
-  !   call fits_put_keyword(unit,'Raccept',  par%acceptance_rate,'Acceptance Rate', status)
-  !   call fits_put_keyword(unit,'fluxfac',  par%flux_factor,    'Flux (or luminosity) factor', status)
-  !   call fits_put_keyword(unit,'RSTAR',    par%stellar_radius         ,'stellar radius', status)
-  !   call fits_put_keyword(unit,'REXOSPH',  par%rmax                   ,'exosphere radius', status)
-  !   call fits_put_keyword(unit,'DIST_S2P', par%distance_star_to_planet,'distance between star and planet', status)
+  !   call io_put_keyword(iofh,'LimbDark', par%stellar_limb_darkening,'Limb Darkening Function', status)
+  !   call io_put_keyword(iofh,'Raccept',  par%acceptance_rate,'Acceptance Rate', status)
+  !   call io_put_keyword(iofh,'fluxfac',  par%flux_factor,    'Flux (or luminosity) factor', status)
+  !   call io_put_keyword(iofh,'RSTAR',    par%stellar_radius         ,'stellar radius', status)
+  !   call io_put_keyword(iofh,'REXOSPH',  par%rmax                   ,'exosphere radius', status)
+  !   call io_put_keyword(iofh,'DIST_S2P', par%distance_star_to_planet,'distance between star and planet', status)
   !endif
   !if (trim(par%source_geometry) == 'point_illumination') then
-  !   call fits_put_keyword(unit,'Raccept',  par%acceptance_rate,'Acceptance Rate', status)
-  !   call fits_put_keyword(unit,'fluxfac',  par%flux_factor,    'Flux (or luminosity) factor', status)
+  !   call io_put_keyword(iofh,'Raccept',  par%acceptance_rate,'Acceptance Rate', status)
+  !   call io_put_keyword(iofh,'fluxfac',  par%flux_factor,    'Flux (or luminosity) factor', status)
   !endif
 !---------------------------------
 
   !--- save Jmu(xfreq, mu): escaped spectrum binned by mu = cos(theta_z)
   if (associated(grid%Jmu)) then
-     call fits_append_image(unit,grid%Jmu,status,bitpix=par%out_bitpix)
-     call fits_put_keyword(unit,'EXTNAME','Jmu',         'J(xfreq, mu) escaped spectrum vs cos(theta_z)',status)
-     call fits_put_keyword(unit,'CTYPE1', 'XFREQ',       'axis 1 = xfreq',status)
-     call fits_put_keyword(unit,'CRPIX1', 1.0_wp,        'reference pixel',status)
-     call fits_put_keyword(unit,'CRVAL1', grid%xfreq_min + 0.5_wp*grid%dxfreq, 'value at CRPIX1',status)
-     call fits_put_keyword(unit,'CDELT1', grid%dxfreq,   'xfreq step per pixel',status)
-     call fits_put_keyword(unit,'CTYPE2', 'MU',          'axis 2 = cos(theta_z)',status)
-     call fits_put_keyword(unit,'CRPIX2', 1.0_wp,        'reference pixel',status)
-     call fits_put_keyword(unit,'CRVAL2', par%mu_min + 0.5_wp*par%dmu, 'mu value at CRPIX2 (bin center)',status)
-     call fits_put_keyword(unit,'CDELT2', par%dmu,       'mu step per pixel',status)
-     call fits_put_keyword(unit,'nmu',    par%nmu,       'number of mu bins',status)
-     call fits_put_keyword(unit,'mu_min', par%mu_min,    'mu range lower edge',status)
-     call fits_put_keyword(unit,'dmu',    par%dmu,       'mu bin width',status)
+     call io_append_image(iofh,grid%Jmu,status,bitpix=par%out_bitpix)
+     call io_put_keyword(iofh,'EXTNAME','Jmu',         'J(xfreq, mu) escaped spectrum vs cos(theta_z)',status)
+     call io_put_keyword(iofh,'CTYPE1', 'XFREQ',       'axis 1 = xfreq',status)
+     call io_put_keyword(iofh,'CRPIX1', 1.0_wp,        'reference pixel',status)
+     call io_put_keyword(iofh,'CRVAL1', grid%xfreq_min + 0.5_wp*grid%dxfreq, 'value at CRPIX1',status)
+     call io_put_keyword(iofh,'CDELT1', grid%dxfreq,   'xfreq step per pixel',status)
+     call io_put_keyword(iofh,'CTYPE2', 'MU',          'axis 2 = cos(theta_z)',status)
+     call io_put_keyword(iofh,'CRPIX2', 1.0_wp,        'reference pixel',status)
+     call io_put_keyword(iofh,'CRVAL2', par%mu_min + 0.5_wp*par%dmu, 'mu value at CRPIX2 (bin center)',status)
+     call io_put_keyword(iofh,'CDELT2', par%dmu,       'mu step per pixel',status)
+     call io_put_keyword(iofh,'nmu',    par%nmu,       'number of mu bins',status)
+     call io_put_keyword(iofh,'mu_min', par%mu_min,    'mu range lower edge',status)
+     call io_put_keyword(iofh,'dmu',    par%dmu,       'mu bin width',status)
   endif
 
 #ifdef CALCP
   if (associated(grid%Pa)) then
      !--- save P_alapha(x,y,z) : scattering number per atom per photon
-     call fits_append_image(unit,grid%Pa,status,bitpix=par%out_bitpix)
-     call fits_put_keyword(unit,'EXTNAME','Pa_3D',  'P_alpha (number of scattering)',status)
+     call io_append_image(iofh,grid%Pa,status,bitpix=par%out_bitpix)
+     call io_put_keyword(iofh,'EXTNAME','Pa_3D',  'P_alpha (number of scattering)',status)
   endif
 
   if (associated(grid%P1)) then
      !--- save radial or z profile, P_alpha
-     call fits_append_image(unit,grid%P1,status,bitpix=par%out_bitpix)
-     call fits_put_keyword(unit,'EXTNAME','Pa_1D',  'P_alpha (number of scattering)',status)
+     call io_append_image(iofh,grid%P1,status,bitpix=par%out_bitpix)
+     call io_put_keyword(iofh,'EXTNAME','Pa_1D',  'P_alpha (number of scattering)',status)
   endif
 
   if (associated(grid%P2)) then
      !--- save cylindrical (r, z) profile, P_alpha
-     call fits_append_image(unit,grid%P2,status,bitpix=par%out_bitpix)
-     call fits_put_keyword(unit,'EXTNAME','Pa_2D',  'P_alpha (number of scattering)',status)
+     call io_append_image(iofh,grid%P2,status,bitpix=par%out_bitpix)
+     call io_put_keyword(iofh,'EXTNAME','Pa_2D',  'P_alpha (number of scattering)',status)
   endif
 #endif
 
 #ifdef CALCPnew
   if (associated(grid%Pa_new)) then
      !--- save P_alapha(x,y,z) : scattering number per atom per photon
-     call fits_append_image(unit,grid%Pa_new,status,bitpix=par%out_bitpix)
-     call fits_put_keyword(unit,'EXTNAME','Pa_3D',  'P_alpha (new_method, number of scattering)',status)
+     call io_append_image(iofh,grid%Pa_new,status,bitpix=par%out_bitpix)
+     call io_put_keyword(iofh,'EXTNAME','Pa_3D',  'P_alpha (new_method, number of scattering)',status)
   endif
 
   if (associated(grid%P1_new)) then
      !--- save radial or z profile, P_alpha
-     call fits_append_image(unit,grid%P1_new,status,bitpix=par%out_bitpix)
-     call fits_put_keyword(unit,'EXTNAME','Pa_1D',  'P_alpha (new_method, number of scattering)',status)
+     call io_append_image(iofh,grid%P1_new,status,bitpix=par%out_bitpix)
+     call io_put_keyword(iofh,'EXTNAME','Pa_1D',  'P_alpha (new_method, number of scattering)',status)
   endif
 
   if (associated(grid%P2_new)) then
      !--- save cylindrical (r, z) profile, P_alpha
-     call fits_append_image(unit,grid%P2_new,status,bitpix=par%out_bitpix)
-     call fits_put_keyword(unit,'EXTNAME','Pa_2D',  'P_alpha (new_method, number of scattering)',status)
+     call io_append_image(iofh,grid%P2_new,status,bitpix=par%out_bitpix)
+     call io_put_keyword(iofh,'EXTNAME','Pa_2D',  'P_alpha (new_method, number of scattering)',status)
   endif
 #endif
 
 #ifdef CALCJ
   if (associated(grid%J)) then
      !--- save J(nu,x,y,z) : mean intensity spectrum at (x,y,z)
-     call fits_append_image(unit,grid%J,status,bitpix=par%out_bitpix)
-     call fits_put_keyword(unit,'EXTNAME','Jx_3D','J(x) (mean intensity)',status)
+     call io_append_image(iofh,grid%J,status,bitpix=par%out_bitpix)
+     call io_put_keyword(iofh,'EXTNAME','Jx_3D','J(x) (mean intensity)',status)
   endif
 
   if (associated(grid%J1)) then
      !--- save radial or z profile of mean intensity spectrum J(nu)
-     call fits_append_image(unit,grid%J1,status,bitpix=par%out_bitpix)
-     call fits_put_keyword(unit,'EXTNAME','Jx_1D','J(x) (mean intensity)',status)
+     call io_append_image(iofh,grid%J1,status,bitpix=par%out_bitpix)
+     call io_put_keyword(iofh,'EXTNAME','Jx_1D','J(x) (mean intensity)',status)
   endif
 
   if (associated(grid%J2)) then
      !--- save cylindrical (r, z) profile of mean intensity spectrum J(nu)
-     call fits_append_image(unit,grid%J2,status,bitpix=par%out_bitpix)
-     call fits_put_keyword(unit,'EXTNAME','Jx_2D','J(x) (mean intensity)',status)
+     call io_append_image(iofh,grid%J2,status,bitpix=par%out_bitpix)
+     call io_put_keyword(iofh,'EXTNAME','Jx_2D','J(x) (mean intensity)',status)
   endif
 #endif
 
   !--- close the FITS file.
-  call fits_close(unit,status)
+  call io_close(iofh,status)
   end subroutine write_output_basic
 !+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
   subroutine write_output_peeling_2D(filename,grid,obs,suffix)
@@ -400,7 +401,8 @@ contains
   type(observer_type), intent(inout) :: obs
   character(len=*), optional, intent(in) :: suffix
   !--------------------
-  integer            :: unit0,unit,status=0
+  type(io_file_type) :: iofh0, iofh
+  integer            :: status=0
   character(len=128) :: filename1, filename2, filename_end
   logical            :: file_exist, merge_ok
   real(real64)       :: nph1, nph2, nph_tot
@@ -414,7 +416,7 @@ contains
   endif
 
   !--- Initialize FITS file name.
-  filename1 = trim(get_base_name(filename))//'_obs2D'//trim(filename_end)//'.fits.gz'
+  filename1 = trim(get_base_name(filename))//'_obs2D'//trim(filename_end)//trim(io_file_extension(par%file_format))
 
   !--- check the previous FITS output.
   merge_ok = par%out_merge
@@ -430,67 +432,67 @@ contains
   if (merge_ok) then
      !--- make a backup file.
      if (par%save_backup) then
-        filename2    = trim(fname_backup)//'_obs2D'//trim(filename_end)//'.fits.gz'
+        filename2    = trim(fname_backup)//'_obs2D'//trim(filename_end)//trim(io_file_extension(par%file_format))
         call copy_file(trim(filename1), trim(filename2), status)
      endif
 
      if (.not. allocated(arr_2D)) allocate(arr_2D, source=obs%scatt_heal_2D)
-     call fits_open_old(unit0,trim(filename1),status)
-     call fits_get_keyword(unit0,'nphotons', nph1, status)
+     call io_open_old(iofh0,trim(filename1),status)
+     call io_get_keyword(iofh0,'nphotons', nph1, status)
      nph2    = par%no_photons
      nph_tot = nph1 + nph2
 
-     call fits_read_image(unit0,arr_2D,status)
+     call io_read_image(iofh0,arr_2D,status)
      obs%scatt_heal_2D = (arr_2D * nph1 + obs%scatt_heal_2D * nph2)/nph_tot
-     call fits_move_to_next_hdu(unit0,status)
-     call fits_read_image(unit0,arr_2D,status)
+     call io_move_to_next_section(iofh0,status)
+     call io_read_image(iofh0,arr_2D,status)
      obs%direc_heal_2D = (arr_2D * nph1 + obs%direc_heal_2D * nph2)/nph_tot
      if (allocated(arr_2D)) deallocate(arr_2D)
 
      if (par%save_direc0) then
         if (.not. allocated(arr_2D)) allocate(arr_2D, source=obs%direc0_heal_2D)
-        call fits_move_to_next_hdu(unit0,status)
-        call fits_read_image(unit0,arr_2D,status)
+        call io_move_to_next_section(iofh0,status)
+        call io_read_image(iofh0,arr_2D,status)
         obs%direc0_heal_2D = (arr_2D * nph1 + obs%direc0_heal_2D * nph2)/nph_tot
         if (allocated(arr_2D)) deallocate(arr_2D)
      endif
 
-     call fits_close(unit0,status)
+     call io_close(iofh0,status)
   endif
 
   !--- open FITS file for peel-off.
-  call fits_open_new(unit,trim(filename1),status)
+  call io_open_new(iofh,trim(filename1),status)
 
   !--- write scattered data
-  call fits_append_image(unit,obs%scatt_heal_2D,status,bitpix=par%out_bitpix)
+  call io_append_image(iofh,obs%scatt_heal_2D,status,bitpix=par%out_bitpix)
 
   !--- header keyword for 2D image
-  call fits_put_keyword(unit,'EXTNAME','Scattered','J(pix) (intensity)',status)
-  call fits_put_keyword(unit,'EQUINOX' ,equinox,   'Equinox of Ref. Coord.' ,status)
-  call fits_put_keyword(unit,'NSIDE'   ,par%nside, 'HEALPIX NSIDE',status)
-  call fits_put_keyword(unit,'NPIX'    ,par%npix,  'HEALPIX NPIX',status)
-  call fits_put_keyword(unit,'DISTUNIT', par%distance_unit,'Distance Unit',status)
-  call fits_put_keyword(unit,'DIST_CM',  par%distance2cm,  'Distance Unit (cm)',status)
-  call fits_put_keyword(unit,'nphotons', nph_tot,          'number of photons',status)
-  call fits_put_keyword(unit,'obsx',     obs%x,     'Observer X coordinate',status)
-  call fits_put_keyword(unit,'obsy',     obs%y,     'Observer Y coordinate',status)
-  call fits_put_keyword(unit,'obsz',     obs%z,     'Observer Z coordinate',status)
+  call io_put_keyword(iofh,'EXTNAME','Scattered','J(pix) (intensity)',status)
+  call io_put_keyword(iofh,'EQUINOX' ,equinox,   'Equinox of Ref. Coord.' ,status)
+  call io_put_keyword(iofh,'NSIDE'   ,par%nside, 'HEALPIX NSIDE',status)
+  call io_put_keyword(iofh,'NPIX'    ,par%npix,  'HEALPIX NPIX',status)
+  call io_put_keyword(iofh,'DISTUNIT', par%distance_unit,'Distance Unit',status)
+  call io_put_keyword(iofh,'DIST_CM',  par%distance2cm,  'Distance Unit (cm)',status)
+  call io_put_keyword(iofh,'nphotons', nph_tot,          'number of photons',status)
+  call io_put_keyword(iofh,'obsx',     obs%x,     'Observer X coordinate',status)
+  call io_put_keyword(iofh,'obsy',     obs%y,     'Observer Y coordinate',status)
+  call io_put_keyword(iofh,'obsz',     obs%z,     'Observer Z coordinate',status)
 
   !--- write direct data
-  call fits_append_image(unit,obs%direc_heal_2D,status,bitpix=par%out_bitpix)
-  call fits_put_keyword(unit,'EXTNAME','Direct','J(pix) (intensity)',status)
+  call io_append_image(iofh,obs%direc_heal_2D,status,bitpix=par%out_bitpix)
+  call io_put_keyword(iofh,'EXTNAME','Direct','J(pix) (intensity)',status)
 
   if (par%save_direc0) then
-     call fits_append_image(unit,obs%direc0_heal_2D,status,bitpix=par%out_bitpix)
-     call fits_put_keyword(unit,'EXTNAME','Direct0','J(pix) (intensity)',status)
+     call io_append_image(iofh,obs%direc0_heal_2D,status,bitpix=par%out_bitpix)
+     call io_put_keyword(iofh,'EXTNAME','Direct0','J(pix) (intensity)',status)
   endif
 
   !--- close FITS file
-  call fits_close(unit,status)
+  call io_close(iofh,status)
 
 !  if (par%use_stokes) then
 !     !--- open new FITS file
-!     filename1 = trim(get_base_name(filename))//'_stokes_2D'//trim(filename_end)//'.fits.gz'
+!     filename1 = trim(get_base_name(filename))//'_stokes_2D'//trim(filename_end)//trim(io_file_extension(par%file_format))
 !
 !     !--- check the previous FITS output.
 !     merge_ok = par%out_merge
@@ -503,56 +505,56 @@ contains
 !     if (merge_ok) then
 !        !--- make a backup file.
 !        if (par%save_backup) then
-!           filename2 = trim(fname_backup)//'_stokes_2D'//trim(filename_end)//'.fits.gz'
+!           filename2 = trim(fname_backup)//'_stokes_2D'//trim(filename_end)//trim(io_file_extension(par%file_format))
 !           !call copy_file(trim(filename1), trim(filename2), status)
 !           call execute_command_line("cp -p "//trim(filename1)//" "//trim(filename2), exitstat=status)
 !        endif
 !
-!        call fits_open_old(unit0,trim(filename1),status)
+!        call io_open_old(iofh0,trim(filename1),status)
 !        if (.not. allocated(arr_2D)) allocate(arr_2D, source=obs%I_2D)
-!        call fits_read_image(unit0,arr_2D,status)
+!        call io_read_image(iofh0,arr_2D,status)
 !        obs%I_2D = (arr_2D * nph1 + obs%I_2D * nph2)/nph_tot
-!        call fits_move_to_next_hdu(unit0,status)
-!        call fits_read_image(unit0,arr_2D,status)
+!        call io_move_to_next_section(iofh0,status)
+!        call io_read_image(iofh0,arr_2D,status)
 !        obs%Q_2D = (arr_2D * nph1 + obs%Q_2D * nph2)/nph_tot
-!        call fits_move_to_next_hdu(unit0,status)
-!        call fits_read_image(unit0,arr_2D,status)
+!        call io_move_to_next_section(iofh0,status)
+!        call io_read_image(iofh0,arr_2D,status)
 !        obs%U_2D = (arr_2D * nph1 + obs%U_2D * nph2)/nph_tot
-!        call fits_move_to_next_hdu(unit0,status)
-!        call fits_read_image(unit0,arr_2D,status)
+!        call io_move_to_next_section(iofh0,status)
+!        call io_read_image(iofh0,arr_2D,status)
 !        obs%V_2D = (arr_2D * nph1 + obs%V_2D * nph2)/nph_tot
 !        if (allocated(arr_2D)) deallocate(arr_2D)
-!        call fits_close(unit0,status)
+!        call io_close(iofh0,status)
 !     endif
 !
 !     !--- open FITS file for Stokes parameters.
-!     call fits_open_new(unit,trim(filename1),status)
+!     call io_open_new(iofh,trim(filename1),status)
 !
 !     !--- write Stokes I data
-!     call fits_append_image(unit,obs%I_2D,status,bitpix=par%out_bitpix)
+!     call io_append_image(iofh,obs%I_2D,status,bitpix=par%out_bitpix)
 !
 !     !--- header keyword for 2D image
-!     call fits_put_keyword(unit,'EXTNAME','Stokes_I','Stokes I image',status)
-!     call fits_put_keyword(unit,'EQUINOX',equinox,   'Equinox of Ref. Coord.' ,status)
-!     call fits_put_keyword(unit,'NSIDE'  ,nside  ,   'HEALPIX NSIDE',status)
-!     call fits_put_keyword(unit,'NPIX'   ,npix   ,   'HEALPIX NPIX' ,status)
-!     call fits_put_keyword(unit,'DISTUNIT', par%distance_unit,'Distance Unit',status)
-!     call fits_put_keyword(unit,'DIST_CM',  par%distance2cm,  'Distance Unit (cm)',status)
-!     call fits_put_keyword(unit,'nphotons', nph_tot,          'number of photons',status)
-!     call fits_put_keyword(unit,'obsx',     obs%x,     'Observer X coordinate',status)
-!     call fits_put_keyword(unit,'obsy',     obs%y,     'Observer Y coordinate',status)
-!     call fits_put_keyword(unit,'obsz',     obs%z,     'Observer Z coordinate',status)
+!     call io_put_keyword(iofh,'EXTNAME','Stokes_I','Stokes I image',status)
+!     call io_put_keyword(iofh,'EQUINOX',equinox,   'Equinox of Ref. Coord.' ,status)
+!     call io_put_keyword(iofh,'NSIDE'  ,nside  ,   'HEALPIX NSIDE',status)
+!     call io_put_keyword(iofh,'NPIX'   ,npix   ,   'HEALPIX NPIX' ,status)
+!     call io_put_keyword(iofh,'DISTUNIT', par%distance_unit,'Distance Unit',status)
+!     call io_put_keyword(iofh,'DIST_CM',  par%distance2cm,  'Distance Unit (cm)',status)
+!     call io_put_keyword(iofh,'nphotons', nph_tot,          'number of photons',status)
+!     call io_put_keyword(iofh,'obsx',     obs%x,     'Observer X coordinate',status)
+!     call io_put_keyword(iofh,'obsy',     obs%y,     'Observer Y coordinate',status)
+!     call io_put_keyword(iofh,'obsz',     obs%z,     'Observer Z coordinate',status)
 !
 !     !--- write Stokes Q, U, V data
-!     call fits_append_image(unit,obs%Q_2D,status,bitpix=par%out_bitpix)
-!     call fits_put_keyword(unit,'EXTNAME','Stokes_Q','Stokes Q image',status)
-!     call fits_append_image(unit,obs%U_2D,status,bitpix=par%out_bitpix)
-!     call fits_put_keyword(unit,'EXTNAME','Stokes_U','Stokes U image',status)
-!     call fits_append_image(unit,obs%V_2D,status,bitpix=par%out_bitpix)
-!     call fits_put_keyword(unit,'EXTNAME','Stokes_V','Stokes V image',status)
+!     call io_append_image(iofh,obs%Q_2D,status,bitpix=par%out_bitpix)
+!     call io_put_keyword(iofh,'EXTNAME','Stokes_Q','Stokes Q image',status)
+!     call io_append_image(iofh,obs%U_2D,status,bitpix=par%out_bitpix)
+!     call io_put_keyword(iofh,'EXTNAME','Stokes_U','Stokes U image',status)
+!     call io_append_image(iofh,obs%V_2D,status,bitpix=par%out_bitpix)
+!     call io_put_keyword(iofh,'EXTNAME','Stokes_V','Stokes V image',status)
 !
 !     !--- close the FITS file
-!     call fits_close(unit,status)
+!     call io_close(iofh,status)
 !  endif
   end subroutine write_output_peeling_2D
   !-----------------------------------------------------------------
@@ -564,7 +566,8 @@ contains
   type(observer_type), intent(inout) :: obs
   character(len=*), optional, intent(in) :: suffix
   !--------------------
-  integer            :: unit0,unit,status=0
+  type(io_file_type) :: iofh0, iofh
+  integer            :: status=0
   character(len=128) :: filename1, filename2, filename_end
   logical            :: file_exist, merge_ok
   real(real64)       :: nph1, nph2, nph_tot
@@ -578,7 +581,7 @@ contains
   endif
 
   !--- Initialize FITS file name.
-  filename1 = trim(get_base_name(filename))//'_obs'//trim(filename_end)//'.fits.gz'
+  filename1 = trim(get_base_name(filename))//'_obs'//trim(filename_end)//trim(io_file_extension(par%file_format))
 
   !--- check the previous FITS output.
   merge_ok = par%out_merge
@@ -594,71 +597,71 @@ contains
   if (merge_ok) then
      !--- make a backup file.
      if (par%save_backup) then
-        filename2    = trim(fname_backup)//'_obs'//trim(filename_end)//'.fits.gz'
+        filename2    = trim(fname_backup)//'_obs'//trim(filename_end)//trim(io_file_extension(par%file_format))
         call copy_file(trim(filename1), trim(filename2), status)
      endif
 
      if (.not. allocated(arr_3D)) allocate(arr_3D, source=obs%scatt_heal)
-     call fits_open_old(unit0,trim(filename1),status)
-     call fits_get_keyword(unit0,'nphotons', nph1, status)
+     call io_open_old(iofh0,trim(filename1),status)
+     call io_get_keyword(iofh0,'nphotons', nph1, status)
      nph2    = par%no_photons
      nph_tot = nph1 + nph2
 
-     call fits_read_image(unit0,arr_3D,status)
+     call io_read_image(iofh0,arr_3D,status)
      obs%scatt_heal = (arr_3D * nph1 + obs%scatt_heal * nph2)/nph_tot
-     call fits_move_to_next_hdu(unit0,status)
-     call fits_read_image(unit0,arr_3D,status)
+     call io_move_to_next_section(iofh0,status)
+     call io_read_image(iofh0,arr_3D,status)
      obs%direc_heal = (arr_3D * nph1 + obs%direc_heal * nph2)/nph_tot
      if (allocated(arr_3D)) deallocate(arr_3D)
 
      if (par%save_direc0) then
         if (.not. allocated(arr_3D)) allocate(arr_3D, source=obs%direc0_heal)
-        call fits_move_to_next_hdu(unit0,status)
-        call fits_read_image(unit0,arr_3D,status)
+        call io_move_to_next_section(iofh0,status)
+        call io_read_image(iofh0,arr_3D,status)
         obs%direc0_heal = (arr_3D * nph1 + obs%direc0_heal * nph2)/nph_tot
         if (allocated(arr_3D)) deallocate(arr_3D)
      endif
 
-     call fits_close(unit0,status)
+     call io_close(iofh0,status)
   endif
 
   !--- open FITS file for peel-off.
-  call fits_open_new(unit,trim(filename1),status)
+  call io_open_new(iofh,trim(filename1),status)
 
   !--- write scattered data
-  call fits_append_image(unit,obs%scatt_heal,status,bitpix=par%out_bitpix)
+  call io_append_image(iofh,obs%scatt_heal,status,bitpix=par%out_bitpix)
 
   !--- header keyword for 3D spectral image
-  call fits_put_keyword(unit,'EXTNAME','Scattered','J(freq,pix) (intensity)',status)
-  call fits_put_keyword(unit,'EQUINOX' ,equinox,   'Equinox of Ref. Coord.' ,status)
-  call fits_put_keyword(unit,'DISTUNIT', par%distance_unit,'Distance Unit',status)
-  call fits_put_keyword(unit,'DIST_CM',  par%distance2cm,  'Distance Unit (cm)',status)
-  call fits_put_keyword(unit,'Xfreq1'  , grid%xfreq_min,   'Xfreq_min',status)
-  call fits_put_keyword(unit,'Xfreq2'  , grid%xfreq_max,   'Xfreq_max',status)
-  call fits_put_keyword(unit,'Dxfreq'  , grid%dxfreq,      'Dxfreq', status)
-  call fits_put_keyword(unit,'Dwave',    grid%dwave,       'Dwavelength (angstrom)', status)
-  call fits_put_keyword(unit,'I_unit',   par%intensity_unit, 'Intensity Unit (0:no dimension, 1:cm^-2 A^-1)', status)
-  call fits_put_keyword(unit,'Dfreq'   , grid%Dfreq_ref,   'Doppler Freq.  (Hz)',status)
-  call fits_put_keyword(unit,'nphotons', nph_tot,          'number of photons',status)
-  call fits_put_keyword(unit,'obsx',     obs%x,     'Observer X coordinate',status)
-  call fits_put_keyword(unit,'obsy',     obs%y,     'Observer Y coordinate',status)
-  call fits_put_keyword(unit,'obsz',     obs%z,     'Observer Z coordinate',status)
+  call io_put_keyword(iofh,'EXTNAME','Scattered','J(freq,pix) (intensity)',status)
+  call io_put_keyword(iofh,'EQUINOX' ,equinox,   'Equinox of Ref. Coord.' ,status)
+  call io_put_keyword(iofh,'DISTUNIT', par%distance_unit,'Distance Unit',status)
+  call io_put_keyword(iofh,'DIST_CM',  par%distance2cm,  'Distance Unit (cm)',status)
+  call io_put_keyword(iofh,'Xfreq1'  , grid%xfreq_min,   'Xfreq_min',status)
+  call io_put_keyword(iofh,'Xfreq2'  , grid%xfreq_max,   'Xfreq_max',status)
+  call io_put_keyword(iofh,'Dxfreq'  , grid%dxfreq,      'Dxfreq', status)
+  call io_put_keyword(iofh,'Dwave',    grid%dwave,       'Dwavelength (angstrom)', status)
+  call io_put_keyword(iofh,'I_unit',   par%intensity_unit, 'Intensity Unit (0:no dimension, 1:cm^-2 A^-1)', status)
+  call io_put_keyword(iofh,'Dfreq'   , grid%Dfreq_ref,   'Doppler Freq.  (Hz)',status)
+  call io_put_keyword(iofh,'nphotons', nph_tot,          'number of photons',status)
+  call io_put_keyword(iofh,'obsx',     obs%x,     'Observer X coordinate',status)
+  call io_put_keyword(iofh,'obsy',     obs%y,     'Observer Y coordinate',status)
+  call io_put_keyword(iofh,'obsz',     obs%z,     'Observer Z coordinate',status)
 
   !--- write direct data
-  call fits_append_image(unit,obs%direc_heal,status,bitpix=par%out_bitpix)
-  call fits_put_keyword(unit,'EXTNAME','Direct','J(freq,pix) (intensity)',status)
+  call io_append_image(iofh,obs%direc_heal,status,bitpix=par%out_bitpix)
+  call io_put_keyword(iofh,'EXTNAME','Direct','J(freq,pix) (intensity)',status)
 
   if (par%save_direc0) then
-     call fits_append_image(unit,obs%direc0_heal,status,bitpix=par%out_bitpix)
-     call fits_put_keyword(unit,'EXTNAME','Direct0','J(freq,pix) (intensity)',status)
+     call io_append_image(iofh,obs%direc0_heal,status,bitpix=par%out_bitpix)
+     call io_put_keyword(iofh,'EXTNAME','Direct0','J(freq,pix) (intensity)',status)
   endif
 
   !--- close FITS file
-  call fits_close(unit,status)
+  call io_close(iofh,status)
 
 !  if (par%use_stokes) then
 !     !--- open new FITS file
-!     filename1 = trim(get_base_name(filename))//'_stokes'//trim(filename_end)//'.fits.gz'
+!     filename1 = trim(get_base_name(filename))//'_stokes'//trim(filename_end)//trim(io_file_extension(par%file_format))
 !
 !     !--- check the previous FITS output.
 !     merge_ok = par%out_merge
@@ -671,26 +674,26 @@ contains
 !     if (merge_ok) then
 !        !--- make a backup file.
 !        if (par%save_backup) then
-!           filename2 = trim(fname_backup)//'_stokes'//trim(filename_end)//'.fits.gz'
+!           filename2 = trim(fname_backup)//'_stokes'//trim(filename_end)//trim(io_file_extension(par%file_format))
 !           !call copy_file(trim(filename1), trim(filename2), status)
 !           call execute_command_line("cp -p "//trim(filename1)//" "//trim(filename2), exitstat=status)
 !        endif
 !
-!        call fits_open_old(unit0,trim(filename1),status)
+!        call io_open_old(iofh0,trim(filename1),status)
 !        if (.not. allocated(arr_3D)) allocate(arr_3D, source=obs%I)
-!        call fits_read_image(unit0,arr_3D,status)
+!        call io_read_image(iofh0,arr_3D,status)
 !        obs%I = (arr_3D * nph1 + obs%I * nph2)/nph_tot
-!        call fits_move_to_next_hdu(unit0,status)
-!        call fits_read_image(unit0,arr_3D,status)
+!        call io_move_to_next_section(iofh0,status)
+!        call io_read_image(iofh0,arr_3D,status)
 !        obs%Q = (arr_3D * nph1 + obs%Q * nph2)/nph_tot
-!        call fits_move_to_next_hdu(unit0,status)
-!        call fits_read_image(unit0,arr_3D,status)
+!        call io_move_to_next_section(iofh0,status)
+!        call io_read_image(iofh0,arr_3D,status)
 !        obs%U = (arr_3D * nph1 + obs%U * nph2)/nph_tot
-!        call fits_move_to_next_hdu(unit0,status)
-!        call fits_read_image(unit0,arr_3D,status)
+!        call io_move_to_next_section(iofh0,status)
+!        call io_read_image(iofh0,arr_3D,status)
 !        obs%V = (arr_3D * nph1 + obs%V * nph2)/nph_tot
 !        if (allocated(arr_3D)) deallocate(arr_3D)
-!        call fits_close(unit0,status)
+!        call io_close(iofh0,status)
 !     endif
 !
 !     !--- Making an average of radial_pol is a non-sense, because pol = sqrt(Q^2 + U^2)/I.
@@ -699,37 +702,37 @@ contains
 !     if (par%save_radial_profile) call make_radial_stokes(grid,obs)
 !
 !     !--- open FITS file for Stokes parameters.
-!     call fits_open_new(unit,trim(filename1),status)
+!     call io_open_new(iofh,trim(filename1),status)
 !
 !     !--- write Stokes I data
-!     call fits_append_image(unit,obs%I,status,bitpix=par%out_bitpix)
+!     call io_append_image(iofh,obs%I,status,bitpix=par%out_bitpix)
 !
 !     !--- header keyword for 3D spectral image
-!     call fits_put_keyword(unit,'EXTNAME','Stokes_I','Stokes I image',status)
-!     call fits_put_keyword(unit,'EQUINOX',equinox,   'Equinox of Ref. Coord.' ,status)
-!     call fits_put_keyword(unit,'DISTUNIT', par%distance_unit,'Distance Unit',status)
-!     call fits_put_keyword(unit,'DIST_CM',  par%distance2cm,  'Distance Unit (cm)',status)
-!     call fits_put_keyword(unit,'Xfreq1' ,grid%xfreq_min, 'Xfreq_min',status)
-!     call fits_put_keyword(unit,'Xfreq2' ,grid%xfreq_max, 'Xfreq_max',status)
-!     call fits_put_keyword(unit,'Dxfreq' ,grid%dxfreq,    'Dxfreq', status)
-!     call fits_put_keyword(unit,'Dwave',  grid%dwave,     'Dwavelength (angstrom)', status)
-!     call fits_put_keyword(unit,'I_unit' ,par%intensity_unit, 'Intensity Unit (0:no dimension, 1:cm^-2 A^-1)', status)
-!     call fits_put_keyword(unit,'Dfreq'  ,grid%Dfreq_ref, 'Doppler Freq. (Hz)',status)
-!     call fits_put_keyword(unit,'nphotons', nph_tot,      'number of photons',status)
-!     call fits_put_keyword(unit,'obsx',     obs%x,     'Observer X coordinate',status)
-!     call fits_put_keyword(unit,'obsy',     obs%y,     'Observer Y coordinate',status)
-!     call fits_put_keyword(unit,'obsz',     obs%z,     'Observer Z coordinate',status)
+!     call io_put_keyword(iofh,'EXTNAME','Stokes_I','Stokes I image',status)
+!     call io_put_keyword(iofh,'EQUINOX',equinox,   'Equinox of Ref. Coord.' ,status)
+!     call io_put_keyword(iofh,'DISTUNIT', par%distance_unit,'Distance Unit',status)
+!     call io_put_keyword(iofh,'DIST_CM',  par%distance2cm,  'Distance Unit (cm)',status)
+!     call io_put_keyword(iofh,'Xfreq1' ,grid%xfreq_min, 'Xfreq_min',status)
+!     call io_put_keyword(iofh,'Xfreq2' ,grid%xfreq_max, 'Xfreq_max',status)
+!     call io_put_keyword(iofh,'Dxfreq' ,grid%dxfreq,    'Dxfreq', status)
+!     call io_put_keyword(iofh,'Dwave',  grid%dwave,     'Dwavelength (angstrom)', status)
+!     call io_put_keyword(iofh,'I_unit' ,par%intensity_unit, 'Intensity Unit (0:no dimension, 1:cm^-2 A^-1)', status)
+!     call io_put_keyword(iofh,'Dfreq'  ,grid%Dfreq_ref, 'Doppler Freq. (Hz)',status)
+!     call io_put_keyword(iofh,'nphotons', nph_tot,      'number of photons',status)
+!     call io_put_keyword(iofh,'obsx',     obs%x,     'Observer X coordinate',status)
+!     call io_put_keyword(iofh,'obsy',     obs%y,     'Observer Y coordinate',status)
+!     call io_put_keyword(iofh,'obsz',     obs%z,     'Observer Z coordinate',status)
 !
 !     !--- write Stokes Q, U, V data
-!     call fits_append_image(unit,obs%Q,status,bitpix=par%out_bitpix)
-!     call fits_put_keyword(unit,'EXTNAME','Stokes_Q','Stokes Q image',status)
-!     call fits_append_image(unit,obs%U,status,bitpix=par%out_bitpix)
-!     call fits_put_keyword(unit,'EXTNAME','Stokes_U','Stokes U image',status)
-!     call fits_append_image(unit,obs%V,status,bitpix=par%out_bitpix)
-!     call fits_put_keyword(unit,'EXTNAME','Stokes_V','Stokes V image',status)
+!     call io_append_image(iofh,obs%Q,status,bitpix=par%out_bitpix)
+!     call io_put_keyword(iofh,'EXTNAME','Stokes_Q','Stokes Q image',status)
+!     call io_append_image(iofh,obs%U,status,bitpix=par%out_bitpix)
+!     call io_put_keyword(iofh,'EXTNAME','Stokes_U','Stokes U image',status)
+!     call io_append_image(iofh,obs%V,status,bitpix=par%out_bitpix)
+!     call io_put_keyword(iofh,'EXTNAME','Stokes_V','Stokes V image',status)
 !
 !     !--- close the FITS file
-!     call fits_close(unit,status)
+!     call io_close(iofh,status)
 !  endif
   end subroutine write_output_peeling_3D
   !-------------------------------------------------------
@@ -740,7 +743,8 @@ contains
   character(len=*),  intent(in) :: filename
 
   !--------------------
-  integer            :: unit0,unit,status=0
+  type(io_file_type) :: iofh0, iofh
+  integer            :: status=0
   character(len=128) :: filename1, filename2
   logical            :: file_exist, merge_ok
   integer            :: colnum
@@ -749,7 +753,7 @@ contains
   type(all_photons_type)    :: all_ph
 
   !--- Initialize FITS file name.
-  filename1 = trim(get_base_name(filename))//'_allph.fits.gz'
+  filename1 = trim(get_base_name(filename))//'_allph'//trim(io_file_extension(par%file_format))
 
   !--- check the previous FITS output.
   merge_ok = par%out_merge
@@ -760,13 +764,13 @@ contains
 
   if (merge_ok) then
      if (par%save_backup) then
-        filename2    = trim(fname_backup)//'_allph.fits.gz'
+        filename2    = trim(fname_backup)//'_allph'//trim(io_file_extension(par%file_format))
         call copy_file(trim(filename1), trim(filename2), status)
      endif
 
-     call fits_open_old(unit0,trim(filename1),status)
-     call fits_move_to_next_hdu(unit0,status)
-     call fits_get_keyword(unit0,'NAXIS2', nph1, status)
+     call io_open_old(iofh0,trim(filename1),status)
+     call io_move_to_next_section(iofh0,status)
+     call io_get_keyword(iofh0,'NAXIS2', nph1, status)
 
      if (.not. allocated(arr_1D_old)) allocate(arr_1D_old(nph1))
      if (.not. allocated(arr_1D_new)) allocate(arr_1D_new(par%nphotons))
@@ -776,40 +780,40 @@ contains
      !--- We need to create a new allph structure to expand the arrays (2020-11-02).
      !--- destroy_mem routine in memory_mod should be called by all threads, but this module is called by p_rank = 0 (2020-11-08).
      !--- column : r
-     call fits_get_column_number(unit0,'r',colnum,status)
-     call fits_read_table_column(unit0,colnum,arr_1D_old,status)
+     call io_get_column_number(iofh0,'r',colnum,status)
+     call io_read_table_column(iofh0,colnum,arr_1D_old,status)
      arr_1D_new(:) = allph%rp
      call create_mem(all_ph%rp, [nph])
      all_ph%rp(1:nph1)     = arr_1D_old(:)
      all_ph%rp(nph1+1:nph) = arr_1D_new(:)
 
      !--- column : xfreq1
-     call fits_get_column_number(unit0,'xfreq1',colnum,status)
-     call fits_read_table_column(unit0,colnum,arr_1D_old,status)
+     call io_get_column_number(iofh0,'xfreq1',colnum,status)
+     call io_read_table_column(iofh0,colnum,arr_1D_old,status)
      arr_1D_new(:) = allph%xfreq1
      call create_mem(all_ph%xfreq1, [nph])
      all_ph%xfreq1(1:nph1)     = arr_1D_old(:)
      all_ph%xfreq1(nph1+1:nph) = arr_1D_new(:)
 
      !--- column : xfreq2
-     call fits_get_column_number(unit0,'xfreq2',colnum,status)
-     call fits_read_table_column(unit0,colnum,arr_1D_old,status)
+     call io_get_column_number(iofh0,'xfreq2',colnum,status)
+     call io_read_table_column(iofh0,colnum,arr_1D_old,status)
      arr_1D_new(:) = allph%xfreq2
      call create_mem(all_ph%xfreq2, [nph])
      all_ph%xfreq2(1:nph1)     = arr_1D_old(:)
      all_ph%xfreq2(nph1+1:nph) = arr_1D_new(:)
 
      !--- column : NSCATT_gas
-     call fits_get_column_number(unit0,'NSCATT_gas',colnum,status)
-     call fits_read_table_column(unit0,colnum,arr_1D_old,status)
+     call io_get_column_number(iofh0,'NSCATT_gas',colnum,status)
+     call io_read_table_column(iofh0,colnum,arr_1D_old,status)
      arr_1D_new(:) = allph%nscatt_gas
      call create_mem(all_ph%nscatt_gas, [nph])
      all_ph%nscatt_gas(1:nph1)     = arr_1D_old(:)
      all_ph%nscatt_gas(nph1+1:nph) = arr_1D_new(:)
 
      !--- column : NSCATT_dust
-     call fits_get_column_number(unit0,'NSCATT_dust',colnum,status)
-     call fits_read_table_column(unit0,colnum,arr_1D_old,status)
+     call io_get_column_number(iofh0,'NSCATT_dust',colnum,status)
+     call io_read_table_column(iofh0,colnum,arr_1D_old,status)
      arr_1D_new(:) = allph%nscatt_dust
      call create_mem(all_ph%nscatt_dust, [nph])
      all_ph%nscatt_dust(1:nph1)     = arr_1D_old(:)
@@ -817,32 +821,32 @@ contains
 
      if (par%use_stokes) then
         !--- column : I
-        call fits_get_column_number(unit0,'I',colnum,status)
-        call fits_read_table_column(unit0,colnum,arr_1D_old,status)
+        call io_get_column_number(iofh0,'I',colnum,status)
+        call io_read_table_column(iofh0,colnum,arr_1D_old,status)
         arr_1D_new(:) = allph%I
         call create_mem(all_ph%I, [nph])
         all_ph%I(1:nph1)     = arr_1D_old(:)
         all_ph%I(nph1+1:nph) = arr_1D_new(:)
 
         !--- column : Q
-        call fits_get_column_number(unit0,'Q',colnum,status)
-        call fits_read_table_column(unit0,colnum,arr_1D_old,status)
+        call io_get_column_number(iofh0,'Q',colnum,status)
+        call io_read_table_column(iofh0,colnum,arr_1D_old,status)
         arr_1D_new(:) = allph%Q
         call create_mem(all_ph%Q, [nph])
         all_ph%Q(1:nph1)     = arr_1D_old(:)
         all_ph%Q(nph1+1:nph) = arr_1D_new(:)
 
         !--- column : U
-        call fits_get_column_number(unit0,'U',colnum,status)
-        call fits_read_table_column(unit0,colnum,arr_1D_old,status)
+        call io_get_column_number(iofh0,'U',colnum,status)
+        call io_read_table_column(iofh0,colnum,arr_1D_old,status)
         arr_1D_new(:) = allph%U
         call create_mem(all_ph%U, [nph])
         all_ph%U(1:nph1)     = arr_1D_old(:)
         all_ph%U(nph1+1:nph) = arr_1D_new(:)
 
         !--- column : V
-        call fits_get_column_number(unit0,'V',colnum,status)
-        call fits_read_table_column(unit0,colnum,arr_1D_old,status)
+        call io_get_column_number(iofh0,'V',colnum,status)
+        call io_read_table_column(iofh0,colnum,arr_1D_old,status)
         arr_1D_new(:) = allph%V
         call create_mem(all_ph%V, [nph])
         all_ph%V(1:nph1)     = arr_1D_old(:)
@@ -851,14 +855,14 @@ contains
 
      if (trim(par%source_geometry) /= 'point') then
         !--- column : r0
-        call fits_get_column_number(unit0,'r0',colnum,status)
-        call fits_read_table_column(unit0,colnum,arr_1D_old,status)
+        call io_get_column_number(iofh0,'r0',colnum,status)
+        call io_read_table_column(iofh0,colnum,arr_1D_old,status)
         arr_1D_new(:) = allph%rp0
         call create_mem(all_ph%rp0, [nph])
         all_ph%rp0(1:nph1)     = arr_1D_old(:)
         all_ph%rp0(nph1+1:nph) = arr_1D_new(:)
      endif
-     call fits_close(unit0,status)
+     call io_close(iofh0,status)
 
      if (allocated(arr_1D_old)) deallocate(arr_1D_old)
      if (allocated(arr_1D_new)) deallocate(arr_1D_new)
@@ -879,22 +883,22 @@ contains
      endif
   endif
 
-  call fits_open_new(unit,trim(filename1),status)
-  call fits_append_table_column(unit,'r',          all_ph%rp,         status,bitpix=par%out_bitpix)
-  call fits_append_table_column(unit,'xfreq1',     all_ph%xfreq1,     status,bitpix=par%out_bitpix)
-  call fits_append_table_column(unit,'xfreq2',     all_ph%xfreq2,     status,bitpix=par%out_bitpix)
-  call fits_append_table_column(unit,'NSCATT_gas', all_ph%nscatt_gas, status,bitpix=par%out_bitpix)
-  call fits_append_table_column(unit,'NSCATT_dust',all_ph%nscatt_dust,status,bitpix=par%out_bitpix)
+  call io_open_new(iofh,trim(filename1),status)
+  call io_append_table_column(iofh,'r',          all_ph%rp,         status,bitpix=par%out_bitpix)
+  call io_append_table_column(iofh,'xfreq1',     all_ph%xfreq1,     status,bitpix=par%out_bitpix)
+  call io_append_table_column(iofh,'xfreq2',     all_ph%xfreq2,     status,bitpix=par%out_bitpix)
+  call io_append_table_column(iofh,'NSCATT_gas', all_ph%nscatt_gas, status,bitpix=par%out_bitpix)
+  call io_append_table_column(iofh,'NSCATT_dust',all_ph%nscatt_dust,status,bitpix=par%out_bitpix)
   if (par%use_stokes) then
-     call fits_append_table_column(unit,'I',       all_ph%I,          status,bitpix=par%out_bitpix)
-     call fits_append_table_column(unit,'Q',       all_ph%Q,          status,bitpix=par%out_bitpix)
-     call fits_append_table_column(unit,'U',       all_ph%U,          status,bitpix=par%out_bitpix)
-     call fits_append_table_column(unit,'V',       all_ph%V,          status,bitpix=par%out_bitpix)
+     call io_append_table_column(iofh,'I',       all_ph%I,          status,bitpix=par%out_bitpix)
+     call io_append_table_column(iofh,'Q',       all_ph%Q,          status,bitpix=par%out_bitpix)
+     call io_append_table_column(iofh,'U',       all_ph%U,          status,bitpix=par%out_bitpix)
+     call io_append_table_column(iofh,'V',       all_ph%V,          status,bitpix=par%out_bitpix)
   endif
   if (trim(par%source_geometry) /= 'point') then
-     call fits_append_table_column(unit,'r0',      all_ph%rp0,        status,bitpix=par%out_bitpix)
+     call io_append_table_column(iofh,'r0',      all_ph%rp0,        status,bitpix=par%out_bitpix)
   endif
-  call fits_close(unit,status)
+  call io_close(iofh,status)
   end subroutine write_output_allph
 !+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 end module write_output_heal

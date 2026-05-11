@@ -1,6 +1,21 @@
-module read_fits_data
+module read_grid_data
+  !
+  ! Reads gridded input data (density/temperature/velocity fields, plus
+  ! generic 1-D / 3-D / 4-D arrays) through the iofile_mod facade so that
+  ! both FITS (.fits / .fits.gz) and HDF5 (.h5 / .hdf5) inputs work
+  ! transparently.  Format is detected from the filename extension by
+  ! io_open_old.
+  !
+  ! HDF5 input convention (matches what LaRT writes itself):
+  !   array data is at /<section>/data  (e.g. /Spectrum/data, /section_001/data),
+  !   or at /<section>/<colname>        (table-style; not used by these readers).
+  ! Shape queries that target FITS-style 'NAXIS', 'NAXIS1', ... keywords are
+  ! transparently answered from the dataset shape on the HDF5 backend.
+  !
+  ! Renamed from `read_fits_data` (2026-05) once the module learned HDF5.
+  !
   use define
-  use fitsio_mod
+  use iofile_mod
 contains
   !=================================================================
   subroutine read_velocity(fname,vfx,vfy,vfz,reduce_factor)
@@ -35,21 +50,25 @@ contains
   integer, optional,   intent(in) :: reduce_factor, centering
 
   !--- local variables
-  integer :: unit, status = 0
+  type(io_file_type) :: iofh
+  integer :: status = 0
   integer :: n1,n2,n3
   integer :: loc(3),n1cen,n2cen,n3cen
   integer :: i,j,k,i1,i2,j1,j2,k1,k2
   !--- note the following should be always a single precision variable. (not any more, 2020.09.02).
   real(kind=wp), allocatable :: arr(:,:,:)
 
-  call fits_open_old(unit,trim(fname),status)
+  call io_open_old(iofh,trim(fname),status)
   if (status == 0) then
-     call fits_get_keyword(unit,'NAXIS1',n1,status)
-     call fits_get_keyword(unit,'NAXIS2',n2,status)
-     call fits_get_keyword(unit,'NAXIS3',n3,status)
+     ! HDF5: io_open_old auto-positions at the first image-style section.
+     ! FITS: cur HDU is 1 (Primary); the NAXIS keywords live there if the
+     !       data was written as a single image.
+     call io_get_keyword(iofh,'NAXIS1',n1,status)
+     call io_get_keyword(iofh,'NAXIS2',n2,status)
+     call io_get_keyword(iofh,'NAXIS3',n3,status)
      if (.not. allocated(arr)) allocate(arr(n1,n2,n3))
-     call fits_read_image(unit,arr,status)
-     call fits_close(unit,status)
+     call io_read_image(iofh,arr,status)
+     call io_close(iofh,status)
   else
      write(*,*) 'Error in reading the data file :', trim(fname),' status = ',status
   endif
@@ -141,24 +160,25 @@ contains
   integer, optional,   intent(in) :: reduce_factor
 
   !--- local variables
-  integer :: unit, status = 0
+  type(io_file_type) :: iofh
+  integer :: status = 0
   integer :: n1,n2,n3,n4
   integer :: i,j,k,i1,i2,j1,j2,k1,k2
   !--- note the following should be always a single precision variable. (2020.09.02, not any more).
   real(kind=wp), allocatable :: arr(:,:,:,:)
 
-  call fits_open_old(unit,trim(fname),status)
+  call io_open_old(iofh,trim(fname),status)
   if (status == 0) then
-     call fits_get_keyword(unit,'NAXIS1',n1,status)
-     call fits_get_keyword(unit,'NAXIS2',n2,status)
-     call fits_get_keyword(unit,'NAXIS3',n3,status)
-     call fits_get_keyword(unit,'NAXIS4',n4,status)
+     call io_get_keyword(iofh,'NAXIS1',n1,status)
+     call io_get_keyword(iofh,'NAXIS2',n2,status)
+     call io_get_keyword(iofh,'NAXIS3',n3,status)
+     call io_get_keyword(iofh,'NAXIS4',n4,status)
      if (.not. allocated(arr)) allocate(arr(n1,n2,n3,n4))
-     call fits_read_image(unit,arr,status)
+     call io_read_image(iofh,arr,status)
   else
      write(*,*) 'Error in reading the data file :', trim(fname),' status = ',status
   endif
-  call fits_close(unit,status)
+  call io_close(iofh,status)
 
   if (present(reduce_factor)) then
      if (reduce_factor > 1) then
@@ -188,7 +208,7 @@ contains
 
   end subroutine read_4D
   !=================================================================
-  ! get 1D dimeisions from density fits file.
+  ! get 1D dimeisions from density fits/hdf5 file.
   ! updated to deal with xmax,ymax,zmax (2023.01.20).
   subroutine get_dimension_1D(fname,nz,zmax,status)
   implicit none
@@ -198,14 +218,14 @@ contains
   integer,          intent(inout) :: status
 
   !--- local variables
-  integer :: unit
+  type(io_file_type) :: iofh
   real(kind=wp) :: zmax1
 
   status = 0
-  call fits_open_old(unit,trim(fname),status)
+  call io_open_old(iofh,trim(fname),status)
   if (status == 0) then
-     call fits_get_keyword(unit,'NAXIS1',nz,status)
-     call fits_get_keyword(unit,'zmax',zmax1,status)
+     call io_get_keyword(iofh,'NAXIS1',nz,status)
+     call io_get_keyword(iofh,'zmax',zmax1,status)
      if (status == 0) then
         zmax = zmax1
      else
@@ -214,10 +234,10 @@ contains
   else
      write(*,*) 'Error in reading the data file :', trim(fname),' status = ',status
   endif
-  call fits_close(unit,status)
+  call io_close(iofh,status)
   end subroutine get_dimension_1D
   !=================================================================
-  ! get 3D dimeisions from density fits file.
+  ! get 3D dimeisions from density fits/hdf5 file.
   ! updated to deal with xmax,ymax,zmax (2023.01.20).
   subroutine get_dimension(fname,nx,ny,nz,xmax,ymax,zmax,status,reduce_factor)
   implicit none
@@ -228,28 +248,28 @@ contains
   integer, optional, intent(inout) :: reduce_factor
 
   !--- local variables
-  integer :: unit
+  type(io_file_type) :: iofh
   real(kind=wp) :: xmax1, ymax1, zmax1
 
   status = 0
-  call fits_open_old(unit,trim(fname),status)
+  call io_open_old(iofh,trim(fname),status)
   if (status == 0) then
-     call fits_get_keyword(unit,'NAXIS1',nx,status)
-     call fits_get_keyword(unit,'NAXIS2',ny,status)
-     call fits_get_keyword(unit,'NAXIS3',nz,status)
-     call fits_get_keyword(unit,'xmax',xmax1,status)
+     call io_get_keyword(iofh,'NAXIS1',nx,status)
+     call io_get_keyword(iofh,'NAXIS2',ny,status)
+     call io_get_keyword(iofh,'NAXIS3',nz,status)
+     call io_get_keyword(iofh,'xmax',xmax1,status)
      if (status == 0) then
         xmax = xmax1
      else
         status = 0
      endif
-     call fits_get_keyword(unit,'ymax',ymax1,status)
+     call io_get_keyword(iofh,'ymax',ymax1,status)
      if (status == 0)then
         ymax = ymax1
      else
         status = 0
      endif
-     call fits_get_keyword(unit,'zmax',zmax1,status)
+     call io_get_keyword(iofh,'zmax',zmax1,status)
      if (status == 0) then
         zmax = zmax1
      else
@@ -270,7 +290,7 @@ contains
   else
      write(*,*) 'Error in reading the data file :', trim(fname),' status = ',status
   endif
-  call fits_close(unit,status)
+  call io_close(iofh,status)
   end subroutine get_dimension
   !=================================================================
-end module read_fits_data
+end module read_grid_data

@@ -21,7 +21,7 @@ module sightline_tau_clump_mod
   !-----------------------------------------------------------------------
   use define
   use utility
-  use fitsio_mod
+  use iofile_mod
   use memory_mod
   use clump_mod, only: sphere_R
   implicit none

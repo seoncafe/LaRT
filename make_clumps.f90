@@ -21,12 +21,16 @@ program make_clumps
 !     par%iseed                     RNG seed (use a fixed value for
 !                                   reproducible round-trip tests)
 !     par%out_file (optional)       used only to derive the output base name;
-!                                   the FITS is always <base>_clumps.fits.gz
+!                                   the saved file is <base>_clumps.fits.gz
+!                                   or <base>_clumps.h5 depending on
+!                                   par%file_format ('fits' default, 'hdf5')
+!     par%file_format               'fits' (default) or 'hdf5' — selects the
+!                                   output extension
 !     par%line_id                   line atomic data (defaults to ly_alpha)
 !
-! Output: <base_name>_clumps.fits.gz with the same schema as the file
-! produced by LaRT when par%save_clump_info = .true.  The same schema is
-! consumed by read_clumps_fits() inside LaRT.
+! Output: <base_name>_clumps.fits.gz (or .h5) with the same schema as the
+! file produced by LaRT when par%save_clump_info = .true.  The same schema
+! is consumed by read_clumps_fits() inside LaRT regardless of format.
 !---------------------------------------------------------------------------
   use mpi
   use define
@@ -34,6 +38,7 @@ program make_clumps
   use clump_mod, only: init_clumps, write_clumps_fits
   use random,    only: init_random_seed
   use utility,   only: time_stamp, get_date_time
+  use iofile_mod, only: io_file_extension
   implicit none
 
   integer       :: ierr
@@ -71,7 +76,7 @@ program make_clumps
 
   !--- Save to FITS exactly as LaRT does when par%save_clump_info = .true.
   if (mpar%p_rank == 0) then
-     call write_clumps_fits(trim(par%base_name)//'_clumps.fits.gz')
+     call write_clumps_fits(trim(par%base_name)//'_clumps'//trim(io_file_extension(par%file_format)))
      call time_stamp(dtime)
      write(*,'(a,f8.3,a)') 'Total Execution Time         : ', dtime/60.0_wp, ' mins'
      write(*,'(2a)')       ' >>> STOP  @ ', get_date_time()

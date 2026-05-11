@@ -3,7 +3,8 @@ contains
   !+++++++++++++++++++++++++++++++++++++++++++
   subroutine read_input
   use define
-  use read_fits_data
+  use read_grid_data
+  use iofile_mod, only: io_file_extension
   use utility
   use line_mod
   use mpi
@@ -357,9 +358,56 @@ contains
 
   if (len_trim(par%out_file) == 0) then
      par%base_name = trim(get_base_input_name(model_infile))
-     par%out_file  = trim(par%base_name)//'.fits.gz'
+     par%out_file  = trim(par%base_name)//trim(io_file_extension(par%file_format))
   else
      par%base_name = trim(get_base_name(trim(par%out_file)))
+     !--- par%file_format is authoritative.  If par%out_file carries a
+     !    different extension than par%file_format implies, rewrite the
+     !    extension (preserving the directory prefix) and warn the user.
+     !    This avoids the silent mismatch where the main file would land
+     !    in one format and derived files (peeloff, sightline, ...) in
+     !    another, since the derived names always use par%file_format.
+     block
+       character(len=128) :: expected_ext, current_ext, dir_part, new_out_file
+       integer :: idir
+       expected_ext = io_file_extension(par%file_format)
+       !-- Determine the current extension by name (incl. compound '.fits.gz').
+       if (len_trim(par%out_file) >= 8) then
+          if (par%out_file(len_trim(par%out_file)-7:len_trim(par%out_file)) == '.fits.gz') then
+             current_ext = '.fits.gz'
+          else
+             current_ext = ''
+          endif
+       else
+          current_ext = ''
+       endif
+       if (trim(current_ext) == '' .and. len_trim(par%out_file) >= 5) then
+          if (par%out_file(len_trim(par%out_file)-4:len_trim(par%out_file)) == '.hdf5') current_ext = '.hdf5'
+          if (par%out_file(len_trim(par%out_file)-4:len_trim(par%out_file)) == '.fits') current_ext = '.fits'
+       endif
+       if (trim(current_ext) == '' .and. len_trim(par%out_file) >= 3) then
+          if (par%out_file(len_trim(par%out_file)-2:len_trim(par%out_file)) == '.h5') current_ext = '.h5'
+       endif
+       if (trim(current_ext) /= trim(expected_ext)) then
+          !-- preserve the directory part of par%out_file
+          idir = index(par%out_file, '/', back=.true.)
+          if (idir > 0) then
+             dir_part = par%out_file(1:idir)
+          else
+             dir_part = ''
+          endif
+          new_out_file = trim(dir_part)//trim(par%base_name)//trim(expected_ext)
+          if (mpar%p_rank == 0) then
+             write(*,'(a)')  '---'
+             write(*,'(4a)') 'WARNING: par%out_file (', trim(par%out_file), &
+                  ') does not match par%file_format = ', trim(par%file_format)
+             write(*,'(2a)') '         Overriding par%out_file to: ', trim(new_out_file)
+             write(*,'(a)')  '         (set par%file_format explicitly to suppress this warning.)'
+             write(*,'(a)')  '---'
+          endif
+          par%out_file = new_out_file
+       endif
+     end block
   endif
 
   if (mpar%p_rank == 0) then

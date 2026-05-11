@@ -1,8 +1,8 @@
 module grid_mod
   use memory_mod
-  use read_fits_data
+  use read_grid_data
   use read_text_data
-  use fitsio_mod
+  use iofile_mod
   use utility
   implicit none
 contains
@@ -33,7 +33,8 @@ contains
 
   logical :: diffuse_emissivity_3D = .false.
   integer :: ierr
-  integer :: unit,status
+  type(io_file_type) :: iofh
+  integer :: status
 
   !--- grid's cell faces.
   grid%nx   = par%nx
@@ -205,7 +206,7 @@ contains
   !---
   if (mpar%h_rank == 0) then
      if (len_trim(par%temp_file) > 0) then
-        if (get_extension(par%temp_file) == 'fits') then
+        if (get_extension(par%temp_file) == 'fits' .or. get_extension(par%temp_file) == 'h5' .or. get_extension(par%temp_file) == 'hdf5') then
            call read_3D(trim(par%temp_file),Temp,reduce_factor=par%reduce_factor)
         else if (get_extension(par%temp_file) == 'txt' .or. get_extension(par%temp_file) == 'dat') then
            if (trim(par%geometry) == 'plane_atmosphere') then
@@ -237,7 +238,7 @@ contains
   !---
   if (mpar%h_rank == 0) then
      if (len_trim(par%dens_file) > 0) then
-        if (get_extension(par%dens_file) == 'fits') then
+        if (get_extension(par%dens_file) == 'fits' .or. get_extension(par%dens_file) == 'h5' .or. get_extension(par%dens_file) == 'hdf5') then
            call read_3D(trim(par%dens_file),grid%rhokap,reduce_factor=par%reduce_factor,centering=par%centering)
         else if (get_extension(par%dens_file) == 'txt' .or. get_extension(par%dens_file) == 'dat') then
            if (trim(par%geometry) == 'plane_atmosphere') then
@@ -623,7 +624,7 @@ contains
   !---
   if (mpar%h_rank == 0) then
      if (len_trim(par%velo_file) > 0) then
-        if (get_extension(par%velo_file) == 'fits') then
+        if (get_extension(par%velo_file) == 'fits' .or. get_extension(par%velo_file) == 'h5' .or. get_extension(par%velo_file) == 'hdf5') then
            call read_velocity(trim(par%velo_file),grid%vfx,grid%vfy,grid%vfz,reduce_factor=par%reduce_factor)
         else if (get_extension(par%velo_file) == 'txt' .or. get_extension(par%velo_file) == 'dat') then
            if (trim(par%geometry) == 'plane_atmosphere') then
@@ -771,7 +772,7 @@ contains
         else
            call setup_spherical_emissivity(trim(par%emiss_file),emiss_prof,grid,par%sampling_method,par%f_composite)
         endif
-     case ('fits')
+     case ('fits', 'h5', 'hdf5')
         diffuse_emissivity_3D = .true.
         !--- when the emissivity is given by a fits file.
         !--- grid%Pem : emissivity and probability distribution function for rejection method.
@@ -859,52 +860,52 @@ contains
   !--- save input grid, if you want to check the inputs were correctly given.
   if (par%save_input_grid .and. mpar%p_rank == 0) then
      !-- temperature in K.
-     call fits_open_new(unit,trim(par%base_name)//'_temp.fits.gz',status)
-     call fits_append_image(unit,Temp,status,bitpix=-32)
-     call fits_close(unit,status)
+     call io_open_new(iofh,trim(par%base_name)//'_temp.fits.gz',status)
+     call io_append_image(iofh,Temp,status,bitpix=-32)
+     call io_close(iofh,status)
 
      !-- density * cross-section / unit length at x = 0.
-     call fits_open_new(unit,trim(par%base_name)//'_opac.fits.gz',status)
-     call fits_append_image(unit,grid%rhokap,status, bitpix=-32)
-     call fits_close(unit,status)
+     call io_open_new(iofh,trim(par%base_name)//'_opac.fits.gz',status)
+     call io_append_image(iofh,grid%rhokap,status, bitpix=-32)
+     call io_close(iofh,status)
 
      if (.not. allocated(tmp_arr)) allocate(tmp_arr(grid%nx,grid%ny,grid%nz))
 
      !-- density or density per unit length
      tmp_arr(:,:,:) = grid%rhokap(:,:,:)*grid%Dfreq(:,:,:)/line%cross0 / par%distance2cm
-     call fits_open_new(unit,trim(par%base_name)//'_dens.fits.gz',status)
-     call fits_append_image(unit,tmp_arr,status,bitpix=-32)
-     call fits_close(unit,status)
+     call io_open_new(iofh,trim(par%base_name)//'_dens.fits.gz',status)
+     call io_append_image(iofh,tmp_arr,status,bitpix=-32)
+     call io_close(iofh,status)
 
      !-- velocity
      tmp_arr = 0.12843374_wp*sqrt(Temp) * grid%vfx
-     call fits_open_new(unit,trim(par%base_name)//'_vfx.fits.gz',status)
-     call fits_append_image(unit,tmp_arr,status,bitpix=-32)
-     call fits_close(unit,status)
+     call io_open_new(iofh,trim(par%base_name)//'_vfx.fits.gz',status)
+     call io_append_image(iofh,tmp_arr,status,bitpix=-32)
+     call io_close(iofh,status)
 
      tmp_arr = 0.12843374_wp*sqrt(Temp) * grid%vfy
-     call fits_open_new(unit,trim(par%base_name)//'_vfy.fits.gz',status)
-     call fits_append_image(unit,tmp_arr,status,bitpix=-32)
-     call fits_close(unit,status)
+     call io_open_new(iofh,trim(par%base_name)//'_vfy.fits.gz',status)
+     call io_append_image(iofh,tmp_arr,status,bitpix=-32)
+     call io_close(iofh,status)
 
      tmp_arr = 0.12843374_wp*sqrt(Temp) * grid%vfz
-     call fits_open_new(unit,trim(par%base_name)//'_vfz.fits.gz',status)
-     call fits_append_image(unit,tmp_arr,status,bitpix=-32)
-     call fits_close(unit,status)
+     call io_open_new(iofh,trim(par%base_name)//'_vfz.fits.gz',status)
+     call io_append_image(iofh,tmp_arr,status,bitpix=-32)
+     call io_close(iofh,status)
 
      !-- emissivity
      if (associated(grid%Pem)) then
-        call fits_open_new(unit,trim(par%base_name)//'_emiss.fits.gz',status)
-        call fits_append_image(unit,grid%Pem,status,bitpix=-32)
-        call fits_close(unit,status)
+        call io_open_new(iofh,trim(par%base_name)//'_emiss.fits.gz',status)
+        call io_append_image(iofh,grid%Pem,status,bitpix=-32)
+        call io_close(iofh,status)
      endif
 
      !-- mask
      if (associated(grid%mask)) then
         tmp_arr = grid%mask
-        call fits_open_new(unit,trim(par%base_name)//'_mask.fits.gz',status)
-        call fits_append_image(unit,tmp_arr,status,bitpix=-32)
-        call fits_close(unit,status)
+        call io_open_new(iofh,trim(par%base_name)//'_mask.fits.gz',status)
+        call io_append_image(iofh,tmp_arr,status,bitpix=-32)
+        call io_close(iofh,status)
      endif
   endif
 

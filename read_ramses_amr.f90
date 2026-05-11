@@ -15,7 +15,7 @@ module read_ramses_amr_mod
   !   - nHI computed from nH + T using either CIE or supplied neutral fraction
   !-----------------------------------------------------------------------
   use define
-  use fitsio_mod
+  use iofile_mod
   use, intrinsic :: iso_fortran_env, only: int32
   implicit none
   private
@@ -558,7 +558,7 @@ contains
     integer  :: lv, n, unit, ios
     real(wp) :: bl
 
-    if (filename_is_fits(filename)) then
+    if (is_binary_amr_file(filename)) then
       call generic_amr_read_fits(filename, &
           xleaf, yleaf, zleaf, leaf_level, &
           nH_cgs, T_cgs, vx_cgs, vy_cgs, vz_cgs, &
@@ -605,34 +605,35 @@ contains
     integer,               intent(out) :: nleaf
     real(wp),              intent(out) :: boxlen_phys
 
-    integer :: unit, status
+    type(io_file_type) :: iofh
+    integer :: status
     integer(int32) :: nleaf_i4
     integer(int32), allocatable :: leaf_level_i4(:)
     real(wp) :: origin_x, origin_y, origin_z
 
     status = 0
-    call fits_open_old(unit, trim(filename), status)
+    call io_open_old(iofh, trim(filename), status)
     if (status /= 0) stop 'generic_amr_read_fits: cannot open FITS file'
 
-    call fits_move_to_next_hdu(unit, status)
+    call io_move_to_next_section(iofh, status)
     if (status /= 0) stop 'generic_amr_read_fits: cannot move to binary table HDU'
 
-    call fits_get_keyword(unit, 'NAXIS2', nleaf_i4, status)
+    call io_get_keyword(iofh, 'NAXIS2', nleaf_i4, status)
     if (status /= 0) stop 'generic_amr_read_fits: cannot read NAXIS2'
 
     boxlen_phys = 0.0_wp
     origin_x    = 0.0_wp
     origin_y    = 0.0_wp
     origin_z    = 0.0_wp
-    call fits_get_keyword(unit, 'BOXLEN',  boxlen_phys, status)
+    call io_get_keyword(iofh, 'BOXLEN',  boxlen_phys, status)
     if (status /= 0) stop 'generic_amr_read_fits: cannot read BOXLEN'
 
     status = 0
-    call fits_get_keyword(unit, 'ORIGINX', origin_x, status)
+    call io_get_keyword(iofh, 'ORIGINX', origin_x, status)
     if (status /= 0) status = 0
-    call fits_get_keyword(unit, 'ORIGINY', origin_y, status)
+    call io_get_keyword(iofh, 'ORIGINY', origin_y, status)
     if (status /= 0) status = 0
-    call fits_get_keyword(unit, 'ORIGINZ', origin_z, status)
+    call io_get_keyword(iofh, 'ORIGINZ', origin_z, status)
     if (status /= 0) status = 0
 
     nleaf = int(nleaf_i4)
@@ -640,18 +641,18 @@ contains
     allocate(nH_cgs(nleaf), T_cgs(nleaf), vx_cgs(nleaf), vy_cgs(nleaf), vz_cgs(nleaf))
     allocate(leaf_level_i4(nleaf))
 
-    call fits_read_table_column(unit, 1, xleaf,         status)
-    call fits_read_table_column(unit, 2, yleaf,         status)
-    call fits_read_table_column(unit, 3, zleaf,         status)
-    call fits_read_table_column(unit, 4, leaf_level_i4, status)
-    call fits_read_table_column(unit, 5, nH_cgs,        status)
-    call fits_read_table_column(unit, 6, T_cgs,         status)
-    call fits_read_table_column(unit, 7, vx_cgs,        status)
-    call fits_read_table_column(unit, 8, vy_cgs,        status)
-    call fits_read_table_column(unit, 9, vz_cgs,        status)
+    call io_read_table_column(iofh, 1, xleaf,         status)
+    call io_read_table_column(iofh, 2, yleaf,         status)
+    call io_read_table_column(iofh, 3, zleaf,         status)
+    call io_read_table_column(iofh, 4, leaf_level_i4, status)
+    call io_read_table_column(iofh, 5, nH_cgs,        status)
+    call io_read_table_column(iofh, 6, T_cgs,         status)
+    call io_read_table_column(iofh, 7, vx_cgs,        status)
+    call io_read_table_column(iofh, 8, vy_cgs,        status)
+    call io_read_table_column(iofh, 9, vz_cgs,        status)
     if (status /= 0) stop 'generic_amr_read_fits: cannot read table columns'
 
-    call fits_close(unit, status)
+    call io_close(iofh, status)
 
     ! Coordinates are already in [-boxlen/2, +boxlen/2] (AMRGrid convention).
     ! ORIGINX/Y/Z headers are informational only; do not shift.
@@ -751,27 +752,37 @@ contains
     end do
   end function str_lower
 
-  logical function filename_is_fits(filename)
+  logical function is_binary_amr_file(filename)
     character(len=*), intent(in) :: filename
     character(len=:), allocatable :: name
     integer :: n
 
     name = trim(filename)
     n = len(name)
-    filename_is_fits = .false.
+    is_binary_amr_file = .false.
     if (n >= 5) then
       if (name(n-4:n) == '.fits' .or. name(n-4:n) == '.FITS') then
-        filename_is_fits = .true.
+        is_binary_amr_file = .true.
+        return
+      end if
+      if (name(n-4:n) == '.hdf5' .or. name(n-4:n) == '.HDF5') then
+        is_binary_amr_file = .true.
         return
       end if
     end if
     if (n >= 8) then
       if (name(n-7:n) == '.fits.gz' .or. name(n-7:n) == '.FITS.GZ') then
-        filename_is_fits = .true.
+        is_binary_amr_file = .true.
         return
       end if
     end if
-  end function filename_is_fits
+    if (n >= 3) then
+      if (name(n-2:n) == '.h5' .or. name(n-2:n) == '.H5') then
+        is_binary_amr_file = .true.
+        return
+      end if
+    end if
+  end function is_binary_amr_file
 
   !=========================================================================
   ! Skip n Fortran unformatted records.

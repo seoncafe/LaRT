@@ -4,7 +4,7 @@
 module sightline_tau_heal
   use define
   use utility
-  use fitsio_mod
+  use iofile_mod
   use memory_mod
   use octree_mod, only: amr_grid, amr_find_leaf
 contains
@@ -298,7 +298,8 @@ contains
   type(observer_type), intent(in) :: obs
   character(len=*), optional, intent(in) :: suffix
   !--------------------
-  integer            :: unit,status=0
+  type(io_file_type) :: iofh
+  integer            :: status=0
   character(len=128) :: filename1, filename_end
   integer            :: equinox = 2000
 
@@ -309,36 +310,36 @@ contains
   endif
 
   !--- Initialize FITS file name.
-  filename1 = trim(get_base_name(filename))//'_tau'//trim(filename_end)//'.fits.gz'
+  filename1 = trim(get_base_name(filename))//'_tau'//trim(filename_end)//trim(io_file_extension(par%file_format))
 
   !--- open FITS file.
-  call fits_open_new(unit,trim(filename1),status)
+  call io_open_new(iofh,trim(filename1),status)
 
   !--- write Images for gas optical depth
-  call fits_append_image(unit,obs%tau_gas_heal,status,bitpix=par%out_bitpix)
-  call fits_put_keyword(unit,'EXTNAME','TAU_gas','gas optical depth',status)
+  call io_append_image(iofh,obs%tau_gas_heal,status,bitpix=par%out_bitpix)
+  call io_put_keyword(iofh,'EXTNAME','TAU_gas','gas optical depth',status)
 
   !--- write keywords
-  call fits_put_keyword(unit,'EQUINOX',equinox,   'Equinox of Ref. Coord.' ,status)
-  call fits_put_keyword(unit,'NSIDE',  obs%nside, 'HEALPIX nside',status)
-  call fits_put_keyword(unit,'NPIX',   obs%npix,  'HEALPIX npix',status)
-  call fits_put_keyword(unit,'OBSX',   obs%x,     'observer x',status)
-  call fits_put_keyword(unit,'OBSY',   obs%y,     'observer y',status)
-  call fits_put_keyword(unit,'OBSZ',   obs%z,     'observer z',status)
-  call fits_put_keyword(unit,'DISTUNIT', par%distance_unit,'Distance Unit',status)
+  call io_put_keyword(iofh,'EQUINOX',equinox,   'Equinox of Ref. Coord.' ,status)
+  call io_put_keyword(iofh,'NSIDE',  obs%nside, 'HEALPIX nside',status)
+  call io_put_keyword(iofh,'NPIX',   obs%npix,  'HEALPIX npix',status)
+  call io_put_keyword(iofh,'OBSX',   obs%x,     'observer x',status)
+  call io_put_keyword(iofh,'OBSY',   obs%y,     'observer y',status)
+  call io_put_keyword(iofh,'OBSZ',   obs%z,     'observer z',status)
+  call io_put_keyword(iofh,'DISTUNIT', par%distance_unit,'Distance Unit',status)
 
   !--- write Images for gas column density
-  call fits_append_image(unit,obs%N_gas_heal,status,bitpix=par%out_bitpix)
-  call fits_put_keyword(unit,'EXTNAME','N_gas','gas column density',status)
+  call io_append_image(iofh,obs%N_gas_heal,status,bitpix=par%out_bitpix)
+  call io_put_keyword(iofh,'EXTNAME','N_gas','gas column density',status)
 
   !--- write Images for dust optical depth
   if (par%DGR > 0.0_wp) then
-     call fits_append_image(unit,obs%tau_dust_heal,status,bitpix=par%out_bitpix)
-     call fits_put_keyword(unit,'EXTNAME','TAU_dust','dust optical depth',status)
+     call io_append_image(iofh,obs%tau_dust_heal,status,bitpix=par%out_bitpix)
+     call io_put_keyword(iofh,'EXTNAME','TAU_dust','dust optical depth',status)
   endif
 
   !--- close fits file
-  call fits_close(unit,status)
+  call io_close(iofh,status)
   end subroutine write_sightline_tau_inside
   !-------------------------------------------------------
 end module sightline_tau_heal

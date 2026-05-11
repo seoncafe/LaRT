@@ -4,7 +4,7 @@
 module sightline_tau_rect
   use define
   use utility
-  use fitsio_mod
+  use iofile_mod
   use memory_mod
 contains
   !--------------------------------------------------
@@ -344,7 +344,8 @@ contains
   type(observer_type), intent(in) :: obs
   character(len=*), optional, intent(in) :: suffix
   !--------------------
-  integer            :: unit,status=0
+  type(io_file_type) :: iofh
+  integer            :: status=0
   character(len=128) :: filename1, filename_end
   real(real64)       :: cd1_1, cd1_2, cd2_1, cd2_2
   real(real64)       :: crpix1, crpix2, crval1, crval2
@@ -357,14 +358,14 @@ contains
   endif
 
   !--- Initialize FITS file name.
-  filename1 = trim(get_base_name(filename))//'_tau'//trim(filename_end)//'.fits.gz'
+  filename1 = trim(get_base_name(filename))//'_tau'//trim(filename_end)//trim(io_file_extension(par%file_format))
 
   !--- open FITS file.
-  call fits_open_new(unit,trim(filename1),status)
+  call io_open_new(iofh,trim(filename1),status)
 
   !--- write Images for gas optical depth
-  call fits_append_image(unit,obs%tau_gas,status,bitpix=par%out_bitpix)
-  call fits_put_keyword(unit,'EXTNAME','TAU_gas','gas optical depth',status)
+  call io_append_image(iofh,obs%tau_gas,status,bitpix=par%out_bitpix)
+  call io_put_keyword(iofh,'EXTNAME','TAU_gas','gas optical depth',status)
 
   !--- write keywords
   cd1_1  = par%dxim
@@ -375,32 +376,32 @@ contains
   crpix2 = (par%nyim+1)/2.0_wp
   crval1 = 0.0_wp
   crval2 = 0.0_wp
-  call fits_put_keyword(unit,'EQUINOX',equinox,   'Equinox of Ref. Coord.' ,status)
-  call fits_put_keyword(unit,'CD1_1'  ,cd1_1  ,   'Degree / Pixel',status)
-  call fits_put_keyword(unit,'CD2_1'  ,cd2_1  ,   'Degree / Pixel',status)
-  call fits_put_keyword(unit,'CD1_2'  ,cd1_2  ,   'Degree / Pixel',status)
-  call fits_put_keyword(unit,'CD2_2'  ,cd2_2  ,   'Degree / Pixel' ,status)
-  call fits_put_keyword(unit,'CRPIX1' ,crpix1 ,   'Reference Pixel in X',status)
-  call fits_put_keyword(unit,'CRPIX2' ,crpix2 ,   'Reference Pixel in Y',status)
-  call fits_put_keyword(unit,'CRVAL1' ,crval1 ,   'R.A. (Degree)',status)
-  call fits_put_keyword(unit,'CRVAL2' ,crval2 ,   'Dec  (Degree)',status)
-  call fits_put_keyword(unit,'CTYPE1' ,'RA--TAN', 'Coordinate Type',status)
-  call fits_put_keyword(unit,'CTYPE2' ,'DEC-TAN', 'Coordinate Type',status)
-  call fits_put_keyword(unit,'DISTANCE', par%distance,     'Distance',status)
-  call fits_put_keyword(unit,'DISTUNIT', par%distance_unit,'Distance Unit',status)
+  call io_put_keyword(iofh,'EQUINOX',equinox,   'Equinox of Ref. Coord.' ,status)
+  call io_put_keyword(iofh,'CD1_1'  ,cd1_1  ,   'Degree / Pixel',status)
+  call io_put_keyword(iofh,'CD2_1'  ,cd2_1  ,   'Degree / Pixel',status)
+  call io_put_keyword(iofh,'CD1_2'  ,cd1_2  ,   'Degree / Pixel',status)
+  call io_put_keyword(iofh,'CD2_2'  ,cd2_2  ,   'Degree / Pixel' ,status)
+  call io_put_keyword(iofh,'CRPIX1' ,crpix1 ,   'Reference Pixel in X',status)
+  call io_put_keyword(iofh,'CRPIX2' ,crpix2 ,   'Reference Pixel in Y',status)
+  call io_put_keyword(iofh,'CRVAL1' ,crval1 ,   'R.A. (Degree)',status)
+  call io_put_keyword(iofh,'CRVAL2' ,crval2 ,   'Dec  (Degree)',status)
+  call io_put_keyword(iofh,'CTYPE1' ,'RA--TAN', 'Coordinate Type',status)
+  call io_put_keyword(iofh,'CTYPE2' ,'DEC-TAN', 'Coordinate Type',status)
+  call io_put_keyword(iofh,'DISTANCE', par%distance,     'Distance',status)
+  call io_put_keyword(iofh,'DISTUNIT', par%distance_unit,'Distance Unit',status)
 
   !--- write Images for gas column density
-  call fits_append_image(unit,obs%N_gas,status,bitpix=par%out_bitpix)
-  call fits_put_keyword(unit,'EXTNAME','N_gas','gas column density',status)
+  call io_append_image(iofh,obs%N_gas,status,bitpix=par%out_bitpix)
+  call io_put_keyword(iofh,'EXTNAME','N_gas','gas column density',status)
 
   !--- write Images for dust optical depth
   if (par%DGR > 0.0_wp) then
-     call fits_append_image(unit,obs%tau_dust,status,bitpix=par%out_bitpix)
-     call fits_put_keyword(unit,'EXTNAME','TAU_dust','dust optical depth',status)
+     call io_append_image(iofh,obs%tau_dust,status,bitpix=par%out_bitpix)
+     call io_put_keyword(iofh,'EXTNAME','TAU_dust','dust optical depth',status)
   endif
 
   !--- close fits file
-  call fits_close(unit,status)
+  call io_close(iofh,status)
   end subroutine write_sightline_tau_outside
   !-------------------------------------------------------
 end module sightline_tau_rect

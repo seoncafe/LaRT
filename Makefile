@@ -34,6 +34,11 @@ CALCPnew	= 0
 CALCJ		= 0
 CALCP		= 0
 DEBUG		= 0
+HDF5		= 1
+
+# HDF5 installation prefix (set when HDF5=1). Override on command line if needed:
+#   make HDF5=1 HDF5_PREFIX=/usr/local/hdf5
+HDF5_PREFIX	?= /data/opt/hdf5_intel
 
 ifneq ($(CALCJ), 0)
    FLAGS  += -DCALCJ
@@ -46,6 +51,10 @@ endif
 ifneq ($(CALCPnew), 0)
    FLAGS  += -DCALCPnew
    JPexec := $(JPexec)P
+endif
+ifneq ($(HDF5), 0)
+   FLAGS    += -DHDF5 -I$(HDF5_PREFIX)/include
+   HDF5_LIBS = $(HDF5_PREFIX)/lib/libhdf5_fortran.a $(HDF5_PREFIX)/lib/libhdf5.a -lsz -ldl -lz -lm
 endif
 ifneq ($(JPexec),)
    exec := $(exec)_calc$(JPexec)
@@ -102,7 +111,7 @@ ifeq ($(DEBUG), 1)
    endif
 endif
 
-LDFLAGS = $(extra) $(FFLAGS) -lcfitsio -L/usr/local/lib
+LDFLAGS = $(extra) $(FFLAGS) -lcfitsio -L/usr/local/lib $(HDF5_LIBS)
 #*********************************************************************
 .SUFFIXES: .c .f .f90 .o
 
@@ -124,7 +133,9 @@ OBJSB	= \
 	random_sersic.o \
 	memory_mod_mpi.o \
 	fitsio_mod.o \
-	read_fits_data.o \
+	hdf5io_mod.o \
+	iofile_mod.o \
+	read_grid_data.o \
 	read_text_data.o \
 	voigt_mod.o \
 	observer_rect.o \
@@ -181,12 +192,20 @@ sightline_tau: clean sightline_tau_link
 sightline_tau_link: $(OBJSB) make_sightline_tau.o
 	$(FC) make_sightline_tau.o $(OBJSB) $(LDFLAGS) -o make_sightline_tau.x
 
-ramses2fits:
-	$(FC) -O3 -cpp -DMPI -c define.f90
-	$(FC) -O3 -cpp -DMPI -c fitsio_mod.f90
-	$(FC) -O3 -cpp -DMPI -c read_ramses_amr.f90
-	$(FC) -O3 -cpp -DMPI -c convert_ramses_to_generic_fits.f90
-	$(FC) -O3 -cpp -DMPI define.o fitsio_mod.o read_ramses_amr.o convert_ramses_to_generic_fits.o -lcfitsio -L/usr/local/lib -o convert_ramses_to_generic_fits.x
+# Standalone RAMSES → generic AMR converter.  Output format follows the
+# extension of the destination filename (.fits / .fits.gz / .h5 / .hdf5).
+# HDF5 support requires HDF5=1 (and the matching HDF5_PREFIX).  Build via:
+#     make convert_ramses              ->  convert_ramses_to_generic.x
+#     make convert_ramses HDF5=1       ->  same, with HDF5 writes enabled
+# Legacy alias `ramses2fits` is kept for backwards compatibility.
+convert_ramses ramses2fits:
+	$(FC) $(FFLAGS) -c define.f90
+	$(FC) $(FFLAGS) -c fitsio_mod.f90
+	$(FC) $(FFLAGS) -c hdf5io_mod.f90
+	$(FC) $(FFLAGS) -c iofile_mod.f90
+	$(FC) $(FFLAGS) -c read_ramses_amr.f90
+	$(FC) $(FFLAGS) -c convert_ramses_to_generic.f90
+	$(FC) $(FFLAGS) define.o fitsio_mod.o hdf5io_mod.o iofile_mod.o read_ramses_amr.o convert_ramses_to_generic.o -lcfitsio -L/usr/local/lib $(HDF5_LIBS) -o convert_ramses_to_generic.x
 
 clean:
 	/bin/rm -f *.o *.mod

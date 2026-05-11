@@ -1629,11 +1629,12 @@ contains
   ! HDU 2 (BinTable): columns X, Y, Z [code units], VX, VY, VZ [km/s].
   !---------------------------------------------------------------------------
   use define
-  use fitsio_mod
+  use iofile_mod
   implicit none
   character(len=*), intent(in) :: fname
 
-  integer :: unit, status, bitpix
+  type(io_file_type) :: iofh
+  integer :: status, bitpix
   real(kind=real64), allocatable :: tmp(:)
   integer(int64) :: ncl, i
   real(kind=wp)  :: f_vol_actual, f_cov_actual, total_HI_mass
@@ -1710,7 +1711,7 @@ contains
      write(*,'(a,es12.4)') ' Clumps: integrated HI col   = ', total_HI_mass
   end if
 
-  call fits_open_new(unit, trim(fname), status)
+  call io_open_new(iofh, trim(fname), status)
   if (status /= 0) then
      write(*,*) 'WARNING: write_clumps_fits: cannot open ', trim(fname)
      return
@@ -1728,19 +1729,19 @@ contains
   allocate(tmp(ncl))
 
   tmp = cl_x(1:ncl)
-  call fits_write_table_column(unit, 'X',  tmp, status, bitpix)
+  call io_write_table_column(iofh, 'X',  tmp, status, bitpix)
   tmp = cl_y(1:ncl)
-  call fits_write_table_column(unit, 'Y',  tmp, status, bitpix)
+  call io_write_table_column(iofh, 'Y',  tmp, status, bitpix)
   tmp = cl_z(1:ncl)
-  call fits_write_table_column(unit, 'Z',  tmp, status, bitpix)
+  call io_write_table_column(iofh, 'Z',  tmp, status, bitpix)
   !--- cl_v* are stored as v/cl_vtherm(icl) internally (since 2026-04-27);
   !    multiply back by cl_vtherm(icl) to write velocities in km/s.
   tmp = cl_vx(1:ncl) * cl_vtherm(1:ncl)
-  call fits_write_table_column(unit, 'VX', tmp, status, bitpix)
+  call io_write_table_column(iofh, 'VX', tmp, status, bitpix)
   tmp = cl_vy(1:ncl) * cl_vtherm(1:ncl)
-  call fits_write_table_column(unit, 'VY', tmp, status, bitpix)
+  call io_write_table_column(iofh, 'VY', tmp, status, bitpix)
   tmp = cl_vz(1:ncl) * cl_vtherm(1:ncl)
-  call fits_write_table_column(unit, 'VZ', tmp, status, bitpix)
+  call io_write_table_column(iofh, 'VZ', tmp, status, bitpix)
 
   !--- per-clump physical columns (Phase 6 additions): write only if non-constant.
   kap_min_w  = minval(cl_rhokap(1:ncl))
@@ -1756,15 +1757,15 @@ contains
 
   if (write_radius) then
      tmp = cl_radius(1:ncl)
-     call fits_write_table_column(unit, 'R_CLUMP', tmp, status, bitpix)
+     call io_write_table_column(iofh, 'R_CLUMP', tmp, status, bitpix)
   end if
   if (write_rhokap) then
      tmp = cl_rhokap(1:ncl)
-     call fits_write_table_column(unit, 'RHOKAP', tmp, status, bitpix)
+     call io_write_table_column(iofh, 'RHOKAP', tmp, status, bitpix)
   end if
   if (write_temp) then
      tmp = cl_temperature(1:ncl)
-     call fits_write_table_column(unit, 'TEMP', tmp, status, bitpix)
+     call io_write_table_column(iofh, 'TEMP', tmp, status, bitpix)
   end if
 
   deallocate(tmp)
@@ -1774,36 +1775,36 @@ contains
           write_radius, write_rhokap, write_temp
   end if
 
-  !--- Write keywords into the BinTable HDU (current HDU after fits_write_table_column)
-  call fits_put_keyword(unit, 'N_CLUMPS',  ncl,                'number of clumps (realized)',          status)
-  call fits_put_keyword(unit, 'SPHERE_R',  sphere_R,           'outer sphere radius [code units]',      status)
-  call fits_put_keyword(unit, 'RMIN',      r_min_clump,        'inner placement radius [code units]',   status)
-  call fits_put_keyword(unit, 'CL_RAD',    cl_radius_max,      'clump radius (max) [code units]',       status)
-  call fits_put_keyword(unit, 'F_VOL',     f_vol_actual,       'volume filling factor (realized)',      status)
-  call fits_put_keyword(unit, 'F_COV',     f_cov_actual,       'covering factor (realized)',            status)
-  call fits_put_keyword(unit, 'TAU0',      par%clump_tau0,     'line-center tau (center to surface)',   status)
-  call fits_put_keyword(unit, 'SIGMA_V',   par%clump_sigma_v,  'bulk velocity sigma [km/s]',            status)
-  call fits_put_keyword(unit, 'TEMP_CL',   cl_temperature_ref, 'clump temperature [K] (reference)',     status)
-  call fits_put_keyword(unit, 'RHOKAP',    cl_rhokap_ref,      'opacity/code-unit inside clumps (ref)', status)
-  call fits_put_keyword(unit, 'CL_DFREQ',  cl_Dfreq_ref,       'Doppler frequency [Hz] (reference)',    status)
-  call fits_put_keyword(unit, 'VTHERM',    cl_vtherm_ref,      'thermal velocity [km/s] (reference)',   status)
-  call fits_put_keyword(unit, 'VOIGT_A',   cl_voigt_a_ref,     'Voigt damping parameter (reference)',   status)
-  call fits_put_keyword(unit, 'RMAX',      par%rmax,      'outer sphere radius input (par%rmax)',   status)
-  call fits_put_keyword(unit, 'IN_FCOV',   par%clump_f_cov,   'covering factor (input)',            status)
-  call fits_put_keyword(unit, 'IN_FVOL',   par%clump_f_vol,   'volume filling factor (input)',      status)
-  call fits_put_keyword(unit, 'IN_NCL',    par%clump_N_clumps,'N_clumps (input)',                   status)
-  call fits_put_keyword(unit, 'IN_NHI',    par%clump_NHI,     'per-clump NHI input [cm^-2] (clump center to surface)',status)
-  call fits_put_keyword(unit, 'IN_NH',     par%clump_nH,      'clump nH density input [cm^-3]',    status)
-  call fits_put_keyword(unit, 'IN_TEMP',   par%clump_temperature,'clump temperature input [K]',     status)
+  !--- Write keywords into the BinTable HDU (current HDU after io_write_table_column)
+  call io_put_keyword(iofh, 'N_CLUMPS',  ncl,                'number of clumps (realized)',          status)
+  call io_put_keyword(iofh, 'SPHERE_R',  sphere_R,           'outer sphere radius [code units]',      status)
+  call io_put_keyword(iofh, 'RMIN',      r_min_clump,        'inner placement radius [code units]',   status)
+  call io_put_keyword(iofh, 'CL_RAD',    cl_radius_max,      'clump radius (max) [code units]',       status)
+  call io_put_keyword(iofh, 'F_VOL',     f_vol_actual,       'volume filling factor (realized)',      status)
+  call io_put_keyword(iofh, 'F_COV',     f_cov_actual,       'covering factor (realized)',            status)
+  call io_put_keyword(iofh, 'TAU0',      par%clump_tau0,     'line-center tau (center to surface)',   status)
+  call io_put_keyword(iofh, 'SIGMA_V',   par%clump_sigma_v,  'bulk velocity sigma [km/s]',            status)
+  call io_put_keyword(iofh, 'TEMP_CL',   cl_temperature_ref, 'clump temperature [K] (reference)',     status)
+  call io_put_keyword(iofh, 'RHOKAP',    cl_rhokap_ref,      'opacity/code-unit inside clumps (ref)', status)
+  call io_put_keyword(iofh, 'CL_DFREQ',  cl_Dfreq_ref,       'Doppler frequency [Hz] (reference)',    status)
+  call io_put_keyword(iofh, 'VTHERM',    cl_vtherm_ref,      'thermal velocity [km/s] (reference)',   status)
+  call io_put_keyword(iofh, 'VOIGT_A',   cl_voigt_a_ref,     'Voigt damping parameter (reference)',   status)
+  call io_put_keyword(iofh, 'RMAX',      par%rmax,      'outer sphere radius input (par%rmax)',   status)
+  call io_put_keyword(iofh, 'IN_FCOV',   par%clump_f_cov,   'covering factor (input)',            status)
+  call io_put_keyword(iofh, 'IN_FVOL',   par%clump_f_vol,   'volume filling factor (input)',      status)
+  call io_put_keyword(iofh, 'IN_NCL',    par%clump_N_clumps,'N_clumps (input)',                   status)
+  call io_put_keyword(iofh, 'IN_NHI',    par%clump_NHI,     'per-clump NHI input [cm^-2] (clump center to surface)',status)
+  call io_put_keyword(iofh, 'IN_NH',     par%clump_nH,      'clump nH density input [cm^-3]',    status)
+  call io_put_keyword(iofh, 'IN_TEMP',   par%clump_temperature,'clump temperature input [K]',     status)
 
-  call fits_close(unit, status)
+  call io_close(iofh, status)
 
   if (mpar%p_rank == 0) write(*,'(2a)') ' Clumps saved to ', trim(fname)
   end subroutine write_clumps_fits
   !===========================================================================
 
   !===========================================================================
-  subroutine read_perclump_or_keyword(unit, colnames, keyname, scratch, ncl, dst)
+  subroutine read_perclump_or_keyword(iofh, colnames, keyname, scratch, ncl, dst)
   !---------------------------------------------------------------------------
   ! Helper used by read_clumps_fits.  Try each comma-separated entry in
   ! `colnames` in order; the first one that exists in the FITS table is
@@ -1816,9 +1817,9 @@ contains
   !     because it was effectively constant
   ! are both handled with a single read path.
   !---------------------------------------------------------------------------
-  use fitsio_mod
+  use iofile_mod
   implicit none
-  integer,          intent(in)    :: unit
+  type(io_file_type), intent(in)    :: iofh
   character(len=*), intent(in)    :: colnames, keyname
   real(real32),     intent(inout) :: scratch(:)
   integer(int64),   intent(in)    :: ncl
@@ -1847,9 +1848,9 @@ contains
      if (len_trim(candidate) == 0) cycle
      tried = trim(tried)//' '//trim(candidate)
      status = 0
-     call fits_get_column_number(unit, trim(candidate), colnum, status)
+     call io_get_column_number(iofh, trim(candidate), colnum, status)
      if (status == 0) then
-        call fits_read_table_column(unit, colnum, scratch, status)
+        call io_read_table_column(iofh, colnum, scratch, status)
         dst(1:ncl) = real(scratch(1:ncl), wp)
         found = .true.
      end if
@@ -1857,7 +1858,7 @@ contains
 
   if (.not. found) then
      status = 0
-     call fits_get_keyword(unit, trim(keyname), keyval, status, cmt)
+     call io_get_keyword(iofh, trim(keyname), keyval, status, cmt)
      if (status /= 0) then
         write(*,'(5a)') 'ERROR: clump_input_file is missing every column in {', &
              trim(adjustl(tried)), ' } and header keyword ', trim(keyname), &
@@ -1887,14 +1888,15 @@ contains
   !---------------------------------------------------------------------------
   use define
   use line_mod
-  use fitsio_mod
+  use iofile_mod
   use voigt_mod, only: voigt
   use mpi
   implicit none
   character(len=*), intent(in) :: fname
   real(kind=wp),    intent(in) :: R_sphere
 
-  integer        :: unit, status, ierr, colnum
+  type(io_file_type) :: iofh
+  integer        :: status, ierr, colnum
   integer(int64) :: ncl, i
   real(kind=real32), allocatable :: tmp(:)
   character(len=80) :: cmt
@@ -1908,18 +1910,18 @@ contains
 
   if (mpar%p_rank == 0) then
      write(*,'(2a)') ' Clumps: reading from ', trim(fname)
-     call fits_open_old(unit, trim(fname), status)
+     call io_open_old(iofh, trim(fname), status)
      if (status /= 0) then
         write(*,'(2a)') 'ERROR: cannot open clump_input_file: ', trim(fname)
         call MPI_ABORT(MPI_COMM_WORLD, 1, ierr)
      end if
      !--- HDU 1 is the empty primary; the binary table is HDU 2.
-     call fits_move_to_next_hdu(unit, status)
+     call io_move_to_next_section(iofh, status)
      if (status /= 0) then
         write(*,'(a)') 'ERROR: clump_input_file: cannot reach binary-table HDU 2'
         call MPI_ABORT(MPI_COMM_WORLD, 1, ierr)
      end if
-     call fits_get_keyword(unit, 'N_CLUMPS', ncl, status, cmt)
+     call io_get_keyword(iofh, 'N_CLUMPS', ncl, status, cmt)
      if (status /= 0 .or. ncl <= 0_int64) then
         write(*,'(a)') 'ERROR: clump_input_file: N_CLUMPS keyword missing or <= 0'
         call MPI_ABORT(MPI_COMM_WORLD, 1, ierr)
@@ -1949,34 +1951,34 @@ contains
   if (mpar%p_rank == 0) then
      allocate(tmp(ncl))
 
-     call fits_get_column_number(unit, 'X', colnum, status)
-     call fits_read_table_column(unit, colnum, tmp, status)
+     call io_get_column_number(iofh, 'X', colnum, status)
+     call io_read_table_column(iofh, colnum, tmp, status)
      cl_x = real(tmp, dp)
-     call fits_get_column_number(unit, 'Y', colnum, status)
-     call fits_read_table_column(unit, colnum, tmp, status)
+     call io_get_column_number(iofh, 'Y', colnum, status)
+     call io_read_table_column(iofh, colnum, tmp, status)
      cl_y = real(tmp, dp)
-     call fits_get_column_number(unit, 'Z', colnum, status)
-     call fits_read_table_column(unit, colnum, tmp, status)
+     call io_get_column_number(iofh, 'Z', colnum, status)
+     call io_read_table_column(iofh, colnum, tmp, status)
      cl_z = real(tmp, dp)
-     call fits_get_column_number(unit, 'VX', colnum, status)
-     call fits_read_table_column(unit, colnum, tmp, status)
+     call io_get_column_number(iofh, 'VX', colnum, status)
+     call io_read_table_column(iofh, colnum, tmp, status)
      cl_vx = real(tmp, dp)        ! km/s; converted to dimensionless below
-     call fits_get_column_number(unit, 'VY', colnum, status)
-     call fits_read_table_column(unit, colnum, tmp, status)
+     call io_get_column_number(iofh, 'VY', colnum, status)
+     call io_read_table_column(iofh, colnum, tmp, status)
      cl_vy = real(tmp, dp)
-     call fits_get_column_number(unit, 'VZ', colnum, status)
-     call fits_read_table_column(unit, colnum, tmp, status)
+     call io_get_column_number(iofh, 'VZ', colnum, status)
+     call io_read_table_column(iofh, colnum, tmp, status)
      cl_vz = real(tmp, dp)
 
      !--- R_CLUMP / RHOKAP / TEMP are optional. write_clumps_fits omits
      !    each one when its spread is below const_tol (= 1e-3 of mean).
      !    Old (pre-Phase-6) FITS files do not carry these columns at all.
      !    In both cases we fall back to the corresponding header keyword.
-     call read_perclump_or_keyword(unit, 'R_CLUMP',                'CL_RAD',  tmp, ncl, cl_radius)
-     call read_perclump_or_keyword(unit, 'RHOKAP,DENSITY,DENS',    'RHOKAP',  tmp, ncl, cl_rhokap)
-     call read_perclump_or_keyword(unit, 'TEMP',                   'TEMP_CL', tmp, ncl, cl_temperature)
+     call read_perclump_or_keyword(iofh, 'R_CLUMP',                'CL_RAD',  tmp, ncl, cl_radius)
+     call read_perclump_or_keyword(iofh, 'RHOKAP,DENSITY,DENS',    'RHOKAP',  tmp, ncl, cl_rhokap)
+     call read_perclump_or_keyword(iofh, 'TEMP',                   'TEMP_CL', tmp, ncl, cl_temperature)
      deallocate(tmp)
-     call fits_close(unit, status)
+     call io_close(iofh, status)
 
      !--- Derive per-clump Doppler frequency, thermal velocity, Voigt damping
      !    from the per-clump temperature so that the line-data choice (par%line_id)

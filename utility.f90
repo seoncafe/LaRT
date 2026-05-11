@@ -218,14 +218,33 @@ contains
    end subroutine loop_divide_int32
    !------------------------------------------------
    function get_base_name(filename) result(base_name)
+   !--- Strip the directory prefix and the recognized output extension
+   !--- ('.fits.gz', '.fits', '.h5', '.hdf5') to return the base name.
    implicit none
    character(len=*), intent(in) :: filename
    character(len(filename))     :: base_name
-   integer :: i1,i2
-   i1        = index(filename,'/', back=.true.)+1
-   i2        = index(filename,'.fits')-1
-   base_name = trim(filename(i1:i2))
-   return
+   integer :: i1, i2, n
+   i1 = index(filename,'/', back=.true.) + 1
+   n  = len_trim(filename)
+   i2 = n   ! default: keep everything after the slash
+   if (n >= 8) then
+      if (filename(n-7:n) == '.fits.gz') then; i2 = n - 8; goto 100; endif
+   endif
+   if (n >= 5) then
+      if (filename(n-4:n) == '.hdf5')    then; i2 = n - 5; goto 100; endif
+   endif
+   if (n >= 5) then
+      if (filename(n-4:n) == '.fits')    then; i2 = n - 5; goto 100; endif
+   endif
+   if (n >= 3) then
+      if (filename(n-2:n) == '.h5')      then; i2 = n - 3; goto 100; endif
+   endif
+100 continue
+   if (i2 < i1) then
+      base_name = ''
+   else
+      base_name = filename(i1:i2)
+   endif
    end function get_base_name
    !------------------------------------------------
    function get_base_input_name(filename) result(base_name)
@@ -239,12 +258,14 @@ contains
    end function get_base_input_name
    !------------------------------------------------
    function name_for_backup(fname) result(fname_next)
-   !--- this routine gives a name for backup file for a given base name of a fits file.
-   !--- for example, fname = 'DL19' for 'DL19.fits.gz'
+   !--- this routine gives a name for backup file for a given base name of a fits
+   !--- or hdf5 output file. For example, fname = 'DL19' for 'DL19.fits.gz' or
+   !--- 'DL19.h5'.  Returns the first <fname>_NN that doesn't collide with an
+   !--- existing file of either extension.
    implicit none
    character(len=*), intent(in) :: fname
    character(len=128)           :: filename, fname_next
-   logical :: file_exists
+   logical :: exists_fits, exists_h5
    integer :: i
 
    do i = 0,99
@@ -255,8 +276,10 @@ contains
          write(fname_next,'(a,i2.2)') trim(fname)//'_',i
       endif
       filename = trim(fname_next)//'.fits.gz'
-      inquire(file=trim(filename), exist=file_exists)
-      if (.not.file_exists) exit
+      inquire(file=trim(filename), exist=exists_fits)
+      filename = trim(fname_next)//'.h5'
+      inquire(file=trim(filename), exist=exists_h5)
+      if (.not. (exists_fits .or. exists_h5)) exit
    enddo
    end function name_for_backup
    !------------------------------------------------

@@ -8,7 +8,8 @@ This version adds support for adaptive mesh refinement (AMR) grids, including bo
 
 - AMR support has been added; testing and validation are ongoing.
 - Clump overlap handling added: file-loaded or internally generated overlapping clumps are handled with an event-based multi-component raytrace; enabled via `par%clump_allow_overlap = .true.` for internally generated populations.
-- Both RAMSES AMR snapshots and a generic text/FITS AMR format are supported.
+- Both RAMSES AMR snapshots and a generic text/FITS/HDF5 AMR format are supported.
+- **HDF5 I/O support (output and input)** is now available alongside FITS for all output streams (spectrum, peel-off, sight-line tau, CALCJ/CALCP arrays) and all gridded inputs (density, temperature, velocity, emissivity, clump files). The default is HDF5 (`par%file_format = 'hdf5'`); set `par%file_format = 'fits'` to fall back to `.fits.gz`. Build with `make HDF5=1` (default) or `make HDF5=0` to skip the HDF5 link dependency. See `HDF5_CHANGES.txt` and `python/lart_io.py` for the schema and a format-agnostic Python reader/converter.
 - The usage guide is still being prepared.
 
 ## References
