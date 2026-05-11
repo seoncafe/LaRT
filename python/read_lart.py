@@ -187,7 +187,17 @@ class ClumpsOutput:
     vy:          Optional[np.ndarray] = None
     vz:          Optional[np.ndarray] = None
     radius:      Optional[np.ndarray] = None        # R_CLUMP column
+    # Per-clump opacity carrier.  The clump file uses one of two column
+    # names that differ in physical units:
+    #   ``rhokap``  -- RHOKAP column: opacity per code unit (legacy).
+    #   ``density`` -- DENSITY/DENS column: n_HI [cm^-3].  LaRT converts
+    #                  to opacity at read time via
+    #                  cl_rhokap = n_HI * line%cross0 / Dfreq * distance2cm.
+    # Exactly one of the two should be populated; ``opacity_col`` reports
+    # which column name was actually present in the file.
     rhokap:      Optional[np.ndarray] = None
+    density:     Optional[np.ndarray] = None        # DENSITY / DENS column
+    opacity_col: Optional[str]        = None        # 'RHOKAP', 'DENSITY', 'DENS', or None
     temp:        Optional[np.ndarray] = None
     # group / HDU attributes -- case-insensitive lookup via ``attr()``
     attrs:       dict = field(default_factory=dict)
@@ -232,6 +242,27 @@ class ClumpsOutput:
         """Inner placement radius (code units).  Reads the ``RMIN``
         attribute; defaults to 0."""
         return float(self.attr('RMIN', 0.0))
+
+    @property
+    def distance_unit(self) -> Optional[str]:
+        """LaRT ``par%distance_unit`` from the ``DISTUNIT`` attribute
+        (e.g. ``'kpc'``).  Bytes-typed HDF5 attrs are decoded to ``str``.
+        Returns ``None`` if the file has no DISTUNIT."""
+        v = self.attr('DISTUNIT')
+        if v is None:
+            return None
+        if isinstance(v, bytes):
+            v = v.decode('ascii', errors='replace')
+        s = str(v).strip()
+        return s if s else None
+
+    @property
+    def distance2cm(self) -> Optional[float]:
+        """1 code unit in cm, from the ``DIST_CM`` attribute (LaRT
+        ``par%distance2cm``).  Returns ``None`` if the file has no
+        DIST_CM."""
+        v = self.attr('DIST_CM')
+        return float(v) if v is not None else None
 
     def _radii_array(self) -> Optional[np.ndarray]:
         """Per-clump radii used by the f_vol / f_cov formulas: prefer the
@@ -298,6 +329,10 @@ class ClumpsOutput:
                  f"Input file : {self.input_file or '(none)'}",
                  f"N_clumps   : {self.n_clumps}",
                  f"sphere_R   : {self.sphere_r:.4g}"]
+        if self.distance_unit is not None:
+            lines.append(f"DISTUNIT   : {self.distance_unit}")
+        if self.distance2cm is not None:
+            lines.append(f"DIST_CM    : {self.distance2cm:.4e}")
         if self.f_vol is not None:
             lines.append(f"f_vol      : {self.f_vol:.4g}")
         if self.f_cov is not None:
@@ -308,6 +343,9 @@ class ClumpsOutput:
         if self.rhokap is not None:
             lines.append(f"RHOKAP     : min/max = {self.rhokap.min():.3e} / "
                          f"{self.rhokap.max():.3e}")
+        if self.density is not None:
+            lines.append(f"DENSITY    : min/max = {self.density.min():.3e} / "
+                         f"{self.density.max():.3e}  [cm^-3]")
         if self.temp is not None:
             lines.append(f"TEMP       : min/max = {self.temp.min():.3e} / "
                          f"{self.temp.max():.3e}")
@@ -343,9 +381,10 @@ class ClumpsOutput:
         ----------
         axis : {'x', 'y', 'z'}, default 'z'
         value : float, default 0
-        colorby : {'rhokap', 'radius', 'rcross', 'temp', 'none'}, optional
-            Default ``'rhokap'`` if the RHOKAP column is loaded, else
-            ``'radius'``.
+        colorby : {'rhokap', 'density', 'radius', 'rcross', 'temp', 'none'}, optional
+            Default picks the first available of RHOKAP, DENSITY (alias
+            DENS), and falls back to ``'radius'`` if neither opacity-style
+            column is present.
         See :meth:`LaRTOutput.plot_clump_slice` for the rest of the
         parameters; the API is identical apart from the absent
         ``clumps_file`` override (already fixed by ``read_clumps``).
@@ -353,9 +392,10 @@ class ClumpsOutput:
         if axis not in ('x', 'y', 'z'):
             raise ValueError(f"axis must be 'x', 'y', or 'z', got {axis!r}")
         if colorby is not None and colorby not in (
-                'none', 'rhokap', 'radius', 'rcross', 'temp'):
+                'none', 'rhokap', 'density', 'radius', 'rcross', 'temp'):
             raise ValueError(f"colorby must be one of 'none', 'rhokap', "
-                             f"'radius', 'rcross', 'temp'; got {colorby!r}")
+                             f"'density', 'radius', 'rcross', 'temp'; "
+                             f"got {colorby!r}")
         if self.x is None or self.radius is None:
             raise RuntimeError(
                 f"{self.clumps_file!r} did not contain the X/Y/Z and "
@@ -376,7 +416,12 @@ class ClumpsOutput:
         a, b, rcross, idx = slice_clumps(self.pos, self.radius, axis, value)
 
         if colorby is None:
-            colorby = 'rhokap' if self.rhokap is not None else 'radius'
+            if self.rhokap is not None:
+                colorby = 'rhokap'
+            elif self.density is not None:
+                colorby = 'density'
+            else:
+                colorby = 'radius'
         if colorby == 'none':
             color_vals, color_label = None, None
         elif colorby == 'rhokap':
@@ -386,6 +431,13 @@ class ClumpsOutput:
                     f"has no RHOKAP column.")
             color_vals = np.asarray(self.rhokap)[idx]
             color_label = 'RHOKAP'
+        elif colorby == 'density':
+            if self.density is None:
+                raise ValueError(
+                    f"colorby='density' requested but {os.path.basename(self.clumps_file)} "
+                    f"has no DENSITY/DENS column.")
+            color_vals = np.asarray(self.density)[idx]
+            color_label = r'$n_{\rm HI}$ [cm$^{-3}$]'
         elif colorby == 'radius':
             color_vals = np.asarray(self.radius)[idx]
             color_label = r'$R_{\rm clump}$'
@@ -2021,6 +2073,23 @@ def read_clumps(name: str) -> ClumpsOutput:
         if k.upper() not in attrs:
             attrs[k.upper()] = attrs[k]
 
+    # Opacity column: priority RHOKAP -> DENSITY -> DENS.  RHOKAP carries
+    # opacity per code unit; DENSITY/DENS carry n_HI [cm^-3] (LaRT-side
+    # convention since 2026-05-12).  The matched name is recorded so the
+    # caller can distinguish the two interpretations.
+    rhokap_arr:  Optional[np.ndarray] = None
+    density_arr: Optional[np.ndarray] = None
+    opacity_col: Optional[str]        = None
+    for cand in ('RHOKAP', 'DENSITY', 'DENS'):
+        arr = _col(cand)
+        if arr is not None:
+            opacity_col = cand
+            if cand == 'RHOKAP':
+                rhokap_arr = arr
+            else:
+                density_arr = arr
+            break
+
     return ClumpsOutput(
         clumps_file = cpath,
         input_file  = infile,
@@ -2032,7 +2101,9 @@ def read_clumps(name: str) -> ClumpsOutput:
         vy          = _col('VY'),
         vz          = _col('VZ'),
         radius      = _col('R_CLUMP'),
-        rhokap      = _col('RHOKAP'),
+        rhokap      = rhokap_arr,
+        density     = density_arr,
+        opacity_col = opacity_col,
         temp        = _col('TEMP'),
         attrs       = attrs,
     )
