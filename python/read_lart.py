@@ -349,6 +349,17 @@ class ClumpsOutput:
         if self.temp is not None:
             lines.append(f"TEMP       : min/max = {self.temp.min():.3e} / "
                          f"{self.temp.max():.3e}")
+        vel = self.vel
+        if vel is not None:
+            vmag = np.linalg.norm(vel, axis=1)
+            lines.append(f"VX         : min/max = {self.vx.min():+.3e} / "
+                         f"{self.vx.max():+.3e}  [km/s]")
+            lines.append(f"VY         : min/max = {self.vy.min():+.3e} / "
+                         f"{self.vy.max():+.3e}  [km/s]")
+            lines.append(f"VZ         : min/max = {self.vz.min():+.3e} / "
+                         f"{self.vz.max():+.3e}  [km/s]")
+            lines.append(f"|V|        : min/max = {vmag.min():.3e} / "
+                         f"{vmag.max():.3e}  [km/s]")
         return '\n'.join(lines)
 
     # ------------------------------------------------------------------
@@ -381,20 +392,23 @@ class ClumpsOutput:
         ----------
         axis : {'x', 'y', 'z'}, default 'z'
         value : float, default 0
-        colorby : {'rhokap', 'density', 'radius', 'rcross', 'temp', 'none'}, optional
+        colorby : {'rhokap', 'density', 'radius', 'rcross', 'temp',
+                   'vx', 'vy', 'vz', 'vmag', 'none'}, optional
             Default picks the first available of RHOKAP, DENSITY (alias
             DENS), and falls back to ``'radius'`` if neither opacity-style
-            column is present.
+            column is present.  ``'vx'``/``'vy'``/``'vz'`` color by the
+            corresponding velocity component (km/s) and ``'vmag'`` by the
+            speed; all four require the VX/VY/VZ columns to be loaded.
         See :meth:`LaRTOutput.plot_clump_slice` for the rest of the
         parameters; the API is identical apart from the absent
         ``clumps_file`` override (already fixed by ``read_clumps``).
         """
         if axis not in ('x', 'y', 'z'):
             raise ValueError(f"axis must be 'x', 'y', or 'z', got {axis!r}")
-        if colorby is not None and colorby not in (
-                'none', 'rhokap', 'density', 'radius', 'rcross', 'temp'):
-            raise ValueError(f"colorby must be one of 'none', 'rhokap', "
-                             f"'density', 'radius', 'rcross', 'temp'; "
+        _valid_colorby = ('none', 'rhokap', 'density', 'radius', 'rcross',
+                          'temp', 'vx', 'vy', 'vz', 'vmag')
+        if colorby is not None and colorby not in _valid_colorby:
+            raise ValueError(f"colorby must be one of {_valid_colorby}; "
                              f"got {colorby!r}")
         if self.x is None or self.radius is None:
             raise RuntimeError(
@@ -438,6 +452,24 @@ class ClumpsOutput:
                     f"has no DENSITY/DENS column.")
             color_vals = np.asarray(self.density)[idx]
             color_label = r'$n_{\rm HI}$ [cm$^{-3}$]'
+        elif colorby in ('vx', 'vy', 'vz', 'vmag'):
+            vel_arr = self.vel
+            if vel_arr is None:
+                raise ValueError(
+                    f"colorby={colorby!r} requested but {os.path.basename(self.clumps_file)} "
+                    f"has no VX/VY/VZ columns.")
+            if colorby == 'vx':
+                color_vals = np.asarray(self.vx)[idx]
+                color_label = r'$v_x$ [km s$^{-1}$]'
+            elif colorby == 'vy':
+                color_vals = np.asarray(self.vy)[idx]
+                color_label = r'$v_y$ [km s$^{-1}$]'
+            elif colorby == 'vz':
+                color_vals = np.asarray(self.vz)[idx]
+                color_label = r'$v_z$ [km s$^{-1}$]'
+            else:  # 'vmag'
+                color_vals = np.linalg.norm(vel_arr, axis=1)[idx]
+                color_label = r'$|\mathbf{v}|$ [km s$^{-1}$]'
         elif colorby == 'radius':
             color_vals = np.asarray(self.radius)[idx]
             color_label = r'$R_{\rm clump}$'
@@ -1124,6 +1156,10 @@ class LaRTOutput:
                          observer: Optional[int] = None,
                          component: str = 'all',
                          vel_range: Optional[Tuple[float, float]] = None,
+                         vel_min:   Optional[float] = None,
+                         vel_max:   Optional[float] = None,
+                         wav_min:   Optional[float] = None,
+                         wav_max:   Optional[float] = None,
                          cmap: str = 'inferno',
                          vmin: Optional[float] = None,
                          vmax: Optional[float] = None,
@@ -1151,6 +1187,14 @@ class LaRTOutput:
             Which part of the peel-off cube to use.
         vel_range : (lo, hi), optional
             Restrict integration to ``lo <= v <= hi`` (km/s).
+        vel_min, vel_max : float, optional
+            Per-bound velocity overrides (km/s); override the
+            corresponding entry of ``vel_range``.
+        wav_min, wav_max : float, optional
+            Same as ``vel_min``/``vel_max`` but expressed as wavelength
+            bounds; converted to velocity via interpolation on the
+            stored ``(wavelength, velocity)`` Spectrum axes.  Use
+            whatever units the FITS Spectrum table already carries.
         cmap : str
             Matplotlib colormap (default 'inferno').
         vmin, vmax : float, optional
@@ -1174,6 +1218,9 @@ class LaRTOutput:
             raise RuntimeError(
                 "velocity grid not available -- the FITS Spectrum table "
                 "has no 'velocity' column.")
+
+        vel_range_eff = _resolve_vel_range_for_peeling(
+            self, vel_range, vel_min, vel_max, wav_min, wav_max)
 
         import matplotlib.pyplot as plt
         from matplotlib.colors import LogNorm, Normalize
@@ -1220,7 +1267,7 @@ class LaRTOutput:
         def _moment0(peel):
             return peel.velocity_moment_map(self.velocity, order=0,
                                             component=component,
-                                            vel_range=vel_range)
+                                            vel_range=vel_range_eff)
 
         # --- single observer ------------------------------------------
         if observer is not None:
@@ -1293,6 +1340,8 @@ class LaRTOutput:
                               component: str = 'all',
                               mode: str = 'sum',
                               yscale: str = 'linear',
+                              rin:  Optional[float] = None,
+                              rout: Optional[float] = None,
                               ax=None,
                               ncols: Optional[int] = None,
                               figsize: Optional[Tuple[float, float]] = None,
@@ -1321,7 +1370,18 @@ class LaRTOutput:
         mode : {'sum', 'mean'}
             Spatial reduction over the (y, x) image axes.  ``'sum'``
             (default) integrates over pixels; ``'mean'`` returns the
-            spatial average specific intensity.
+            spatial average specific intensity over the kept pixels.
+        rin, rout : float, optional
+            Inclusive annulus bounds in image-plane code units (the same
+            units used by :meth:`plot_peeling_map`'s axes).  When at
+            least one is set, only pixels with
+            ``rin <= sqrt(x^2 + y^2) <= rout`` are included in the
+            spatial reduction (defaults: ``rin=0``, ``rout=+inf``).
+            ``r`` is measured from the image origin (CRPIX2/CRPIX3
+            reference, i.e. the projection of the source onto the image
+            plane).  Useful for extracting the spectrum from a specific
+            radial range (e.g.\ the wings outside the central PSF, or
+            the inner bright core only).
         yscale : {'linear', 'log'}
         ax : matplotlib.axes.Axes, optional
             If provided, plot all observers as separate curves on this
@@ -1353,6 +1413,23 @@ class LaRTOutput:
                   if mode == 'sum'
                   else r'$\langle I\rangle_{\rm pix}$')
 
+        rlo = 0.0       if rin  is None else float(rin)
+        rhi = np.inf    if rout is None else float(rout)
+        use_annulus = (rin is not None) or (rout is not None)
+        if rlo < 0.0:
+            raise ValueError(f"rin must be >= 0, got {rin!r}")
+        if rhi <= rlo:
+            raise ValueError(f"rout ({rout!r}) must exceed rin ({rin!r})")
+
+        def _annulus_mask(peel):
+            """Return a (nyim, nxim) bool mask of pixels in rin..rout, or
+            None if no annulus filter was requested."""
+            if not use_annulus:
+                return None
+            xs, ys, _, _ = _peel_pixel_coords_code(peel)
+            rgrid = np.hypot(xs[None, :], ys[:, None])
+            return (rgrid >= rlo) & (rgrid <= rhi)
+
         def _spec(peel):
             if component == 'all':
                 cube = peel.cube
@@ -1360,9 +1437,19 @@ class LaRTOutput:
                 cube = peel.scatt
             else:
                 cube = peel.direc
-            if mode == 'sum':
-                return cube.sum(axis=(0, 1))
-            return cube.mean(axis=(0, 1))
+            mask = _annulus_mask(peel)
+            if mask is None:
+                if mode == 'sum':
+                    return cube.sum(axis=(0, 1))
+                return cube.mean(axis=(0, 1))
+            npix = int(mask.sum())
+            if npix == 0:
+                raise ValueError(
+                    f"annulus rin={rin}, rout={rout} contains no pixels for "
+                    f"observer at distance {peel.distance} "
+                    f"(image pixel pitch ~{abs(float(peel.header.get('CD2_2', 1.0)))*np.pi/180*peel.distance:.3g} code units).")
+            weighted = (cube * mask[..., None]).sum(axis=(0, 1))
+            return weighted if mode == 'sum' else weighted / npix
 
         def _label(peel):
             return (rf'$\alpha={peel.alpha:+.0f}^\circ,\ '
@@ -1456,6 +1543,10 @@ class LaRTOutput:
                                     observer: Optional[int] = None,
                                     component: str = 'all',
                                     vel_range: Optional[Tuple[float, float]] = None,
+                                    vel_min:   Optional[float] = None,
+                                    vel_max:   Optional[float] = None,
+                                    wav_min:   Optional[float] = None,
+                                    wav_max:   Optional[float] = None,
                                     nbins: Optional[int] = None,
                                     rmax: Optional[float] = None,
                                     yscale: str = 'linear',
@@ -1489,6 +1580,13 @@ class LaRTOutput:
         component : {'all', 'scatt', 'direct'}
         vel_range : (lo, hi), optional
             Restrict integration to ``lo <= v <= hi`` (km/s).
+        vel_min, vel_max : float, optional
+            Per-bound velocity overrides (km/s); override the
+            corresponding entry of ``vel_range``.
+        wav_min, wav_max : float, optional
+            Same as ``vel_min``/``vel_max`` but expressed as wavelength
+            bounds; converted to velocity via interpolation on the
+            stored ``(wavelength, velocity)`` Spectrum axes.
         nbins : int, optional
             Number of radial bins.  Default = ``nxim // 2``.
         rmax : float, optional
@@ -1516,6 +1614,9 @@ class LaRTOutput:
         if xscale not in ('linear', 'log'):
             raise ValueError(f"xscale must be 'linear' or 'log', got {xscale!r}")
 
+        vel_range_eff = _resolve_vel_range_for_peeling(
+            self, vel_range, vel_min, vel_max, wav_min, wav_max)
+
         import matplotlib.pyplot as plt
 
         xlim_eff = _resolve_lim(xlim, xmin, xmax)
@@ -1524,7 +1625,7 @@ class LaRTOutput:
         def _profile(peel: PeelObservation):
             mmap = peel.velocity_moment_map(self.velocity, order=0,
                                             component=component,
-                                            vel_range=vel_range)
+                                            vel_range=vel_range_eff)
             xs, ys, _, _ = _peel_pixel_coords_code(peel)
             X, Y = np.meshgrid(xs, ys)
             R = np.sqrt(X*X + Y*Y)
@@ -1690,6 +1791,53 @@ class LaRTOutput:
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
+def _resolve_vel_range_for_peeling(out: 'LaRTOutput',
+                                   vel_range,
+                                   vel_min, vel_max,
+                                   wav_min, wav_max):
+    """Combine ``vel_range`` (tuple), explicit ``vel_min``/``vel_max``
+    overrides, and wavelength-based ``wav_min``/``wav_max`` overrides
+    into a single ``(lo, hi)`` velocity tuple suitable for
+    ``PeelObservation.velocity_moment_map(..., vel_range=...)``.
+
+    Precedence (low -> high): vel_range tuple, vel_min/vel_max,
+    wav_min/wav_max.  Wavelength bounds are converted to velocity via
+    linear interpolation of (wavelength, velocity) sampled at the same
+    FITS Spectrum bins, so any consistent units (Angstrom, micron, ...)
+    work; the wavelength axis must just be monotonic.  Returns ``None``
+    when no bound was supplied.
+    """
+    if (vel_range is None and vel_min is None and vel_max is None
+            and wav_min is None and wav_max is None):
+        return None
+    lo, hi = -np.inf, +np.inf
+    if vel_range is not None:
+        if vel_range[0] is not None: lo = float(vel_range[0])
+        if vel_range[1] is not None: hi = float(vel_range[1])
+    if vel_min is not None: lo = float(vel_min)
+    if vel_max is not None: hi = float(vel_max)
+    if wav_min is not None or wav_max is not None:
+        if out.wavelength is None or out.velocity is None:
+            raise RuntimeError(
+                "wav_min/wav_max require both 'wavelength' and 'velocity' "
+                "columns in the FITS Spectrum table.")
+        wav = np.asarray(out.wavelength, dtype=float)
+        vel = np.asarray(out.velocity,   dtype=float)
+        if np.all(np.diff(wav) < 0):
+            wav = wav[::-1]; vel = vel[::-1]
+        elif not np.all(np.diff(wav) > 0):
+            order = np.argsort(wav)
+            wav = wav[order]; vel = vel[order]
+        if wav_min is not None: lo = float(np.interp(wav_min, wav, vel))
+        if wav_max is not None: hi = float(np.interp(wav_max, wav, vel))
+    if hi <= lo:
+        raise ValueError(
+            f"empty velocity selection after combining vel_range={vel_range}, "
+            f"vel_min={vel_min}, vel_max={vel_max}, "
+            f"wav_min={wav_min}, wav_max={wav_max}: lo={lo}, hi={hi}")
+    return (lo, hi)
+
 
 def _peel_pixel_coords_code(p: 'PeelObservation'):
     """Pixel-centre coordinates of a peel-off image in **code units**.
