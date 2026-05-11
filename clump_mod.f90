@@ -1796,6 +1796,8 @@ contains
   call io_put_keyword(iofh, 'IN_NHI',    par%clump_NHI,     'per-clump NHI input [cm^-2] (clump center to surface)',status)
   call io_put_keyword(iofh, 'IN_NH',     par%clump_nH,      'clump nH density input [cm^-3]',    status)
   call io_put_keyword(iofh, 'IN_TEMP',   par%clump_temperature,'clump temperature input [K]',     status)
+  call io_put_keyword(iofh, 'DISTUNIT',  par%distance_unit, 'Distance Unit',                     status)
+  call io_put_keyword(iofh, 'DIST_CM',   par%distance2cm,   'Distance Unit (cm)',                status)
 
   call io_close(iofh, status)
 
@@ -1804,7 +1806,7 @@ contains
   !===========================================================================
 
   !===========================================================================
-  subroutine read_perclump_or_keyword(iofh, colnames, keyname, scratch, ncl, dst)
+  subroutine read_perclump_or_keyword(iofh, colnames, keyname, scratch, ncl, dst, found_name)
   !---------------------------------------------------------------------------
   ! Helper used by read_clumps_info.  Try each comma-separated entry in
   ! `colnames` in order; the first one that exists in the FITS table is
@@ -1816,14 +1818,20 @@ contains
   !   - a post-Phase-8 column-skipping file where the column was dropped
   !     because it was effectively constant
   ! are both handled with a single read path.
+  !
+  ! Optional output `found_name` returns the name of the column that was
+  ! actually used (upper-case, trimmed), or empty if the header-keyword
+  ! fallback was taken.  The caller can use it to disambiguate aliases --
+  ! e.g. DENSITY/DENS need a units conversion that RHOKAP does not.
   !---------------------------------------------------------------------------
   use iofile_mod
   implicit none
-  type(io_file_type), intent(in)    :: iofh
-  character(len=*), intent(in)    :: colnames, keyname
-  real(real32),     intent(inout) :: scratch(:)
-  integer(int64),   intent(in)    :: ncl
-  real(kind=wp),    intent(out)   :: dst(:)
+  type(io_file_type), intent(in)             :: iofh
+  character(len=*),   intent(in)             :: colnames, keyname
+  real(real32),       intent(inout)          :: scratch(:)
+  integer(int64),     intent(in)             :: ncl
+  real(kind=wp),      intent(out)            :: dst(:)
+  character(len=*),   intent(out),  optional :: found_name
 
   integer            :: status, colnum, ierr, ks, ke, lstr
   real(kind=wp)      :: keyval
@@ -1834,6 +1842,7 @@ contains
 
   found = .false.
   tried = ''
+  if (present(found_name)) found_name = ''
   lstr  = len_trim(colnames)
   ks    = 1
   do while (ks <= lstr .and. .not. found)
@@ -1852,6 +1861,7 @@ contains
      if (status == 0) then
         call io_read_table_column(iofh, colnum, scratch, status)
         dst(1:ncl) = real(scratch(1:ncl), wp)
+        if (present(found_name)) found_name = trim(candidate)
         found = .true.
      end if
   end do
@@ -1899,7 +1909,11 @@ contains
   integer        :: status, ierr, colnum
   integer(int64) :: ncl, i
   real(kind=real32), allocatable :: tmp(:)
-  character(len=80) :: cmt
+  character(len=80)  :: cmt
+  character(len=64)  :: rhokap_colname
+  character(len=128) :: distunit_file
+  real(kind=wp)      :: distcm_file
+  logical            :: rhokap_is_density, distance_unit_ok, user_set_distunit
 
   status   = 0
   sphere_R = R_sphere
@@ -1975,10 +1989,44 @@ contains
      !    Old (pre-Phase-6) FITS files do not carry these columns at all.
      !    In both cases we fall back to the corresponding header keyword.
      call read_perclump_or_keyword(iofh, 'R_CLUMP',                'CL_RAD',  tmp, ncl, cl_radius)
-     call read_perclump_or_keyword(iofh, 'RHOKAP,DENSITY,DENS',    'RHOKAP',  tmp, ncl, cl_rhokap)
+     call read_perclump_or_keyword(iofh, 'RHOKAP,DENSITY,DENS',    'RHOKAP',  tmp, ncl, cl_rhokap, &
+                                   found_name=rhokap_colname)
      call read_perclump_or_keyword(iofh, 'TEMP',                   'TEMP_CL', tmp, ncl, cl_temperature)
+
+     !--- Optional DISTUNIT / DIST_CM keywords (added by write_clumps_info
+     !    from 2026-05-12 onward).  Cached locally; the adoption decision is
+     !    made below, after closing the file.
+     status        = 0
+     distunit_file = ''
+     call io_get_keyword(iofh, 'DISTUNIT', distunit_file, status, cmt)
+     if (status /= 0) distunit_file = ''
+     status        = 0
+     distcm_file   = 0.0_wp
+     call io_get_keyword(iofh, 'DIST_CM', distcm_file, status, cmt)
+     if (status /= 0) distcm_file = 0.0_wp
+
      deallocate(tmp)
      call io_close(iofh, status)
+
+     !--- Adopt DISTUNIT / DIST_CM from the file when the user did NOT
+     !    supply par%distance_unit/par%distance2cm in the input.  The
+     !    "user-supplied" criterion is
+     !        par%distance_unit /= '' .AND. par%distance2cm > 1.0
+     !    so the file values are picked up when EITHER condition fails
+     !    (default state: distance_unit = '', distance2cm = 1.0).
+     user_set_distunit = (len_trim(par%distance_unit) > 0 .and. par%distance2cm > 1.0_wp)
+     if (.not. user_set_distunit) then
+        if (len_trim(distunit_file) > 0) then
+           par%distance_unit = trim(distunit_file)
+           write(*,'(3a)') ' Clumps: adopting DISTUNIT = ''', &
+                trim(par%distance_unit), ''' from clump_input_file'
+        end if
+        if (distcm_file > 0.0_wp) then
+           par%distance2cm = distcm_file
+           write(*,'(a,es12.5,a)') ' Clumps: adopting DIST_CM = ', &
+                par%distance2cm, ' cm/code-unit from clump_input_file'
+        end if
+     end if
 
      !--- Derive per-clump Doppler frequency, thermal velocity, Voigt damping
      !    from the per-clump temperature so that the line-data choice (par%line_id)
@@ -1994,7 +2042,46 @@ contains
         cl_vy(i) = cl_vy(i) / cl_vtherm(i)
         cl_vz(i) = cl_vz(i) / cl_vtherm(i)
      end do
+
+     !--- Column-name interpretation for the opacity field.  If the file
+     !    used DENSITY or DENS rather than RHOKAP, the values are number
+     !    densities [cm^-3] and need to be converted to line-centre opacity
+     !    per code unit via
+     !        rhokap_i = n_HI_i * line%cross0 / cl_Dfreq(i) * par%distance2cm.
+     !    The conversion only needs a meaningful distance2cm, so the check
+     !    is OR (looser than the adoption check above) -- if EITHER
+     !    distance_unit was supplied (so setup.f90 set distance2cm) OR a
+     !    raw distance2cm was supplied / adopted from DIST_CM, the
+     !    conversion has the data it needs.  Otherwise it is undefined and
+     !    we emit a warning, treating the values as RHOKAP (the legacy
+     !    interpretation).
+     rhokap_is_density = (trim(rhokap_colname) == 'DENSITY' .or. &
+                          trim(rhokap_colname) == 'DENS')
+     distance_unit_ok  = (len_trim(par%distance_unit) > 0 .or. par%distance2cm > 1.0_wp)
+     if (rhokap_is_density) then
+        if (distance_unit_ok) then
+           do i = 1_int64, ncl
+              cl_rhokap(i) = cl_rhokap(i) * line%cross0 / cl_Dfreq(i) * par%distance2cm
+           end do
+           write(*,'(3a,es12.4,a)') ' Clumps: ', trim(rhokap_colname), &
+                ' column converted to opacity using par%distance2cm = ', par%distance2cm, &
+                ' cm/code-unit'
+        else
+           write(*,'(3a)')  ' Clumps: WARNING -- column ', trim(rhokap_colname), &
+                ' found but par%distance_unit/distance2cm is not set;'
+           write(*,'(a)')   '                    treating the values as RHOKAP'// &
+                ' (opacity per code unit) without conversion.'
+        end if
+     end if
   end if
+
+  !--- par%distance_unit / par%distance2cm may have been adopted from the
+  !    clump file on p_rank=0 above; broadcast to keep all ranks consistent
+  !    for downstream output (write_output_rect writes DISTUNIT/DIST_CM into
+  !    the result FITS, and the peel-off/observer paths use distance2cm to
+  !    convert code-unit areas to cm^2).
+  call MPI_BCAST(par%distance_unit, len(par%distance_unit), MPI_CHARACTER,        0, MPI_COMM_WORLD, ierr)
+  call MPI_BCAST(par%distance2cm,   1,                      MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, ierr)
 
   !--- Distribute the populated arrays to every node-local h_rank=0; other
   !    h_rank values share via MPI-3 shared memory after the host barrier.
@@ -2052,58 +2139,119 @@ contains
   !===========================================================================
 
   !===========================================================================
-  subroutine rescale_loaded_clumps_to_target()
+  subroutine compute_clump_scalars(tauhomo_out, taumax_out, N_gashomo_out, N_gasmax_out)
   !---------------------------------------------------------------------------
-  ! Helper for read_clumps_info.  Reads par%taumax / par%N_HImax (priority
-  ! order) and rescales the loaded cl_rhokap(:) by a single multiplicative
-  ! factor so the realized radial-sightline tau / NHI from the box center
-  ! to the outer surface matches the target.
+  ! Compute the four system-level scalars from the per-clump arrays
+  ! cl_rhokap, cl_voigt_a, cl_Dfreq, cl_radius, cl_x/y/z (all assumed
+  ! populated; works for both loaded and generated clumps, uniform or
+  ! profile mode).
   !
-  ! Realized value uses the small-angle expected-column formula:
+  ! sphere_R and r_min_clump are module variables set in init_clumps;
+  ! line%cross0 is the line-center cross section [cm^2 * Hz].
   !
-  !   N_HImax = sum_i  cl_rhokap(i) * cl_Dfreq(i) * cl_radius(i)^3
-  !                    / (3 * cross0 * max(d_i^2, cl_radius(i)^2))
+  !   tauhomo  = Sum_i rhokap_i * voigt0_i * r_i^3 / (R^2 + R*r0 + r0^2)
+  !              (uniform-smear of clump opacity over the shell, traversed
+  !               radially)
   !
-  !   taumax  = sum_i  cl_rhokap(i) * voigt(0,a_i) * cl_radius(i)^3
-  !                    / (3 * max(d_i^2, cl_radius(i)^2))
+  !   taumax   = Sum_i rhokap_i * voigt0_i * r_i^3 / (3 * max(d_i^2, r_i^2))
+  !              (small-angle expected line-center tau along a radial
+  !               sightline from the origin; cap on d^2 avoids the singularity
+  !               for a clump that straddles the origin)
   !
-  ! These reduce to the uniform formulas N_HImax = (4/3) f_cov * clump_NHI
-  ! (and similarly for tau) when the clumps fill the sphere.  Cap on d^2
-  ! avoids the small-angle divergence near the origin.
+  !   N_gashomo / N_gasmax = same forms with cl_Dfreq(i) / line%cross0 in
+  !              place of voigt0_i.
+  !
+  ! In the uniform-isotropic limit (all r_i = r_cl, all rhokap_i = rhokap_ref,
+  ! and clumps distributed uniformly inside the shell) both _homo and _max
+  ! reduce to the same closed-form value
+  !
+  !       N * r_cl^3 * rhokap_ref * voigt0 / (R^2 + R*r0 + r0^2)
+  !     = (4/3) * f_cov * tau_per_clump
+  !
+  ! so this routine is backward compatible with the previous Phase-1 formulas
+  ! used for procedurally generated uniform clumps.  Computed on p_rank == 0,
+  ! then broadcast.
   !---------------------------------------------------------------------------
   use line_mod
   implicit none
+  real(kind=wp), intent(out) :: tauhomo_out, taumax_out, N_gashomo_out, N_gasmax_out
+
   integer        :: ierr
   integer(int64) :: i
-  real(kind=wp)  :: realized, target_val, alpha, di2, voigt0_i
+  real(kind=wp)  :: voigt0_i, di2, shell_R2_factor, w_homo, w_max
+  real(kind=wp)  :: vals(4)
 
-  if (par%taumax  <= 0.0_wp .and. par%N_HImax <= 0.0_wp) return
+  shell_R2_factor = sphere_R**2 + sphere_R*r_min_clump + r_min_clump**2
+  if (shell_R2_factor <= 0.0_wp) shell_R2_factor = sphere_R**2
 
-  realized = 0.0_wp
-  if (mpar%p_rank == 0) then
-     if (par%taumax > 0.0_wp) then
-        do i = 1_int64, N_clumps
-           di2 = max(cl_x(i)**2 + cl_y(i)**2 + cl_z(i)**2, cl_radius(i)**2)
-           voigt0_i = voigt(0.0_wp, cl_voigt_a(i))
-           realized = realized + cl_rhokap(i) * voigt0_i * cl_radius(i)**3 / (3.0_wp * di2)
-        end do
-        target_val = par%taumax
-     else
-        do i = 1_int64, N_clumps
-           di2 = max(cl_x(i)**2 + cl_y(i)**2 + cl_z(i)**2, cl_radius(i)**2)
-           realized = realized + cl_rhokap(i) * cl_Dfreq(i) * cl_radius(i)**3 / &
-                                 (3.0_wp * line%cross0 * di2)
-        end do
-        target_val = par%N_HImax
-     end if
+  vals(:) = 0.0_wp
+  if (mpar%p_rank == 0 .and. N_clumps > 0_int64) then
+     do i = 1_int64, N_clumps
+        voigt0_i = voigt(0.0_wp, cl_voigt_a(i))
+        di2      = max(cl_x(i)**2 + cl_y(i)**2 + cl_z(i)**2, cl_radius(i)**2)
+        w_homo   = cl_radius(i)**3 / shell_R2_factor
+        w_max    = cl_radius(i)**3 / (3.0_wp * di2)
+        vals(1)  = vals(1) + cl_rhokap(i) * voigt0_i    * w_homo
+        vals(2)  = vals(2) + cl_rhokap(i) * voigt0_i    * w_max
+        vals(3)  = vals(3) + cl_rhokap(i) * cl_Dfreq(i) * w_homo / line%cross0
+        vals(4)  = vals(4) + cl_rhokap(i) * cl_Dfreq(i) * w_max  / line%cross0
+     end do
   end if
-  call MPI_BCAST(realized,   1, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, ierr)
-  call MPI_BCAST(target_val, 1, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, ierr)
+  call MPI_BCAST(vals, 4, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, ierr)
+
+  tauhomo_out   = vals(1)
+  taumax_out    = vals(2)
+  N_gashomo_out = vals(3)
+  N_gasmax_out  = vals(4)
+
+  end subroutine compute_clump_scalars
+  !===========================================================================
+
+  !===========================================================================
+  subroutine rescale_loaded_clumps_to_target()
+  !---------------------------------------------------------------------------
+  ! Helper for read_clumps_info.  When the user supplies a system-level
+  ! target via par%taumax / par%tauhomo / par%N_gasmax / par%N_gashomo
+  ! (priority order, highest first), rescales every loaded cl_rhokap(i) by
+  ! a single multiplicative factor so the realized scalar (computed by
+  ! compute_clump_scalars from the loaded distribution) matches the target.
+  !
+  ! Note: par%N_HImax / par%N_HIhomo are aliased to par%N_gasmax /
+  ! par%N_gashomo in setup.f90 before this is called, so checking the
+  ! N_gas* names alone is sufficient.
+  !
+  ! If none of the four targets are set, returns without modifying
+  ! cl_rhokap -- the per-clump opacities loaded from the file are taken
+  ! as-is and the four system-level scalars are derived from them in
+  ! grid_mod_clump.
+  !---------------------------------------------------------------------------
+  use line_mod
+  implicit none
+  integer           :: ierr
+  integer(int64)    :: i
+  real(kind=wp)     :: realized, target_val, alpha
+  real(kind=wp)     :: tauhomo_r, taumax_r, N_gashomo_r, N_gasmax_r
+  character(len=12) :: which_target
+
+  if (par%taumax    <= 0.0_wp .and. par%tauhomo   <= 0.0_wp .and. &
+      par%N_gasmax  <= 0.0_wp .and. par%N_gashomo <= 0.0_wp) return
+
+  call compute_clump_scalars(tauhomo_r, taumax_r, N_gashomo_r, N_gasmax_r)
+
+  if (par%taumax > 0.0_wp) then
+     realized     = taumax_r;    target_val = par%taumax;    which_target = 'taumax'
+  else if (par%tauhomo > 0.0_wp) then
+     realized     = tauhomo_r;   target_val = par%tauhomo;   which_target = 'tauhomo'
+  else if (par%N_gasmax > 0.0_wp) then
+     realized     = N_gasmax_r;  target_val = par%N_gasmax;  which_target = 'N_gasmax'
+  else
+     realized     = N_gashomo_r; target_val = par%N_gashomo; which_target = 'N_gashomo'
+  end if
 
   if (realized <= 0.0_wp) then
      if (mpar%p_rank == 0) write(*,'(a)') &
         ' Clumps: WARNING -- realized tau/NHI from loaded clumps is zero; '// &
-        'cannot rescale to par%taumax/par%N_HImax. Leaving cl_rhokap unchanged.'
+        'cannot rescale. Leaving cl_rhokap unchanged.'
      return
   end if
   alpha = target_val / realized
@@ -2119,13 +2267,9 @@ contains
   base_rhokap_in = cl_rhokap_ref
 
   if (mpar%p_rank == 0) then
-     if (par%taumax > 0.0_wp) then
-        write(*,'(a,es12.4,a,es12.4)') &
-           ' Clumps: rescaled to par%taumax  = ', target_val, ', alpha = ', alpha
-     else
-        write(*,'(a,es12.4,a,es12.4)') &
-           ' Clumps: rescaled to par%N_HImax = ', target_val, ', alpha = ', alpha
-     end if
+     write(*,'(3a,es12.4,a,es12.4)') &
+        ' Clumps: rescaled to par%', trim(which_target), ' = ', target_val, &
+        ', alpha = ', alpha
   end if
 
   end subroutine rescale_loaded_clumps_to_target

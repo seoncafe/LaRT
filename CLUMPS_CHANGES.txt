@@ -1712,3 +1712,203 @@ FILES MODIFIED
   peelingoff_rect.f90          -- new clump branch in peeling_direct_outside
                                   xfreq_ref computation
   docs/LaRT_clump_description.tex -- updated §Peel-Off and §Frequency Convention
+  docs/LaRT_clump_description.tex -- updated §Peel-Off and §Frequency Convention
+
+================================================================================
+2026-05-12  Unified per-clump system-scalar computation; full rescale targets
+================================================================================
+
+PROBLEM
+-------
+  grid_mod_clump derived the four global scalars (par%tauhomo, par%taumax,
+  par%N_gashomo, par%N_gasmax) from a uniform-clump closed-form that used
+  par%clump_radius (a user-supplied scalar) and cl_rhokap_ref = cl_rhokap(1)
+  -- i.e., the first loaded clump's opacity.  For a file-loaded population
+  with varying cl_radius(i) and cl_rhokap(i) this is inaccurate; the
+  reported tau/N_HI was a single-clump estimate that did not reflect the
+  actual realised distribution.
+
+  rescale_loaded_clumps_to_target supported only par%taumax and par%N_HImax
+  as rescale targets.  If the user supplied par%tauhomo or par%N_gashomo
+  (or par%N_gasmax directly, rather than par%N_HImax) together with
+  par%clump_input_file, those targets were silently ignored.
+
+CHANGES
+-------
+  New routine compute_clump_scalars(tauhomo, taumax, N_gashomo, N_gasmax)
+  in clump_mod.f90 computes all four scalars from the per-clump arrays:
+
+    tauhomo  = sum_i kappa_i * voigt0_i * r_i^3
+                     / (R^2 + R*r_min + r_min^2)
+             (uniform-smear: each clump's opacity is redistributed over
+              the shell volume and the smeared column is traversed
+              radially across R - r_min)
+
+    taumax   = sum_i kappa_i * voigt0_i * r_i^3
+                     / (3 * max(d_i^2, r_i^2))
+             (small-angle expected line-centre tau along a radial
+              sightline from the origin; cap on d^2 removes the
+              singularity for a clump straddling the origin)
+
+    N_gashomo / N_gasmax = same forms with cl_Dfreq(i)/line%cross0 in
+                           place of voigt0_i.
+
+  In the uniform-isotropic limit (all r_i = r_cl, all kappa_i =
+  kappa_ref, isotropic spatial distribution) both _homo and _max
+  collapse to the same closed-form (4/3)*f_cov*tau_per_clump value used
+  previously, so generated uniform clumps are backward compatible.  For
+  loaded distributions with non-uniform r_i, kappa_i, or anisotropic
+  positions, _homo and _max can now differ meaningfully and both
+  reflect the actual realised population.
+
+  rescale_loaded_clumps_to_target generalised to accept any of the four
+  targets, with priority order
+
+      par%taumax > par%tauhomo > par%N_gasmax > par%N_gashomo
+
+  (par%N_HImax / par%N_HIhomo are aliased to par%N_gasmax /
+  par%N_gashomo in setup.f90 before this is called).  The realised
+  value for the selected target is obtained from compute_clump_scalars
+  and every cl_rhokap(i) is multiplied by alpha = target/realised.
+  When none of the four is set, the loaded cl_rhokap(i) are taken as-is.
+
+  grid_mod_clump.f90 replaces the previous closed-form block with a
+  single call to compute_clump_scalars.  Diagnostic output now prints
+  all four derived scalars (tauhomo, taumax, N_gashomo, N_gasmax).
+  Removed unused imports of voigt_mod and line_mod.
+
+VALIDATION
+----------
+  Generated uniform sphere (par%N_HImax=1e18, r_cl=0.001, f_cov=1,
+  N_clumps=1.48M):
+    Clump derived: tauhomo   = 5.89826E+04
+    Clump derived: taumax    = 5.89125E+04   (0.012% sampling noise)
+    Clump derived: N_gashomo = 1.00000E+18   (matches target exactly)
+    Clump derived: N_gasmax  = 9.98811E+17   (0.12% sampling noise)
+
+  Loaded population (clump_make_test_clumps.fits.gz, 66667 clumps):
+    No target  -> tauhomo=6.67e3, taumax=6.72e3, N_gashomo=1.13e17,
+                  N_gasmax=1.14e17 (per-clump sums, rhokap unchanged)
+    N_HImax=5e18 -> alpha=43.91, realised N_gasmax=5.00000E+18 (exact)
+    tauhomo=1e4  -> alpha=1.500, realised tauhomo=1.00000E+04 (exact)
+
+FILES MODIFIED
+--------------
+  clump_mod.f90                       -- new compute_clump_scalars;
+                                         rescale_loaded_clumps_to_target
+                                         now handles all four targets
+  grid_mod_clump.f90                  -- replaces closed-form derivation
+                                         with compute_clump_scalars;
+                                         drops unused voigt_mod/line_mod
+                                         imports
+  docs/LaRT_clump_description.tex     -- updated System-level fallback +
+                                         Derived Global Optical-Depth
+                                         Quantities sections; new
+                                         Eqs. (tauhomo_perclump,
+                                         taumax_perclump)
+  docs/LaRT_user_manual.tex           -- updated Clumpy-Medium subsection
+                                         to list all four rescale targets
+                                         and the priority order
+  CLUMPS_CHANGES.txt                  -- this entry
+
+  Applied identically to LaRT_v2.00.
+  Two secondary bugs surfaced during testing:
+    (a) grid_mod_car.f90 unconditionally reset
+          par%distance_unit = ''
+          par%distance2cm   = 1.0
+        when no par%dens_file was given.  This is the right default for a
+        synthetic Cartesian sphere, but clobbered clump-mode settings (the
+        clump path calls grid_create as a side effect to build the box but
+        carries its physical scale in cl_rhokap, not grid%rhokap).
+    (b) hdf5_get_key_string used h5aget_type_f to pick up whatever
+        datatype was stored in the file and passed that to h5aread_f
+        with a Fortran character buffer.  For variable-length string
+        attributes (h5py's default) this returns a C pointer that the
+        Fortran call reinterprets as raw bytes, producing garbled output.
+
+CHANGES
+-------
+  read_perclump_or_keyword: new optional output `found_name` returns the
+  column actually used.  read_clumps_info uses it to distinguish RHOKAP
+  from DENSITY/DENS, and for the latter applies the conversion
+
+      cl_rhokap(i) = nH(i) * line%cross0 / cl_Dfreq(i) * par%distance2cm
+
+  on the loaded values.  When par%distance_unit/par%distance2cm is not
+  available (criterion: distance_unit == '' .and. distance2cm <= 1.0) the
+  conversion is skipped and a warning is printed -- the values are then
+  treated as RHOKAP (the legacy interpretation).
+
+  write_clumps_info: now writes the par%distance_unit and par%distance2cm
+  in effect at save time as DISTUNIT and DIST_CM header keywords,
+  matching the convention used by write_output_rect.
+
+  read_clumps_info: reads DISTUNIT and DIST_CM and, when the user did
+  NOT supply par%distance_unit/par%distance2cm in the input namelist
+  (criterion as above), adopts the file values into par%.  Updated
+  par%distance_unit and par%distance2cm are then broadcast so all ranks
+  see the same physical scale (used by write_output_rect for the result
+  file header and by the peel-off/observer paths for cm^2 areas).
+
+  grid_mod_car.f90: the dens_file-absent branch now guards the
+  par%distance_unit/par%distance2cm reset with `.not. par%use_clump_medium`,
+  so clump mode keeps the unit it adopted (or the user supplied).
+
+  hdf5_get_key_string: replaces the h5aget_type_f path with a
+  Fortran-buffer-sized fixed-length type (HDF5 NULL-pads on read; we
+  strip the NULs so trim() works).  Variable-length attributes are
+  detected via h5tis_variable_str_f and skipped with a clear warning
+  pointing the user at h5py.string_dtype(encoding='ascii', length=N).
+
+  cloudflex-outputs/make_lart_clumps.py: switched its _h5_set_attr
+  helper from h5py.string_dtype('utf-8') (vlen) to fixed-length ASCII
+  so the generated files satisfy the LaRT convention.
+
+VALIDATION
+----------
+  LaRT-internal round-trip (par%distance_unit='kpc', auto-generate clumps
+  with clump_tau0=100, save_clump_info=.true., re-load):
+    written:  DISTUNIT = 'kpc',  DIST_CM = 3.0857e+21
+    read:     ' Clumps: adopting DISTUNIT = ''kpc'' from clump_input_file'
+              ' Clumps: adopting DIST_CM  =   3.08568e+21 cm/code-unit ...'
+    cl_rhokap matches the write-side value byte-for-byte.
+
+  User-supplied distance_unit overrides file:
+    input:    par%distance_unit = 'pc' + same clump file
+    log:      (no "adopting" lines)  -- par% retained at 'pc'.
+
+  DENSITY column with fixed-length DISTUNIT='kpc' (h5py-written test):
+    log:      adopts DISTUNIT='kpc', adopts DIST_CM=3.0857e+21,
+              converts DENSITY column using distance2cm.
+    cl_rhokap after conversion = 1.0005e+05, matching the original
+    target opacity to all printed digits.
+
+  DENSITY column with vlen DISTUNIT (legacy h5py default):
+    log:      "HDF5: WARNING -- string attribute 'DISTUNIT' is
+              variable-length; ... Skipping."
+              adopts DIST_CM only (numeric attr unaffected),
+              conversion still proceeds since distance2cm > 1.
+
+  Pure-RHOKAP existing FITS clump file: cl_rhokap unchanged; no DISTUNIT
+  adoption (file has no such keyword); regression-free.
+
+FILES MODIFIED
+--------------
+  clump_mod.f90               -- read_perclump_or_keyword found_name output;
+                                 DENSITY/DENS column -> rhokap conversion;
+                                 DISTUNIT/DIST_CM adoption + BCAST;
+                                 write_clumps_info: DISTUNIT/DIST_CM keys
+  grid_mod_car.f90            -- distance_unit/distance2cm reset guarded by
+                                 (.not. par%use_clump_medium)
+  hdf5io_mod.f90              -- vlen string detection + warning;
+                                 fixed-length read sized to Fortran buffer
+  docs/LaRT_clump_description.tex
+                              -- DENSITY conversion subsection;
+                                 DISTUNIT/DIST_CM keyword table entries +
+                                 paragraph on adoption + vlen caveat
+  docs/LaRT_user_manual.tex   -- same explanation in the clump-mode
+                                 input-file section
+  cloudflex-outputs/make_lart_clumps.py
+                              -- _h5_set_attr writes fixed-length ASCII
+
+  Applied identically to LaRT_v2.00.

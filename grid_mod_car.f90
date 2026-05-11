@@ -276,8 +276,17 @@ contains
            par%Omega = par%q * par%Omega * grid%xrange
         endif
      else
-        par%distance_unit  = ''
-        par%distance2cm    = 1.0_wp
+        !--- No dens_file: synthetic Cartesian test, reset distance unit to
+        !    "dimensionless" so downstream output reports raw code units.
+        !    EXCEPTION: in clump-medium mode this routine sets up the *box*
+        !    only; the opacity and the physical length unit are carried by
+        !    the clump population (cl_rhokap), so we must preserve any
+        !    par%distance_unit/par%distance2cm the user supplied (or the
+        !    values adopted from clump_input_file's DISTUNIT/DIST_CM).
+        if (.not. par%use_clump_medium) then
+           par%distance_unit  = ''
+           par%distance2cm    = 1.0_wp
+        endif
         grid%rhokap(:,:,:) = 1.0_wp
         if (par%DGR > 0.0_wp) grid%rhokapD(:,:,:) = par%cext_dust * par%DGR
      endif

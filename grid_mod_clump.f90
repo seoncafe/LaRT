@@ -21,7 +21,6 @@ module grid_mod_clump
 !---------------------------------------------------------------------------
   use grid_mod
   use clump_mod
-  use voigt_mod, only: voigt
   use iofile_mod, only: io_file_extension
   implicit none
 
@@ -35,14 +34,11 @@ contains
   ! Set up the Cartesian shell grid and initialize the clump population.
   !---------------------------------------------------------------------------
   use define
-  use line_mod
   use mpi
   implicit none
   type(grid_type), intent(inout) :: grid
 
-  integer       :: ierr
-  real(kind=wp) :: f_vol_realized, f_cov_realized, voigt0, tau_per_clump_lc
-  real(kind=wp) :: shell_R3, shell_R2_factor
+  integer :: ierr
 
   if (par%rmax <= 0.0_wp) then
      if (mpar%p_rank == 0) write(*,*) 'ERROR: par%rmax must be > 0 for clump medium'
@@ -71,52 +67,27 @@ contains
   !    the auto-detection of the frequency range inside car_setup_freq_grid.
   call init_clumps(par%rmax)
 
-  !--- Set par%tauhomo / par%taumax / par%N_gashomo / par%N_gasmax for the
-  !    clumpy medium, only if the user did not specify them in the input.
+  !--- Compute the four system-level scalars (tauhomo, taumax, N_gashomo,
+  !    N_gasmax) from the per-clump arrays populated by init_clumps.
   !
-  !    All four scalars are radial-sightline / shell-equivalent values; with
-  !    par%rmin = 0 (no inner cavity) they reduce to the original full-sphere
-  !    formulas. The shell-aware definition is:
+  !    For loaded clumps (par%clump_input_file given): rescale_loaded_clumps_to_target
+  !    inside read_clumps_info has already multiplied cl_rhokap(:) by alpha
+  !    so the realized scalar matches whichever target (taumax / tauhomo /
+  !    N_gasmax / N_gashomo) the user supplied; the other three scalars are
+  !    derived consistently from the same distribution.
   !
-  !        f_vol_shell = (sum V_clump) / V_shell
-  !                    = N_clumps * (R_cl)^3 / (R_max^3 - R_min^3)
-  !        f_cov_shell = (sum cross-section) / shell sightline
-  !                    = (3/4) * N_clumps * (R_cl)^2
-  !                                       / (R_max^2 + R_max*R_min + R_min^2)
-  !        tau_per_clump = cl_rhokap_ref * voigt(0, cl_voigt_a_ref) * R_cl
-  !                        (line-center tau from clump center to surface).
-  !
-  !    Then the radial-sightline taumax / N_HImax through the clumpy shell:
-  !        taumax  = (4/3) * f_cov_shell * tau_per_clump
-  !        N_HImax = (4/3) * f_cov_shell * N_HI_per_clump
-  !    where N_HI_per_clump = cl_rhokap_ref / line%cross0 * cl_Dfreq_ref * R_cl
-  !    (= par%clump_NHI when that input is used). Under this convention the
-  !    realised taumax / N_gasmax matches the system-level target supplied
-  !    via par%taumax / par%N_HImax in init_clumps. tauhomo / N_gashomo are
-  !    set equal to the shell radial-sightline values (homogeneous-spread
-  !    interpretation taken over the shell, not the full sphere).
-  voigt0           = voigt(0.0_wp, cl_voigt_a_ref)
-  ! r_min_clump = max(0, par%rmin) was set inside init_clumps and is exposed
-  ! by clump_mod as a module-level save variable.
-  shell_R3         = par%rmax**3 - r_min_clump**3
-  shell_R2_factor  = par%rmax**2 + par%rmax*r_min_clump + r_min_clump**2
-  if (shell_R3        <= 0.0_wp) shell_R3        = par%rmax**3      ! defensive
-  if (shell_R2_factor <= 0.0_wp) shell_R2_factor = par%rmax**2      ! defensive
-  f_vol_realized   = real(N_clumps, wp) * par%clump_radius**3 / shell_R3
-  f_cov_realized   = 0.75_wp * real(N_clumps, wp) * par%clump_radius**2 / shell_R2_factor
-  tau_per_clump_lc = cl_rhokap_ref * voigt0 * par%clump_radius
-
-  if (par%tauhomo   <= 0.0_wp) par%tauhomo   = (4.0_wp/3.0_wp) * f_cov_realized * tau_per_clump_lc
-  if (par%taumax    <= 0.0_wp) par%taumax    = (4.0_wp/3.0_wp) * f_cov_realized * tau_per_clump_lc
-  if (par%N_gashomo <= 0.0_wp) &
-       par%N_gashomo = (4.0_wp/3.0_wp) * f_cov_realized * (cl_rhokap_ref / line%cross0) * cl_Dfreq_ref * par%clump_radius
-  if (par%N_gasmax  <= 0.0_wp) &
-       par%N_gasmax  = (4.0_wp/3.0_wp) * f_cov_realized * (cl_rhokap_ref / line%cross0) * cl_Dfreq_ref * par%clump_radius
+  !    For generated uniform clumps (cl_radius(:) = const, cl_rhokap(:) = const),
+  !    the per-clump sums collapse to the original closed-form Phase-1
+  !    expressions (4/3) * f_cov_shell * tau_per_clump_lc and the equivalent
+  !    column-density form, so backward compatibility is preserved.  See
+  !    compute_clump_scalars in clump_mod.f90 for the exact formulas.
+  call compute_clump_scalars(par%tauhomo, par%taumax, par%N_gashomo, par%N_gasmax)
 
   if (mpar%p_rank == 0) then
-     write(*,'(a,es14.5)') ' Clump derived: tauhomo  = ', par%tauhomo
-     write(*,'(a,es14.5)') ' Clump derived: taumax   = ', par%taumax
-     write(*,'(a,es14.5)') ' Clump derived: N_gashomo= ', par%N_gashomo
+     write(*,'(a,es14.5)') ' Clump derived: tauhomo   = ', par%tauhomo
+     write(*,'(a,es14.5)') ' Clump derived: taumax    = ', par%taumax
+     write(*,'(a,es14.5)') ' Clump derived: N_gashomo = ', par%N_gashomo
+     write(*,'(a,es14.5)') ' Clump derived: N_gasmax  = ', par%N_gasmax
   end if
 
   !--- Create the base Cartesian grid (allocates shared-memory arrays,

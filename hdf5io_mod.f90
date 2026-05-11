@@ -994,18 +994,52 @@ contains
     character(len=*),           intent(out)   :: value
     integer,                    intent(inout) :: status
     character(len=*), optional, intent(out)   :: comment
-    integer(hid_t) :: aid, tid
+    integer(hid_t)   :: aid, tid, atype
     integer(hsize_t) :: dims(1)
-    integer :: ierr
-    integer(size_t) :: slen
+    integer          :: ierr, ii
+    integer(size_t)  :: slen
+    logical          :: is_vlen
     dims(1) = 1
     value = ''
     call attr_open(int(state%cur_group, hid_t), trim(name), aid, ierr)
     if (ierr /= 0) then; status = HDF5_ERR_NOT_FOUND; return; endif
-    call h5aget_type_f(aid, tid, ierr)
+
+    !--- Detect variable-length string attributes (e.g. h5py's default
+    !    string_dtype).  Reading vlen into a Fortran character buffer via
+    !    h5aread_f returns garbage on most Fortran/HDF5 bindings, so we
+    !    treat vlen as unreadable here and let the caller treat the value
+    !    as missing.  External pipelines should write fixed-length strings
+    !    (h5py: dtype=h5py.string_dtype(encoding='ascii', length=N) ).
+    call h5aget_type_f(aid, atype, ierr)
+    call h5tis_variable_str_f(atype, is_vlen, ierr)
+    call h5tclose_f(atype, ierr)
+    if (is_vlen) then
+       write(*,'(3a)') ' HDF5: WARNING -- string attribute ''', trim(name), &
+            ''' is variable-length; LaRT requires fixed-length strings ' // &
+            '(use h5py.string_dtype(length=N) when writing).  Skipping.'
+       call h5aclose_f(aid, ierr)
+       value = ''
+       status = HDF5_ERR_NOT_FOUND
+       if (present(comment)) comment = ''
+       return
+    end if
+
+    !--- Fixed-length read: build a Fortran-buffer-sized fixed type.
+    !    HDF5 NULL-pads strings shorter than the buffer; we strip those
+    !    padding NULs below so callers can trim() normally.
+    call h5tcopy_f(H5T_NATIVE_CHARACTER, tid, ierr)
+    slen = int(len(value), size_t)
+    if (slen < 1) slen = 1
+    call h5tset_size_f(tid, slen, ierr)
     call h5aread_f(aid, tid, value, dims, ierr)
     call h5tclose_f(tid, ierr)
     call h5aclose_f(aid, ierr)
+    if (ierr /= 0) status = HDF5_ERR_BACKEND
+
+    do ii = 1, len(value)
+       if (value(ii:ii) == char(0)) value(ii:ii) = ' '
+    end do
+
     if (present(comment)) comment = ''
   end subroutine hdf5_get_key_string
 
