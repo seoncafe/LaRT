@@ -30,12 +30,12 @@ program make_clumps
 !
 ! Output: <base_name>_clumps.fits.gz (or .h5) with the same schema as the
 ! file produced by LaRT when par%save_clump_info = .true.  The same schema
-! is consumed by read_clumps_fits() inside LaRT regardless of format.
+! is consumed by read_clumps_info() inside LaRT regardless of format.
 !---------------------------------------------------------------------------
   use mpi
   use define
   use setup_mod, only: read_input
-  use clump_mod, only: init_clumps, write_clumps_fits
+  use clump_mod, only: init_clumps, write_clumps_info
   use random,    only: init_random_seed
   use utility,   only: time_stamp, get_date_time
   use iofile_mod, only: io_file_extension
@@ -76,7 +76,7 @@ program make_clumps
 
   !--- Save to FITS exactly as LaRT does when par%save_clump_info = .true.
   if (mpar%p_rank == 0) then
-     call write_clumps_fits(trim(par%base_name)//'_clumps'//trim(io_file_extension(par%file_format)))
+     call write_clumps_info(trim(par%base_name)//'_clumps'//trim(io_file_extension(par%file_format)))
      call time_stamp(dtime)
      write(*,'(a,f8.3,a)') 'Total Execution Time         : ', dtime/60.0_wp, ' mins'
      write(*,'(2a)')       ' >>> STOP  @ ', get_date_time()

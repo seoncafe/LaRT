@@ -22,6 +22,7 @@ module grid_mod_clump
   use grid_mod
   use clump_mod
   use voigt_mod, only: voigt
+  use iofile_mod, only: io_file_extension
   implicit none
 
   public :: grid_create_clump, grid_destroy_clump
@@ -148,9 +149,12 @@ contains
      write(*,'(a,f12.5)')  ' Clump grid: voigt_a   = ', cl_voigt_a_ref
   end if
 
-  !--- Optionally save clump positions/velocities to FITS (p_rank=0 only)
+  !--- Optionally save clump positions/velocities (p_rank=0 only).  The
+  !    extension follows par%file_format (HDF5 by default since 2026-05),
+  !    matching the make_clumps.x driver.
   if (par%save_clump_info .and. mpar%p_rank == 0) then
-     call write_clumps_fits(trim(par%base_name)//'_clumps.fits.gz')
+     call write_clumps_info(trim(par%base_name)//'_clumps'// &
+                            trim(io_file_extension(par%file_format)))
   end if
 
   end subroutine grid_create_clump

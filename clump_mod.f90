@@ -59,7 +59,7 @@ module clump_mod
   !    Cartesian/AMR grid%vfx convention). Each setter routine
   !    (generate_clumps and assign_clump_velocities_from_type) divides by
   !    cl_vtherm(icl) inline before writing, so no separate post-pass rescaling
-  !    is needed. write_clumps_fits() multiplies by cl_vtherm(icl) to keep the
+  !    is needed. write_clumps_info() multiplies by cl_vtherm(icl) to keep the
   !    user-facing FITS output in km/s.
   real(kind=dp), pointer, save :: cl_x(:)  => null()
   real(kind=dp), pointer, save :: cl_y(:)  => null()
@@ -77,7 +77,7 @@ module clump_mod
   real(kind=wp), save :: base_nH_in       = 0.0_wp     ! peak n_H [cm^-3] (when known)
   logical,       save :: profiles_active  = .false.    ! .true. if any profile != 'constant'
   logical,       save :: clumps_from_file = .false.    ! .true. if init_clumps loaded the population
-                                                       !  from par%clump_input_file (via read_clumps_fits)
+                                                       !  from par%clump_input_file (via read_clumps_info)
   logical,       save :: has_overlap      = .false.    ! .true. if file-loaded clumps contain overlapping pairs
 
   !--- Tabulated radial CDF for inverse-CDF sampling of clump positions.
@@ -589,7 +589,7 @@ contains
   !    internal profile / RSA generation entirely. Sets cl_*, sphere_R,
   !    cl_radius_max and reference scalars; builds the CSR acceleration grid.
   if (len_trim(par%clump_input_file) > 0) then
-     call read_clumps_fits(trim(par%clump_input_file), R_sphere)
+     call read_clumps_info(trim(par%clump_input_file), R_sphere)
      call check_has_overlap()
      return
   end if
@@ -1389,7 +1389,7 @@ contains
   !---------------------------------------------------------------------------
   ! Scan all clump pairs using the CSR grid to detect any overlapping pair.
   ! Sets has_overlap = .true. on rank 0 if found, then broadcasts.
-  ! O(N * k_neighbors) time; called once at init after read_clumps_fits.
+  ! O(N * k_neighbors) time; called once at init after read_clumps_info.
   !---------------------------------------------------------------------------
   implicit none
   integer        :: imin, imax, jmin, jmax, kmin, kmax
@@ -1620,7 +1620,7 @@ contains
   !===========================================================================
 
   !===========================================================================
-  subroutine write_clumps_fits(fname)
+  subroutine write_clumps_info(fname)
   !---------------------------------------------------------------------------
   ! Write clump positions, velocities, and physical parameters to a FITS
   ! binary table.  Called only on p_rank == 0 after init_clumps().
@@ -1713,7 +1713,7 @@ contains
 
   call io_open_new(iofh, trim(fname), status)
   if (status /= 0) then
-     write(*,*) 'WARNING: write_clumps_fits: cannot open ', trim(fname)
+     write(*,*) 'WARNING: write_clumps_info: cannot open ', trim(fname)
      return
   end if
 
@@ -1723,7 +1723,7 @@ contains
   !    spread (max-min) exceeds const_tol * |mean|. Otherwise the value
   !    is fully captured by the corresponding header keyword (CL_RAD,
   !    RHOKAP, TEMP_CL) and the column would be a 4-byte-per-row constant
-  !    waste. read_clumps_fits() falls back to the header keyword when the
+  !    waste. read_clumps_info() falls back to the header keyword when the
   !    column is absent, so old 6-column files (predating Phase 6) and new
   !    constant-case files are read the same way.
   allocate(tmp(ncl))
@@ -1800,13 +1800,13 @@ contains
   call io_close(iofh, status)
 
   if (mpar%p_rank == 0) write(*,'(2a)') ' Clumps saved to ', trim(fname)
-  end subroutine write_clumps_fits
+  end subroutine write_clumps_info
   !===========================================================================
 
   !===========================================================================
   subroutine read_perclump_or_keyword(iofh, colnames, keyname, scratch, ncl, dst)
   !---------------------------------------------------------------------------
-  ! Helper used by read_clumps_fits.  Try each comma-separated entry in
+  ! Helper used by read_clumps_info.  Try each comma-separated entry in
   ! `colnames` in order; the first one that exists in the FITS table is
   ! used.  Allows alternative spellings to be accepted (e.g. RHOKAP,
   ! DENSITY, DENS for the per-clump opacity proxy).  If none of the
@@ -1871,9 +1871,9 @@ contains
   !===========================================================================
 
   !===========================================================================
-  subroutine read_clumps_fits(fname, R_sphere)
+  subroutine read_clumps_info(fname, R_sphere)
   !---------------------------------------------------------------------------
-  ! Read a clump population from a FITS file produced by write_clumps_fits()
+  ! Read a clump population from a FITS file produced by write_clumps_info()
   ! (standalone make_clumps.x driver, or a previous LaRT run with
   ! par%save_clump_info = .true.). The HDU layout follows that subroutine:
   !   HDU 2 (BinTable) columns:
@@ -1884,7 +1884,7 @@ contains
   ! Allocates the same MPI shared-memory arrays as the generate path,
   ! distributes via the standard hostcomm/SAME_HRANK_COMM pattern, and
   ! builds the CSR acceleration grid afterwards.  Sets clumps_from_file=.true.
-  ! so write_clumps_fits and other diagnostic branches can detect this case.
+  ! so write_clumps_info and other diagnostic branches can detect this case.
   !---------------------------------------------------------------------------
   use define
   use line_mod
@@ -1970,7 +1970,7 @@ contains
      call io_read_table_column(iofh, colnum, tmp, status)
      cl_vz = real(tmp, dp)
 
-     !--- R_CLUMP / RHOKAP / TEMP are optional. write_clumps_fits omits
+     !--- R_CLUMP / RHOKAP / TEMP are optional. write_clumps_info omits
      !    each one when its spread is below const_tol (= 1e-3 of mean).
      !    Old (pre-Phase-6) FITS files do not carry these columns at all.
      !    In both cases we fall back to the corresponding header keyword.
@@ -1988,7 +1988,7 @@ contains
         cl_Dfreq(i)   = cl_vtherm(i) / (line%wavelength0 * um2km)
         cl_voigt_a(i) = (line%damping / fourpi) / cl_Dfreq(i)
         cl_radius2(i) = cl_radius(i) * cl_radius(i)
-        !--- VX/VY/VZ in the FITS file are stored in km/s (write_clumps_fits
+        !--- VX/VY/VZ in the FITS file are stored in km/s (write_clumps_info
         !    multiplies by cl_vtherm). LaRT internally uses v / cl_vtherm(icl).
         cl_vx(i) = cl_vx(i) / cl_vtherm(i)
         cl_vy(i) = cl_vy(i) / cl_vtherm(i)
@@ -2034,7 +2034,7 @@ contains
   !    at d^2 >= cl_radius^2 to avoid divergence when a clump straddles the
   !    origin (e.g. when par%rmin = 0 and a clump center lies near the box
   !    center).  Both cl_rhokap and cl_rhokap_ref are updated in lockstep
-  !    so write_clumps_fits and grid_create_clump see the rescaled values.
+  !    so write_clumps_info and grid_create_clump see the rescaled values.
   call rescale_loaded_clumps_to_target()
 
   if (mpar%p_rank == 0) then
@@ -2048,13 +2048,13 @@ contains
   call build_clump_csr()
   call MPI_BARRIER(mpar%hostcomm, ierr)
 
-  end subroutine read_clumps_fits
+  end subroutine read_clumps_info
   !===========================================================================
 
   !===========================================================================
   subroutine rescale_loaded_clumps_to_target()
   !---------------------------------------------------------------------------
-  ! Helper for read_clumps_fits.  Reads par%taumax / par%N_HImax (priority
+  ! Helper for read_clumps_info.  Reads par%taumax / par%N_HImax (priority
   ! order) and rescales the loaded cl_rhokap(:) by a single multiplicative
   ! factor so the realized radial-sightline tau / NHI from the box center
   ! to the outer surface matches the target.

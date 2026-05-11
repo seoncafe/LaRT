@@ -858,55 +858,61 @@ contains
   endif
 
   !--- save input grid, if you want to check the inputs were correctly given.
+  !    Extension follows par%file_format (HDF5 by default since 2026-05).
   if (par%save_input_grid .and. mpar%p_rank == 0) then
-     !-- temperature in K.
-     call io_open_new(iofh,trim(par%base_name)//'_temp.fits.gz',status)
-     call io_append_image(iofh,Temp,status,bitpix=-32)
-     call io_close(iofh,status)
+     block
+       character(len=8) :: ext
+       ext = io_file_extension(par%file_format)
 
-     !-- density * cross-section / unit length at x = 0.
-     call io_open_new(iofh,trim(par%base_name)//'_opac.fits.gz',status)
-     call io_append_image(iofh,grid%rhokap,status, bitpix=-32)
-     call io_close(iofh,status)
+       !-- temperature in K.
+       call io_open_new(iofh,trim(par%base_name)//'_temp'//trim(ext),status)
+       call io_append_image(iofh,Temp,status,bitpix=-32)
+       call io_close(iofh,status)
 
-     if (.not. allocated(tmp_arr)) allocate(tmp_arr(grid%nx,grid%ny,grid%nz))
+       !-- density * cross-section / unit length at x = 0.
+       call io_open_new(iofh,trim(par%base_name)//'_opac'//trim(ext),status)
+       call io_append_image(iofh,grid%rhokap,status, bitpix=-32)
+       call io_close(iofh,status)
 
-     !-- density or density per unit length
-     tmp_arr(:,:,:) = grid%rhokap(:,:,:)*grid%Dfreq(:,:,:)/line%cross0 / par%distance2cm
-     call io_open_new(iofh,trim(par%base_name)//'_dens.fits.gz',status)
-     call io_append_image(iofh,tmp_arr,status,bitpix=-32)
-     call io_close(iofh,status)
+       if (.not. allocated(tmp_arr)) allocate(tmp_arr(grid%nx,grid%ny,grid%nz))
 
-     !-- velocity
-     tmp_arr = 0.12843374_wp*sqrt(Temp) * grid%vfx
-     call io_open_new(iofh,trim(par%base_name)//'_vfx.fits.gz',status)
-     call io_append_image(iofh,tmp_arr,status,bitpix=-32)
-     call io_close(iofh,status)
+       !-- density or density per unit length
+       tmp_arr(:,:,:) = grid%rhokap(:,:,:)*grid%Dfreq(:,:,:)/line%cross0 / par%distance2cm
+       call io_open_new(iofh,trim(par%base_name)//'_dens'//trim(ext),status)
+       call io_append_image(iofh,tmp_arr,status,bitpix=-32)
+       call io_close(iofh,status)
 
-     tmp_arr = 0.12843374_wp*sqrt(Temp) * grid%vfy
-     call io_open_new(iofh,trim(par%base_name)//'_vfy.fits.gz',status)
-     call io_append_image(iofh,tmp_arr,status,bitpix=-32)
-     call io_close(iofh,status)
+       !-- velocity
+       tmp_arr = 0.12843374_wp*sqrt(Temp) * grid%vfx
+       call io_open_new(iofh,trim(par%base_name)//'_vfx'//trim(ext),status)
+       call io_append_image(iofh,tmp_arr,status,bitpix=-32)
+       call io_close(iofh,status)
 
-     tmp_arr = 0.12843374_wp*sqrt(Temp) * grid%vfz
-     call io_open_new(iofh,trim(par%base_name)//'_vfz.fits.gz',status)
-     call io_append_image(iofh,tmp_arr,status,bitpix=-32)
-     call io_close(iofh,status)
+       tmp_arr = 0.12843374_wp*sqrt(Temp) * grid%vfy
+       call io_open_new(iofh,trim(par%base_name)//'_vfy'//trim(ext),status)
+       call io_append_image(iofh,tmp_arr,status,bitpix=-32)
+       call io_close(iofh,status)
 
-     !-- emissivity
-     if (associated(grid%Pem)) then
-        call io_open_new(iofh,trim(par%base_name)//'_emiss.fits.gz',status)
-        call io_append_image(iofh,grid%Pem,status,bitpix=-32)
-        call io_close(iofh,status)
-     endif
+       tmp_arr = 0.12843374_wp*sqrt(Temp) * grid%vfz
+       call io_open_new(iofh,trim(par%base_name)//'_vfz'//trim(ext),status)
+       call io_append_image(iofh,tmp_arr,status,bitpix=-32)
+       call io_close(iofh,status)
 
-     !-- mask
-     if (associated(grid%mask)) then
-        tmp_arr = grid%mask
-        call io_open_new(iofh,trim(par%base_name)//'_mask.fits.gz',status)
-        call io_append_image(iofh,tmp_arr,status,bitpix=-32)
-        call io_close(iofh,status)
-     endif
+       !-- emissivity
+       if (associated(grid%Pem)) then
+          call io_open_new(iofh,trim(par%base_name)//'_emiss'//trim(ext),status)
+          call io_append_image(iofh,grid%Pem,status,bitpix=-32)
+          call io_close(iofh,status)
+       endif
+
+       !-- mask
+       if (associated(grid%mask)) then
+          tmp_arr = grid%mask
+          call io_open_new(iofh,trim(par%base_name)//'_mask'//trim(ext),status)
+          call io_append_image(iofh,tmp_arr,status,bitpix=-32)
+          call io_close(iofh,status)
+       endif
+     end block
   endif
 
   !--- The following arrays are no longer needed. The arrays are deallocated.

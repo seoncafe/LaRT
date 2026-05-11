@@ -247,7 +247,7 @@ class ClumpsOutput:
 
     def compute_f_vol(self) -> Optional[float]:
         """Recompute the realised volume filling factor from the loaded
-        clump radii.  Mirrors LaRT's ``write_clumps_fits`` from-file branch:
+        clump radii.  Mirrors LaRT's ``write_clumps_info`` from-file branch:
 
         .. math::  f_{\\rm vol} = \\frac{\\sum r_i^3}{R^3 - r_{\\rm min}^3}
 
@@ -264,7 +264,7 @@ class ClumpsOutput:
 
     def compute_f_cov(self) -> Optional[float]:
         r"""Recompute the realised line-of-sight covering factor.  Mirrors
-        LaRT's ``write_clumps_fits`` from-file branch:
+        LaRT's ``write_clumps_info`` from-file branch:
 
         .. math::  f_{\rm cov} = \frac{3}{4}
             \frac{\sum r_i^2}{R^2 + R\,r_{\rm min} + r_{\rm min}^2}.
