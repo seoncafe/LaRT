@@ -212,36 +212,52 @@ contains
 
   !---------------------------------------------------------------------------
   ! pick_bitpix64: resolve a bitpix=0 (auto) request given the array's
-  ! dynamic range. Mirrors the rule used by fits_append_*_real64:
-  !   max_abs / min_nz < 1e6  → -32 (float32 storage is enough)
-  !   otherwise              → -64 (full double precision)
-  ! Empty / all-zero array → -32 (nothing to lose).
+  ! dynamic range AND absolute magnitude. Rules:
+  !   max_abs <= 0                  → -32 (all-zero array, nothing to lose)
+  !   max_abs < tiny_f32            → -64 (even max would underflow float32)
+  !   max_abs > huge_f32            → -64 (max would overflow float32)
+  !   min_nz  < tiny_f32            → -64 (smallest non-zero underflows)
+  !   max_abs / min_nz >= 1e6       → -64 (dynamic range exceeds float32)
+  !   otherwise                     → -32 (float32 storage is enough)
+  ! Here tiny_f32 = 1.175e-38 (smallest normal float32) and huge_f32 = 3.40e+38.
   !---------------------------------------------------------------------------
   function pick_bitpix64(max_abs, min_nz) result(bp)
     real(real64), intent(in) :: max_abs, min_nz
     integer :: bp
+    real(real64), parameter :: tiny_f32 = 1.175494e-38_real64
+    real(real64), parameter :: huge_f32 = 3.402823e+38_real64
     if (max_abs <= 0.0_real64) then
        bp = -32
+    else if (max_abs < tiny_f32 .or. max_abs > huge_f32) then
+       bp = -64
     else if (min_nz <= 0.0_real64) then
        bp = -32
-    else if (max_abs / min_nz < 1.0e6_real64) then
-       bp = -32
-    else
+    else if (min_nz < tiny_f32) then
        bp = -64
+    else if (max_abs / min_nz >= 1.0e6_real64) then
+       bp = -64
+    else
+       bp = -32
     endif
   end function pick_bitpix64
 
   function pick_bitpix32(max_abs, min_nz) result(bp)
     real(real32), intent(in) :: max_abs, min_nz
     integer :: bp
+    real(real32), parameter :: tiny_f32 = 1.175494e-38_real32
+    real(real32), parameter :: huge_f32 = 3.402823e+38_real32
     if (max_abs <= 0.0_real32) then
        bp = -32
+    else if (max_abs < tiny_f32 .or. max_abs > huge_f32) then
+       bp = -64
     else if (min_nz <= 0.0_real32) then
        bp = -32
-    else if (max_abs / min_nz < 1.0e6_real32) then
-       bp = -32
-    else
+    else if (min_nz < tiny_f32) then
        bp = -64
+    else if (max_abs / min_nz >= 1.0e6_real32) then
+       bp = -64
+    else
+       bp = -32
     endif
   end function pick_bitpix32
 

@@ -57,6 +57,33 @@ module fitsio_mod
                       fits_get_key_string,  fits_get_key_int32,  fits_get_key_int64
   end interface fits_get_keyword
 contains
+!+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+  function pick_auto_bitpix(max_abs, min_nz) result(bp)
+  ! Decide auto-bitpix for a real64 array based on its absolute magnitude
+  ! and dynamic range. Rules:
+  !   max_abs <= 0                  -> -32 (all-zero array)
+  !   max_abs < tiny_f32 / > huge_f32 -> -64 (cannot fit in float32)
+  !   min_nz  < tiny_f32            -> -64 (smallest non-zero underflows)
+  !   max_abs / min_nz >= 1e6       -> -64 (dynamic range exceeds float32)
+  !   otherwise                     -> -32 (float32 storage is enough)
+  real(real64), intent(in) :: max_abs, min_nz
+  integer :: bp
+  real(real64), parameter :: tiny_f32 = 1.175494e-38_real64
+  real(real64), parameter :: huge_f32 = 3.402823e+38_real64
+  if (max_abs <= 0.0_real64) then
+     bp = -32
+  else if (max_abs < tiny_f32 .or. max_abs > huge_f32) then
+     bp = -64
+  else if (min_nz <= 0.0_real64) then
+     bp = -32
+  else if (min_nz < tiny_f32) then
+     bp = -64
+  else if (max_abs / min_nz >= 1.0e6_real64) then
+     bp = -64
+  else
+     bp = -32
+  endif
+  end function pick_auto_bitpix
 
 !+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
   subroutine fits_open_new(unit,fname,stat)
@@ -747,7 +774,7 @@ contains
      max_abs = maxval(abs(array))
      if (max_abs > 0.0_real64) then
         min_nz = minval(abs(array), mask=abs(array) > 0.0_real64)
-        bitpix_out = merge(-32, -64, max_abs / min_nz < 1.0e6_real64)
+        bitpix_out = pick_auto_bitpix(max_abs, min_nz)
      else
         bitpix_out = -32
      end if
@@ -788,7 +815,7 @@ contains
      max_abs = maxval(abs(array))
      if (max_abs > 0.0_real64) then
         min_nz = minval(abs(array), mask=abs(array) > 0.0_real64)
-        bitpix_out = merge(-32, -64, max_abs / min_nz < 1.0e6_real64)
+        bitpix_out = pick_auto_bitpix(max_abs, min_nz)
      else
         bitpix_out = -32
      end if
@@ -831,7 +858,7 @@ contains
      max_abs = maxval(abs(array))
      if (max_abs > 0.0_real64) then
         min_nz = minval(abs(array), mask=abs(array) > 0.0_real64)
-        bitpix_out = merge(-32, -64, max_abs / min_nz < 1.0e6_real64)
+        bitpix_out = pick_auto_bitpix(max_abs, min_nz)
      else
         bitpix_out = -32
      end if
@@ -880,7 +907,7 @@ contains
      max_abs = maxval(abs(array))
      if (max_abs > 0.0_real64) then
         min_nz = minval(abs(array), mask=abs(array) > 0.0_real64)
-        bitpix_out = merge(-32, -64, max_abs / min_nz < 1.0e6_real64)
+        bitpix_out = pick_auto_bitpix(max_abs, min_nz)
      else
         bitpix_out = -32
      end if
@@ -1085,7 +1112,7 @@ contains
      max_abs = maxval(abs(array))
      if (max_abs > 0.0_real64) then
         min_nz = minval(abs(array), mask=abs(array) > 0.0_real64)
-        bitpix_out = merge(-32, -64, max_abs / min_nz < 1.0e6_real64)
+        bitpix_out = pick_auto_bitpix(max_abs, min_nz)
      else
         bitpix_out = -32
      end if
