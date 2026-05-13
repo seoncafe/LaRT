@@ -34,6 +34,7 @@ module iofile_mod
   public :: io_read_image, io_append_image, io_write_image
   public :: io_read_table_column, io_append_table_column, io_write_table_column
   public :: io_detect_format, io_extension, io_file_extension
+  public :: io_resolve_filename
 
   interface io_put_keyword
      module procedure io_put_key_logical, io_put_key_real32, io_put_key_real64, &
@@ -123,6 +124,57 @@ contains
        ext = '.fits.gz'
     endif
   end function io_file_extension
+
+  !---------------------------------------------------------------------------
+  ! io_resolve_filename(filename) — resolve an input filename whose
+  ! extension may be omitted.
+  !
+  ! If `filename` already carries an extension (a dot after the final path
+  ! separator), it is returned trimmed unchanged. Otherwise, the extensions
+  ! `.h5`, `.fits.gz`, `.fits`, `.dat` are appended in that order and the
+  ! first existing candidate is returned. If none exists, the routine stops
+  ! with an error listing the attempted names.
+  !
+  ! Used by inputs that may legitimately be served from any of the supported
+  ! file formats (AMR grid file, clump input file). Inputs whose extension
+  ! changes the *meaning* of the data (e.g. par%dens_file: .fits → 3D cube,
+  ! .dat → 1D radial profile) must NOT use this resolver.
+  !---------------------------------------------------------------------------
+  function io_resolve_filename(filename) result(resolved)
+    character(len=*), intent(in)  :: filename
+    character(len=:), allocatable :: resolved
+    character(len=*), parameter   :: exts(4) = &
+        [ character(len=8) :: '.h5', '.fits.gz', '.fits', '.dat' ]
+    integer :: i, k
+    logical :: exists, has_ext
+
+    has_ext = .false.
+    do k = len_trim(filename), 1, -1
+      if (filename(k:k) == '/' .or. filename(k:k) == '\') exit
+      if (filename(k:k) == '.') then
+        has_ext = .true.
+        exit
+      end if
+    end do
+
+    if (has_ext) then
+      resolved = trim(filename)
+      return
+    end if
+
+    do i = 1, size(exts)
+      resolved = trim(filename) // trim(exts(i))
+      inquire(file=resolved, exist=exists)
+      if (exists) return
+    end do
+
+    write(6,'(a,a,a)') 'io_resolve_filename: no file found for "', &
+        trim(filename), '". Tried:'
+    do i = 1, size(exts)
+      write(6,'(a,a)') '  ', trim(filename) // trim(exts(i))
+    end do
+    stop 'io_resolve_filename: file not found'
+  end function io_resolve_filename
 
 !=============================================================================
 ! Open / close

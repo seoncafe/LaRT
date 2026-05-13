@@ -1938,6 +1938,7 @@ contains
   character(len=128) :: distunit_file
   real(kind=wp)      :: distcm_file
   logical            :: rhokap_is_density, distance_unit_ok, user_set_distunit
+  character(len=:), allocatable :: resolved_fname
 
   status   = 0
   sphere_R = R_sphere
@@ -1946,11 +1947,15 @@ contains
   clumps_from_file = .true.
   r_min_clump = max(0.0_wp, par%rmin)
 
+  ! If `fname` has no extension, try `.h5`, `.fits.gz`, `.fits`, `.dat`
+  ! in that order via io_resolve_filename.
+  resolved_fname = io_resolve_filename(fname)
+
   if (mpar%p_rank == 0) then
-     write(*,'(2a)') ' Clumps: reading from ', trim(fname)
-     call io_open_old(iofh, trim(fname), status)
+     write(*,'(2a)') ' Clumps: reading from ', resolved_fname
+     call io_open_old(iofh, resolved_fname, status)
      if (status /= 0) then
-        write(*,'(2a)') 'ERROR: cannot open clump_input_file: ', trim(fname)
+        write(*,'(2a)') 'ERROR: cannot open clump_input_file: ', resolved_fname
         call MPI_ABORT(MPI_COMM_WORLD, 1, ierr)
      end if
      !--- HDU 1 is the empty primary; the binary table is HDU 2.

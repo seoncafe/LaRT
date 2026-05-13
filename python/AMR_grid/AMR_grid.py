@@ -1585,7 +1585,7 @@ class AMRGrid:
             )
         return grid
 
-    def write(self, filename, bitpix=0):
+    def write(self, filename, bitpix=0, format='hdf5'):
         """
         Write the AMR grid to a LaRT generic file.
 
@@ -1594,8 +1594,12 @@ class AMRGrid:
         * ``.h5`` / ``.hdf5``  -- HDF5 (default; matches the LaRT v2 default
           ``par%file_format = 'hdf5'``).
         * ``.fits`` / ``.fits.gz`` -- FITS binary table.
-        * other extensions (``.dat``, ``.txt``, no extension) -- plain text
-          (the legacy generic-AMR format).
+        * ``.dat`` / ``.txt`` -- plain text (the legacy generic-AMR format).
+
+        If ``filename`` has no extension, the file is written in HDF5
+        format (``filename + '.h5'``) by default. Pass ``format='fits'``
+        to write a FITS binary table (``filename + '.fits.gz'``) instead,
+        or ``format='dat'`` for plain text (``filename + '.dat'``).
 
         Parameters
         ----------
@@ -1605,7 +1609,26 @@ class AMRGrid:
             Column data type: 0 = auto-detect per column (default),
             -32 = force float32, -64 = force float64.
             Ignored for plain-text output.
+        format : {'hdf5', 'fits', 'dat'}, optional
+            Output format used when ``filename`` has no extension.
+            Default ``'hdf5'`` appends ``.h5``; ``'fits'`` appends
+            ``.fits.gz``; ``'dat'`` appends ``.dat``. Ignored when
+            ``filename`` already carries an extension.
         """
+        if os.path.splitext(filename)[1] == '':
+            fmt = format.lower()
+            if fmt in ('hdf5', 'h5'):
+                filename = filename + '.h5'
+            elif fmt in ('fits', 'fits.gz'):
+                filename = filename + '.fits.gz'
+            elif fmt in ('dat', 'txt', 'text'):
+                filename = filename + '.dat'
+            else:
+                raise ValueError(
+                    f"Unknown format '{format}'. "
+                    "Expected 'hdf5', 'fits', or 'dat'."
+                )
+
         if self._is_hdf5_filename(filename):
             self._write_hdf5(filename, bitpix=bitpix)
             return
@@ -1640,11 +1663,31 @@ class AMRGrid:
         Returns a grid whose octree is rebuilt by inserting each leaf cell.
         Physical data (dens, T, velocity) is stored on the leaf cells.
 
+        If ``filename`` has no extension, the extensions ``.h5``,
+        ``.fits.gz``, ``.fits``, ``.dat`` are tried in that order. If none
+        of these candidates exists, a warning is emitted and ``None`` is
+        returned.
+
         Parameters
         ----------
         filename : str
             Path to the AMR data file.
         """
+        if os.path.splitext(filename)[1] == '':
+            candidates = [filename + ext
+                          for ext in ('.h5', '.fits.gz', '.fits', '.dat')]
+            for cand in candidates:
+                if os.path.isfile(cand):
+                    filename = cand
+                    break
+            else:
+                import warnings
+                warnings.warn(
+                    f"AMR grid file not found: tried "
+                    + ', '.join(f"'{c}'" for c in candidates) + '.'
+                )
+                return None
+
         if cls._is_hdf5_filename(filename):
             return cls._read_hdf5(filename)
         if cls._is_fits_filename(filename):

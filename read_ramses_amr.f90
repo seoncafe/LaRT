@@ -557,9 +557,16 @@ contains
     real(wp) :: x, y, z, nH, T, vx, vy, vz
     integer  :: lv, n, unit, ios
     real(wp) :: bl
+    character(len=:), allocatable :: resolved
 
-    if (is_binary_amr_file(filename)) then
-      call generic_amr_read_fits(filename, &
+    ! If `filename` carries no extension, try `.h5`, `.fits.gz`, `.fits`,
+    ! `.dat` in that order and use the first one that exists. This mirrors
+    ! the Python AMRGrid.read() fallback so users can drop the extension
+    ! in par%amr_file.
+    resolved = io_resolve_filename(filename)
+
+    if (is_binary_amr_file(resolved)) then
+      call generic_amr_read_fits(resolved, &
           xleaf, yleaf, zleaf, leaf_level, &
           nH_cgs, T_cgs, vx_cgs, vy_cgs, vz_cgs, &
           nleaf, boxlen_phys)
@@ -567,8 +574,11 @@ contains
     end if
 
     unit = 51
-    open(unit, file=trim(filename), status='old', action='read', iostat=ios)
-    if (ios /= 0) stop 'generic_amr_read: cannot open file'
+    open(unit, file=resolved, status='old', action='read', iostat=ios)
+    if (ios /= 0) then
+      write(6,'(a,a)') 'generic_amr_read: cannot open file: ', resolved
+      stop 'generic_amr_read: cannot open file'
+    end if
 
     read(unit, *) n, bl
     nleaf       = n
