@@ -18,7 +18,7 @@ module peelingoff_rect
   !    previously used grid%vfx=0, which caused peel-off spectra to be in
   !    the clump frame and disagree with the Jout spectrum, e.g., for
   !    rotating-halo or Hubble-flow clump runs.)
-  use clump_mod, only: cl_vx, cl_vy, cl_vz, has_overlap
+  use clump_mod, only: cl_vx, cl_vy, cl_vz, has_overlap, ulos_clump
 contains
   !--------------------------------------------------
   subroutine peeling_direct_outside(photon,grid)
@@ -65,8 +65,7 @@ contains
      if (par%use_clump_medium .and. photon%icell_clump > 0) then
         !--- photon%xfreq is in the owner clump's rest frame (set at birth);
         !    shift to lab frame using the peel-off direction bulk velocity.
-        u1 = cl_vx(photon%icell_clump)*pobs%kx + cl_vy(photon%icell_clump)*pobs%ky &
-           + cl_vz(photon%icell_clump)*pobs%kz
+        u1 = ulos_clump(int(photon%icell_clump, int64), pobs%kx, pobs%ky, pobs%kz)
         xfreq_ref = photon%xfreq + u1
      else if (.not. par%comoving_source) then
         !--- transform the frequency back to the lab frame.
@@ -185,9 +184,7 @@ contains
     !--- frequency for spectral binning in the detector plane.
     !--- xfreq_ref = lab (observer) frame frequency of peel-off photon (2020.08.28, bug-fixed)
     if (par%use_clump_medium .and. photon%icell_clump > 0) then
-       u1 = cl_vx(photon%icell_clump)*pobs%kx + &
-            cl_vy(photon%icell_clump)*pobs%ky + &
-            cl_vz(photon%icell_clump)*pobs%kz
+       u1 = ulos_clump(int(photon%icell_clump, int64), pobs%kx, pobs%ky, pobs%kz)
     else
        u1 = grid%vfx(pobs%icell,pobs%jcell,pobs%kcell)*pobs%kx + &
             grid%vfy(pobs%icell,pobs%jcell,pobs%kcell)*pobs%ky + &
@@ -404,9 +401,7 @@ contains
 
        !--- xfreq_ref = lab (observer) frame frequency of peel-off photon.
        if (par%use_clump_medium .and. photon%icell_clump > 0) then
-          u1 = cl_vx(photon%icell_clump)*pobs%kx + &
-               cl_vy(photon%icell_clump)*pobs%ky + &
-               cl_vz(photon%icell_clump)*pobs%kz
+          u1 = ulos_clump(int(photon%icell_clump, int64), pobs%kx, pobs%ky, pobs%kz)
        else
           u1 = grid%vfx(pobs%icell,pobs%jcell,pobs%kcell)*pobs%kx + &
                grid%vfy(pobs%icell,pobs%jcell,pobs%kcell)*pobs%ky + &
@@ -537,9 +532,7 @@ contains
        !--- frequency for spectral binning.
        !--- xfreq_ref = lab (observer) frame frequency of peel-off photon (2020.08.28, bug-fixed)
        if (par%use_clump_medium .and. photon%icell_clump > 0) then
-          u1 = cl_vx(photon%icell_clump)*pobs%kx + &
-               cl_vy(photon%icell_clump)*pobs%ky + &
-               cl_vz(photon%icell_clump)*pobs%kz
+          u1 = ulos_clump(int(photon%icell_clump, int64), pobs%kx, pobs%ky, pobs%kz)
        else
           u1 = grid%vfx(pobs%icell,pobs%jcell,pobs%kcell)*pobs%kx + &
                grid%vfy(pobs%icell,pobs%jcell,pobs%kcell)*pobs%ky + &
@@ -663,9 +656,7 @@ contains
 
        !--- xfreq_ref = lab (observer) frame frequency of peel-off photon.
        if (par%use_clump_medium .and. photon%icell_clump > 0) then
-          u1 = cl_vx(photon%icell_clump)*pobs%kx + &
-               cl_vy(photon%icell_clump)*pobs%ky + &
-               cl_vz(photon%icell_clump)*pobs%kz
+          u1 = ulos_clump(int(photon%icell_clump, int64), pobs%kx, pobs%ky, pobs%kz)
        else
           u1 = grid%vfx(pobs%icell,pobs%jcell,pobs%kcell)*pobs%kx + &
                grid%vfy(pobs%icell,pobs%jcell,pobs%kcell)*pobs%ky + &

@@ -617,6 +617,7 @@ contains
   use sightline_tau_clump_mod
   use stellar_illumination_mod
   use point_illumination_mod
+  use line_clump_mod
   implicit none
 
   !--- Initialize Random Number Generator
@@ -659,8 +660,21 @@ contains
      raytrace_to_dist         => raytrace_to_dist_clump
      raytrace_to_dist_tau_gas => raytrace_to_dist_tau_gas_clump
      raytrace_to_dist_column  => raytrace_to_dist_column_clump
+     !--- do_resonance: clump variant matching line_type.  Reads per-clump
+     !    cl_voigt_a, cl_Dfreq (in place of the uniform grid arrays); xfreq is
+     !    rescaled to local Doppler-width units internally and converted back
+     !    to REF units on return.
+     select case(line%line_type)
+     case (1);   do_resonance => do_resonance1_clump
+     case (2);   do_resonance => do_resonance2_clump
+     case (4);   do_resonance => do_resonance4_clump
+     case (5);   do_resonance => do_resonance5_clump
+     case (6);   do_resonance => do_resonance6_clump
+     case (7);   do_resonance => do_resonance_HD_clump
+     case default; do_resonance => do_resonance1_clump
+     end select
      !--- Scatter routines: reuse Cartesian nostokes/stokes variants;
-     !    the uniform grid arrays ensure do_resonance uses cl_voigt_a, cl_Dfreq.
+     !    do_resonance_*_clump above handles per-clump cl_voigt_a, cl_Dfreq.
      if (par%use_stokes) then
         scatter_dust      => scatter_dust_stokes
         scatter_resonance => scatter_resonance_stokes

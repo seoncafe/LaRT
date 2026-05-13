@@ -9,7 +9,7 @@ contains
   use stellar_illumination_mod
   use point_illumination_mod
   use octree_mod, only: amr_grid, amr_find_leaf
-  use clump_mod,  only: has_overlap, active_set_at_point, cl_vx, cl_vy, cl_vz
+  use clump_mod,  only: has_overlap, active_set_at_point, ulos_clump
   !--- now, peelingoff subrotines are defined in define.f90 (2023.01.16).
   !use peelingoff_mod
   implicit none
@@ -284,8 +284,7 @@ contains
      call active_set_at_point(photon%x, photon%y, photon%z, active_birth, n_ab)
      if (n_ab > 0) then
         photon%icell_clump = int(active_birth(1))
-        u_los_birth = cl_vx(active_birth(1))*photon%kx + cl_vy(active_birth(1))*photon%ky &
-                    + cl_vz(active_birth(1))*photon%kz
+        u_los_birth = ulos_clump(active_birth(1), photon%kx, photon%ky, photon%kz)
         photon%xfreq = photon%xfreq - u_los_birth
      end if
   end if

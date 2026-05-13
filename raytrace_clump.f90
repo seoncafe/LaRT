@@ -108,7 +108,7 @@ contains
         icl   = int(photon%icell_clump, int64)
         t_seg = clump_exit_dist(photon%x, photon%y, photon%z, kx, ky, kz, icl)
 
-        kap = cl_rhokap(icl) * voigt(photon%xfreq, cl_voigt_a(icl))
+        kap = cl_rhokap(icl) * voigt_clump(photon%xfreq, icl)
 
         if (tau_rem <= kap * t_seg) then
            !--- scatter inside this clump
@@ -127,7 +127,7 @@ contains
         photon%z = photon%z + t_seg * kz
 
         !--- shift xfreq back to global frame at exit
-        u_los = cl_vx(icl)*kx + cl_vy(icl)*ky + cl_vz(icl)*kz
+        u_los = ulos_clump(icl, kx, ky, kz)
         photon%xfreq = photon%xfreq + u_los
 
         last_icl           = icl
@@ -171,8 +171,7 @@ contains
            photon%z = photon%z + te * kz
 
            !--- shift xfreq to clump frame at entry
-           u_los = cl_vx(icl_found)*kx + cl_vy(icl_found)*ky + &
-                   cl_vz(icl_found)*kz
+           u_los = ulos_clump(icl_found, kx, ky, kz)
            photon%xfreq = photon%xfreq - u_los
 
            last_icl           = 0_int64   ! entering a new clump; no skip needed
@@ -228,12 +227,12 @@ contains
   !--- first, if photon starts inside a clump, traverse it
   if (icl_cur > 0) then
      t_seg = clump_exit_dist(xp, yp, zp, kx, ky, kz, icl_cur)
-     kap   = cl_rhokap(icl_cur) * voigt(xfreq_loc, cl_voigt_a(icl_cur))
+     kap   = cl_rhokap(icl_cur) * voigt_clump(xfreq_loc, icl_cur)
      tau   = tau + kap * t_seg
      xp    = xp + t_seg * kx
      yp    = yp + t_seg * ky
      zp    = zp + t_seg * kz
-     u_los = cl_vx(icl_cur)*kx + cl_vy(icl_cur)*ky + cl_vz(icl_cur)*kz
+     u_los = ulos_clump(icl_cur, kx, ky, kz)
      xfreq_loc = xfreq_loc + u_los
      ! keep icl_cur as skip index for first find_next_clump call
      if (xp**2 + yp**2 + zp**2 >= sphere_R**2) return
@@ -253,12 +252,12 @@ contains
      xp = xp + te * kx;  yp = yp + te * ky;  zp = zp + te * kz
 
      !--- xfreq shift at entry
-     u_los = cl_vx(icl_found)*kx + cl_vy(icl_found)*ky + cl_vz(icl_found)*kz
+     u_los = ulos_clump(icl_found, kx, ky, kz)
      xfreq_loc = xfreq_loc - u_los
 
      !--- tau through this clump
      t_seg = clump_exit_dist(xp, yp, zp, kx, ky, kz, icl_found)
-     kap   = cl_rhokap(icl_found) * voigt(xfreq_loc, cl_voigt_a(icl_found))
+     kap   = cl_rhokap(icl_found) * voigt_clump(xfreq_loc, icl_found)
      tau   = tau + kap * t_seg
      xp    = xp + t_seg * kx;  yp = yp + t_seg * ky;  zp = zp + t_seg * kz
      xfreq_loc = xfreq_loc + u_los  ! restore global frame
@@ -354,12 +353,12 @@ contains
 
   if (icl_cur > 0) then
      t_seg = min(clump_exit_dist(xp, yp, zp, kx, ky, kz, icl_cur), t_rem)
-     kap   = cl_rhokap(icl_cur) * voigt(xfreq_loc, cl_voigt_a(icl_cur))
+     kap   = cl_rhokap(icl_cur) * voigt_clump(xfreq_loc, icl_cur)
      tau   = tau + kap * t_seg
      t_rem = t_rem - t_seg
      if (t_rem <= 0.0_wp) return
      xp = xp + t_seg*kx;  yp = yp + t_seg*ky;  zp = zp + t_seg*kz
-     u_los = cl_vx(icl_cur)*kx + cl_vy(icl_cur)*ky + cl_vz(icl_cur)*kz
+     u_los = ulos_clump(icl_cur, kx, ky, kz)
      xfreq_loc = xfreq_loc + u_los
      ! keep icl_cur as skip for first find_next_clump
   end if
@@ -373,11 +372,11 @@ contains
      xp = xp + te*kx;  yp = yp + te*ky;  zp = zp + te*kz
      t_rem = t_rem - te
 
-     u_los = cl_vx(icl_found)*kx + cl_vy(icl_found)*ky + cl_vz(icl_found)*kz
+     u_los = ulos_clump(icl_found, kx, ky, kz)
      xfreq_loc = xfreq_loc - u_los
 
      t_seg = min(clump_exit_dist(xp, yp, zp, kx, ky, kz, icl_found), t_rem)
-     kap   = cl_rhokap(icl_found) * voigt(xfreq_loc, cl_voigt_a(icl_found))
+     kap   = cl_rhokap(icl_found) * voigt_clump(xfreq_loc, icl_found)
      tau   = tau + kap * t_seg
      t_rem = t_rem - t_seg
      if (t_rem <= 0.0_wp) return
@@ -500,13 +499,13 @@ contains
 
   if (icl_cur > 0) then
      t_seg = clump_exit_dist(xp, yp, zp, kx, ky, kz, icl_cur)
-     kap   = cl_rhokap(icl_cur) * voigt(xfreq_loc, cl_voigt_a(icl_cur))
+     kap   = cl_rhokap(icl_cur) * voigt_clump(xfreq_loc, icl_cur)
      tau   = tau + kap * t_seg
      if (tau >= tau_max) return
      xp    = xp + t_seg * kx
      yp    = yp + t_seg * ky
      zp    = zp + t_seg * kz
-     u_los = cl_vx(icl_cur)*kx + cl_vy(icl_cur)*ky + cl_vz(icl_cur)*kz
+     u_los = ulos_clump(icl_cur, kx, ky, kz)
      xfreq_loc = xfreq_loc + u_los
      if (xp**2 + yp**2 + zp**2 >= sphere_R**2) return
   end if
@@ -519,10 +518,10 @@ contains
      if (.not. found) exit
      te = max(0.0_wp, te)
      xp = xp + te * kx;  yp = yp + te * ky;  zp = zp + te * kz
-     u_los = cl_vx(icl_found)*kx + cl_vy(icl_found)*ky + cl_vz(icl_found)*kz
+     u_los = ulos_clump(icl_found, kx, ky, kz)
      xfreq_loc = xfreq_loc - u_los
      t_seg = clump_exit_dist(xp, yp, zp, kx, ky, kz, icl_found)
-     kap   = cl_rhokap(icl_found) * voigt(xfreq_loc, cl_voigt_a(icl_found))
+     kap   = cl_rhokap(icl_found) * voigt_clump(xfreq_loc, icl_found)
      tau   = tau + kap * t_seg
      if (tau >= tau_max) return
      xp    = xp + t_seg * kx;  yp = yp + t_seg * ky;  zp = zp + t_seg * kz
@@ -560,13 +559,13 @@ contains
 
   if (icl_cur > 0) then
      t_seg = min(clump_exit_dist(xp, yp, zp, kx, ky, kz, icl_cur), t_rem)
-     kap   = cl_rhokap(icl_cur) * voigt(xfreq_loc, cl_voigt_a(icl_cur))
+     kap   = cl_rhokap(icl_cur) * voigt_clump(xfreq_loc, icl_cur)
      tau   = tau + kap * t_seg
      if (tau >= tau_max) return
      t_rem = t_rem - t_seg
      if (t_rem <= 0.0_wp) return
      xp = xp + t_seg*kx;  yp = yp + t_seg*ky;  zp = zp + t_seg*kz
-     u_los = cl_vx(icl_cur)*kx + cl_vy(icl_cur)*ky + cl_vz(icl_cur)*kz
+     u_los = ulos_clump(icl_cur, kx, ky, kz)
      xfreq_loc = xfreq_loc + u_los
   end if
 
@@ -577,10 +576,10 @@ contains
      te = max(0.0_wp, te)
      xp = xp + te*kx;  yp = yp + te*ky;  zp = zp + te*kz
      t_rem = t_rem - te
-     u_los = cl_vx(icl_found)*kx + cl_vy(icl_found)*ky + cl_vz(icl_found)*kz
+     u_los = ulos_clump(icl_found, kx, ky, kz)
      xfreq_loc = xfreq_loc - u_los
      t_seg = min(clump_exit_dist(xp, yp, zp, kx, ky, kz, icl_found), t_rem)
-     kap   = cl_rhokap(icl_found) * voigt(xfreq_loc, cl_voigt_a(icl_found))
+     kap   = cl_rhokap(icl_found) * voigt_clump(xfreq_loc, icl_found)
      tau   = tau + kap * t_seg
      if (tau >= tau_max) return
      t_rem = t_rem - t_seg
@@ -616,9 +615,9 @@ contains
   sum_kap_active = 0.0_wp
   do m = 1, n_active
      icl   = active(m)
-     u_los = real(cl_vx(icl),wp)*kx + real(cl_vy(icl),wp)*ky + real(cl_vz(icl),wp)*kz
+     u_los = ulos_clump(icl, kx, ky, kz)
      x_cl  = xfreq_g - u_los
-     sum_kap_active = sum_kap_active + cl_rhokap(icl) * voigt(x_cl, cl_voigt_a(icl))
+     sum_kap_active = sum_kap_active + cl_rhokap(icl) * voigt_clump(x_cl, icl)
   end do
   end function sum_kap_active
   !===========================================================================
@@ -641,9 +640,9 @@ contains
   rnd   = rand_number()
   do m = 1, n_active
      icl   = active(m)
-     u_los = real(cl_vx(icl),wp)*kx + real(cl_vy(icl),wp)*ky + real(cl_vz(icl),wp)*kz
+     u_los = ulos_clump(icl, kx, ky, kz)
      x_cl  = xfreq_g - u_los
-     kap   = cl_rhokap(icl) * voigt(x_cl, cl_voigt_a(icl))
+     kap   = cl_rhokap(icl) * voigt_clump(x_cl, icl)
      cumul = cumul + kap
      sample_owner_clump = icl
      if (rnd * sum_kap_active(active, n_active, xfreq_g, kx, ky, kz) <= cumul) return

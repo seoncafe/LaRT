@@ -113,6 +113,30 @@ module clump_mod
 contains
 
   !===========================================================================
+  ! Per-clump unit-conversion helpers.  photon%xfreq and the Jout / Jin / peel
+  ! arrays use REF Doppler units (cl_Dfreq_ref) globally.  cl_voigt_a(icl) is
+  ! defined with cl_Dfreq(icl), and cl_vx/y/z(icl) is stored as v/cl_vtherm(icl).
+  ! When cl_Dfreq(icl) /= cl_Dfreq_ref (per-clump T), the Voigt argument and
+  ! bulk-velocity Doppler shift need rescaling.  For uniform T both helpers
+  ! reduce to the previous expressions (ratio = 1).
+  !===========================================================================
+  function voigt_clump(xfreq, icl) result(v)
+  real(kind=wp),  intent(in) :: xfreq
+  integer(int64), intent(in) :: icl
+  real(kind=wp)              :: v
+!DIR$ ATTRIBUTES INLINE :: voigt_mod_voigt
+  v = voigt(xfreq * (cl_Dfreq_ref/cl_Dfreq(icl)), cl_voigt_a(icl))
+  end function voigt_clump
+  !===========================================================================
+  pure function ulos_clump(icl, kx, ky, kz) result(u)
+  integer(int64), intent(in) :: icl
+  real(kind=wp),  intent(in) :: kx, ky, kz
+  real(kind=wp)              :: u
+  u = (real(cl_vx(icl),wp)*kx + real(cl_vy(icl),wp)*ky + real(cl_vz(icl),wp)*kz) &
+      * (cl_Dfreq(icl)/cl_Dfreq_ref)
+  end function ulos_clump
+
+  !===========================================================================
   pure integer function cg_cell_idx(i, j, k)
   integer, intent(in) :: i, j, k
   cg_cell_idx = 1 + i + j*cgx + k*cgx*cgy

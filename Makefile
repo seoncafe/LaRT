@@ -149,6 +149,7 @@ OBJSB	= \
 	write_output_rect.o \
 	write_output_heal.o \
 	clump_mod.o \
+	line_clump_mod.o \
 	raytrace_clump.o \
 	peelingoff_rect.o \
 	peelingoff_heal.o \

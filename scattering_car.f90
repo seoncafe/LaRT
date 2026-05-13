@@ -187,6 +187,7 @@ contains
   end subroutine scatter_dust_stokes
   !=====================================
   subroutine scatter_resonance_stokes(photon,grid)
+    use clump_mod, only: cl_Dfreq, cl_Dfreq_ref
     implicit none
     ! Written by Kwang-il Seon, 2017/09/04
     type(photon_type), intent(inout) :: photon
@@ -200,6 +201,7 @@ contains
     real(kind=wp) :: Q0,U0,I1,Q1,U1,V1
     real(kind=wp) :: DnuHK,xfreq_atom,qK,qH,pH,pK
     real(kind=wp) :: ux,uy,uxy,uz,E1,g_recoil
+    real(kind=wp) :: vth_ratio
     real(kind=wp), parameter :: three_over_four = 3.0_wp/4.0_wp, &
                                 three_over_two  = 3.0_wp/2.0_wp, &
                                 one_over_three  = 1.0_wp/3.0_wp, &
@@ -235,6 +237,12 @@ contains
     ! new propagation direction: k' = (sint*cosp) e_x + (sint*sinp) e_y + cost e_z
     ! atom velociy             : u = ux e_x + uy e_y + uz e_z
     ! dot product              : u.k' = (ux*cosp + uy*sinp)sint + uz*cost
+    !-- Per-clump thermal-width ratio (see scatter_resonance_nostokes for rationale).
+    if (par%use_clump_medium .and. photon%icell_clump > 0) then
+       vth_ratio = cl_Dfreq(int(photon%icell_clump, int64)) / cl_Dfreq_ref
+    else
+       vth_ratio = 1.0_wp
+    endif
     if (par%core_skip .and. abs(photon%xfreq) < grid%xcrit) then
        phi2 = twopi * rand_number()
        uxy  = sqrt(grid%xcrit2 - log(rand_number()))
@@ -247,6 +255,8 @@ contains
           ux = ux / line%ratio_Dfreq_HD
           uy = uy / line%ratio_Dfreq_HD
        endif
+       ux = ux * vth_ratio
+       uy = uy * vth_ratio
        photon%xfreq = xfreq_atom + uz*cost + (ux*cosp + uy*sinp)*sint
     else
        ux   = rand_gauss()*one_over_sqrt2
@@ -258,14 +268,24 @@ contains
           ux = ux / line%ratio_Dfreq_HD
           uy = uy / line%ratio_Dfreq_HD
        endif
+       ux = ux * vth_ratio
+       uy = uy * vth_ratio
        photon%xfreq = xfreq_atom + uz*cost + (ux*cosp + uy*sinp)*sint
     endif
 
     if (par%recoil) then
-       if (line%line_type == 7 .and. line%selected_species_HD == 2) then
-          g_recoil = line%g_recoil0_D / grid%Dfreq(photon%icell,photon%jcell,photon%kcell)
+       if (par%use_clump_medium .and. photon%icell_clump > 0) then
+          if (line%line_type == 7 .and. line%selected_species_HD == 2) then
+             g_recoil = line%g_recoil0_D / cl_Dfreq(int(photon%icell_clump, int64))
+          else
+             g_recoil = line%g_recoil0   / cl_Dfreq(int(photon%icell_clump, int64))
+          endif
        else
-          g_recoil = line%g_recoil0   / grid%Dfreq(photon%icell,photon%jcell,photon%kcell)
+          if (line%line_type == 7 .and. line%selected_species_HD == 2) then
+             g_recoil = line%g_recoil0_D / grid%Dfreq(photon%icell,photon%jcell,photon%kcell)
+          else
+             g_recoil = line%g_recoil0   / grid%Dfreq(photon%icell,photon%jcell,photon%kcell)
+          endif
        endif
        photon%xfreq = photon%xfreq - g_recoil * (1.0_wp - cost)
     endif
@@ -409,6 +429,7 @@ contains
   end subroutine scatter_dust_nostokes
   !=====================================
   subroutine scatter_resonance_nostokes(photon,grid)
+  use clump_mod, only: cl_Dfreq, cl_Dfreq_ref
   implicit none
   ! Calculate new direction cosines and wavelength after scattering
   ! Written by Kwang-il Seon, 2010/10/02
@@ -424,6 +445,7 @@ contains
   real(kind=wp) :: phi2
   real(kind=wp) :: DnuHK,xfreq_atom,qK,qH,pH,pK
   real(kind=wp) :: ux,uy,uxy,uz,E1,g_recoil
+  real(kind=wp) :: vth_ratio
   integer :: i1,i2,i3
   integer :: ix
   real(kind=wp), parameter :: one_over_three  = 1.0_wp/3.0_wp, &
@@ -445,6 +467,15 @@ contains
   cosp = cos(phi)
   sinp = sin(phi)
 
+  !-- Per-clump thermal-width ratio: scales perpendicular atom velocities and
+  !-- recoil shift into REF Doppler units when clump T differs from ref T.
+  !-- = 1 for uniform-T (cl_Dfreq(icl) == cl_Dfreq_ref), preserving prior behavior.
+  if (par%use_clump_medium .and. photon%icell_clump > 0) then
+     vth_ratio = cl_Dfreq(int(photon%icell_clump, int64)) / cl_Dfreq_ref
+  else
+     vth_ratio = 1.0_wp
+  endif
+
   ! 2016-10-26, K.-I. Seon
   ! Note that the acceleration scheme uses a cut-off exponential distribution to obtain velocity amplitude, and
   ! divide it into x- and y- components, whereas the original scheme uses a gaussian distribution to obtain velocity components.
@@ -461,6 +492,8 @@ contains
         ux = ux / line%ratio_Dfreq_HD
         uy = uy / line%ratio_Dfreq_HD
      endif
+     ux = ux * vth_ratio
+     uy = uy * vth_ratio
      photon%xfreq = xfreq_atom + uz*cost + (ux*cosp + uy*sinp)*sint
   else
      phi2 = twopi * rand_number()
@@ -474,14 +507,24 @@ contains
         ux = ux / line%ratio_Dfreq_HD
         uy = uy / line%ratio_Dfreq_HD
      endif
+     ux = ux * vth_ratio
+     uy = uy * vth_ratio
      photon%xfreq = xfreq_atom + uz*cost + (ux*cosp + uy*sinp)*sint
   endif
 
   if (par%recoil) then
-     if (line%line_type == 7 .and. line%selected_species_HD == 2) then
-        g_recoil = line%g_recoil0_D / grid%Dfreq(i1,i2,i3)
+     if (par%use_clump_medium .and. photon%icell_clump > 0) then
+        if (line%line_type == 7 .and. line%selected_species_HD == 2) then
+           g_recoil = line%g_recoil0_D / cl_Dfreq(int(photon%icell_clump, int64))
+        else
+           g_recoil = line%g_recoil0   / cl_Dfreq(int(photon%icell_clump, int64))
+        endif
      else
-        g_recoil = line%g_recoil0   / grid%Dfreq(i1,i2,i3)
+        if (line%line_type == 7 .and. line%selected_species_HD == 2) then
+           g_recoil = line%g_recoil0_D / grid%Dfreq(i1,i2,i3)
+        else
+           g_recoil = line%g_recoil0   / grid%Dfreq(i1,i2,i3)
+        endif
      endif
      photon%xfreq = photon%xfreq - g_recoil * (1.0_wp - cost)
   endif
@@ -543,17 +586,17 @@ contains
   ! photon%xfreq arrives in the GLOBAL frame.  Apply Doppler shift to the
   ! owner clump's frame, scatter, then shift back to global.
   !---------------------------------------------------------------------------
-  use clump_mod, only: cl_vx, cl_vy, cl_vz
+  use clump_mod, only: ulos_clump
   implicit none
   type(photon_type), intent(inout) :: photon
   type(grid_type),   intent(inout) :: grid
   integer(int64) :: icl
   real(kind=wp)  :: u_in, u_out
   icl  = int(photon%icell_clump, int64)
-  u_in = real(cl_vx(icl),wp)*photon%kx + real(cl_vy(icl),wp)*photon%ky + real(cl_vz(icl),wp)*photon%kz
+  u_in = ulos_clump(icl, photon%kx, photon%ky, photon%kz)
   photon%xfreq = photon%xfreq - u_in
   call scatter_resonance_nostokes(photon, grid)
-  u_out = real(cl_vx(icl),wp)*photon%kx + real(cl_vy(icl),wp)*photon%ky + real(cl_vz(icl),wp)*photon%kz
+  u_out = ulos_clump(icl, photon%kx, photon%ky, photon%kz)
   photon%xfreq = photon%xfreq + u_out
   end subroutine scatter_resonance_clump_nostokes
   !=====================================
@@ -564,17 +607,17 @@ contains
   ! Wrapper for the overlap-aware clump path (stokes).
   ! Same Doppler logic as the nostokes variant.
   !---------------------------------------------------------------------------
-  use clump_mod, only: cl_vx, cl_vy, cl_vz
+  use clump_mod, only: ulos_clump
   implicit none
   type(photon_type), intent(inout) :: photon
   type(grid_type),   intent(inout) :: grid
   integer(int64) :: icl
   real(kind=wp)  :: u_in, u_out
   icl  = int(photon%icell_clump, int64)
-  u_in = real(cl_vx(icl),wp)*photon%kx + real(cl_vy(icl),wp)*photon%ky + real(cl_vz(icl),wp)*photon%kz
+  u_in = ulos_clump(icl, photon%kx, photon%ky, photon%kz)
   photon%xfreq = photon%xfreq - u_in
   call scatter_resonance_stokes(photon, grid)
-  u_out = real(cl_vx(icl),wp)*photon%kx + real(cl_vy(icl),wp)*photon%ky + real(cl_vz(icl),wp)*photon%kz
+  u_out = ulos_clump(icl, photon%kx, photon%ky, photon%kz)
   photon%xfreq = photon%xfreq + u_out
   end subroutine scatter_resonance_clump_stokes
   !=====================================
