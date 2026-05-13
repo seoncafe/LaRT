@@ -39,32 +39,58 @@ from lart_io import load_lart, find_lart_file, glob_lart
 
 @dataclass
 class PeelObservation:
-    """One peel-off observer (one (alpha, beta, gamma) direction).
+    """One peel-off observer.
 
-    The 3D spectral cube is stored in numpy convention ``(nyim, nxim, nxfreq)``
-    (Fortran-side shape was ``(nxfreq, nxim, nyim)``).  Both the scattered
-    and the direct-light components are kept separately; ``cube`` is the sum.
+    Two flavours are supported, distinguished by ``kind``:
+
+    * ``kind='rect'`` -- rectangular peel-off observer at a finite distance
+      with an (alpha, beta, gamma) viewing angle.  Cube shape is
+      ``(nyim, nxim, nxfreq)`` (Fortran-side ``(nxfreq, nxim, nyim)``).
+    * ``kind='heal'`` -- inside-observer HEALPix all-sky map at a position
+      (obsx, obsy, obsz) inside the simulation box.  Cube shape is
+      ``(npix, nxfreq)`` with ``npix = 12 * nside^2``.
+
+    Both flavours keep the scattered and direct-light components separately;
+    ``cube`` is the sum.
     """
 
     file_name: str
     alpha:     float
     beta:      float
     gamma:     float
-    distance:  float            # observer distance in code units
+    distance:  float            # observer distance in code units (rect)
     dist_cm:   float            # distance unit in cm (1.0 if dimensionless)
     nphotons:  float
     sr_pix:    float            # solid angle of one pixel (steradian)
-    nxim:      int
-    nyim:      int
-    cube:      np.ndarray       # scattered + direct, shape (nyim, nxim, nxfreq)
+    nxim:      int              # 0 for kind='heal'
+    nyim:      int              # 0 for kind='heal'
+    cube:      np.ndarray       # scattered + direct
     scatt:     np.ndarray
     direc:     np.ndarray
     direc0:    Optional[np.ndarray] = None
     header:    dict = field(default_factory=dict)
+    # HEALPix-specific (only meaningful when kind == 'heal'):
+    kind:      str  = 'rect'
+    nside:     Optional[int] = None
+    obsx:      float = 0.0
+    obsy:      float = 0.0
+    obsz:      float = 0.0
+
+    @property
+    def npix(self) -> int:
+        """Number of pixels in the cube (HEALPix npix or nxim*nyim)."""
+        if self.kind == 'heal':
+            return self.cube.shape[0]
+        return self.nxim * self.nyim
 
     @property
     def mu(self) -> float:
-        """Direction cosine of the observer (cos(beta) along the +z axis)."""
+        """Direction cosine of the observer (cos(beta) along the +z axis).
+
+        Not meaningful for ``kind='heal'`` -- returns NaN.
+        """
+        if self.kind == 'heal':
+            return float('nan')
         return float(np.cos(np.deg2rad(self.beta)))
 
     def average_spectrum(self) -> np.ndarray:
@@ -913,9 +939,6 @@ class LaRTOutput:
 
         for i, peel in enumerate(self.peelings):
             ax = axes_flat[i]
-            mu_target = peel.mu
-            jmu_at_mu = _interp_jmu_at_mu(self.mu, self.Jmu, mu_target)
-            jmu_y     = jmu_at_mu * factor
             # select cube component to sum
             if component == 'all':
                 cube_use = peel.cube
@@ -931,13 +954,32 @@ class LaRTOutput:
             #   scale_for_peel = 4*pi*D^2 * dOmega_pix / (A_surface * 2*pi)
             scale_for_peel = ((4.0 * np.pi * peel.distance**2) * peel.sr_pix
                               / (A_surface * 2.0 * np.pi))
-            peel_y = cube_use.sum(axis=(0, 1)) * scale_for_peel * factor
+            peel_y = (cube_use.sum(axis=_spatial_sum_axes(peel))
+                      * scale_for_peel * factor)
 
-            # Plot
-            ax.plot(xvals, jmu_y,  color='black', lw=1.6,
-                    label=rf'$J(\mu={mu_target:+.3f})$')
-            ax.plot(xvals, peel_y, color='C3', lw=1.2, ls='--',
-                    label=peel_label)
+            if peel.kind == 'heal':
+                # HEALPix inside observer: no single mu.  Compare against
+                # the angle-averaged J = mean over mu of Jmu(mu, nu).
+                jmu_y = self.Jmu.mean(axis=0) * factor
+                ax.plot(xvals, jmu_y, color='black', lw=1.6,
+                        label=r'$\langle J(\mu)\rangle_\mu$')
+                ax.plot(xvals, peel_y, color='C3', lw=1.2, ls='--',
+                        label=peel_label + r'$\,$(all-sky)')
+                ax.set_title(f"HEALPix inside obs at "
+                             f"$(x,y,z)=({peel.obsx:+.2f},"
+                             f"{peel.obsy:+.2f},{peel.obsz:+.2f})$",
+                             fontsize=10)
+            else:
+                mu_target = peel.mu
+                jmu_at_mu = _interp_jmu_at_mu(self.mu, self.Jmu, mu_target)
+                jmu_y     = jmu_at_mu * factor
+                ax.plot(xvals, jmu_y,  color='black', lw=1.6,
+                        label=rf'$J(\mu={mu_target:+.3f})$')
+                ax.plot(xvals, peel_y, color='C3', lw=1.2, ls='--',
+                        label=peel_label)
+                ax.set_title(f'$\\beta = {peel.beta:.1f}^{{\\circ}}$, '
+                             f'$\\mu = {mu_target:+.3f}$',
+                             fontsize=11)
 
             ax.set_xlabel(xlabel)
             ax.set_ylabel(rf'$J({yvar};\mu){yunit}$')
@@ -945,9 +987,6 @@ class LaRTOutput:
             if ylim_eff is not None: ax.set_ylim(*ylim_eff)
             if yscale == 'log': ax.set_yscale('log')
             ax.legend(loc='best', fontsize=9, frameon=False)
-            ax.set_title(f'$\\beta = {peel.beta:.1f}^{{\\circ}}$, '
-                         f'$\\mu = {mu_target:+.3f}$',
-                         fontsize=11)
 
         # blank out unused panels
         for j in range(nobs, nrows*ncols):
@@ -1072,6 +1111,16 @@ class LaRTOutput:
                 vabs = 1.0
             return -vabs, +vabs
 
+        def _peel_title_rect(peel):
+            return (f"$\\alpha$={peel.alpha:+.1f}, "
+                    f"$\\beta$={peel.beta:+.1f}, "
+                    f"$\\gamma$={peel.gamma:+.1f}")
+
+        def _peel_title_heal(peel):
+            return (f"HEALPix nside={peel.nside}, "
+                    f"obs=({peel.obsx:+.2f},{peel.obsy:+.2f},"
+                    f"{peel.obsz:+.2f})")
+
         # --- single observer path --------------------------------------
         if observer is not None:
             peel = self.peelings[observer]
@@ -1081,6 +1130,26 @@ class LaRTOutput:
             lo_auto, hi_auto = _auto_limits([mmap])
             if vmin is None: vmin = lo_auto
             if vmax is None: vmax = hi_auto
+            if peel.kind == 'heal':
+                hp = _import_healpy("velocity moment maps")
+                if figsize is None:
+                    figsize = (8.0, 5.2)
+                fig = plt.figure(figsize=figsize)
+                if title is None:
+                    moll_title = (f"{os.path.basename(peel.file_name)}  "
+                                  f"-  {_peel_title_heal(peel)}")
+                else:
+                    moll_title = title
+                hp.mollview(mmap, fig=fig.number, cmap=cmap,
+                            min=vmin, max=vmax, unit=cbar_label,
+                            title=moll_title, hold=False, cbar=True)
+                hp.graticule()
+                if savefig:
+                    fig.savefig(savefig, dpi=150)
+                if show:
+                    plt.show()
+                return fig, fig.gca()
+
             if figsize is None:
                 figsize = (5.5, 4.6)
             fig, ax = plt.subplots(figsize=figsize)
@@ -1089,9 +1158,7 @@ class LaRTOutput:
             ax.set_xlabel(xlabel_str); ax.set_ylabel(ylabel_str)
             if title is None:
                 title = (f"{os.path.basename(peel.file_name)}\n"
-                         f"$\\alpha$={peel.alpha:+.1f}, "
-                         f"$\\beta$={peel.beta:+.1f}, "
-                         f"$\\gamma$={peel.gamma:+.1f}")
+                         f"{_peel_title_rect(peel)}")
             ax.set_title(title, fontsize=11)
             fig.tight_layout()
             if savefig:
@@ -1105,8 +1172,6 @@ class LaRTOutput:
         if ncols is None:
             ncols = int(np.ceil(np.sqrt(nobs)))
         nrows = int(np.ceil(nobs / ncols))
-        if figsize is None:
-            figsize = (4.6 * ncols, 3.9 * nrows)
 
         maps = [p.velocity_moment_map(self.velocity, order=order,
                                       component=component,
@@ -1120,6 +1185,41 @@ class LaRTOutput:
         else:
             vmin_eff = vmax_eff = None  # per-panel auto
 
+        any_heal = any(p.kind == 'heal' for p in self.peelings)
+        if any_heal:
+            hp = _import_healpy("velocity moment maps")
+            if figsize is None:
+                figsize = (6.0 * ncols, 4.2 * nrows)
+            fig = plt.figure(figsize=figsize)
+            for i, (peel, mmap) in enumerate(zip(self.peelings, maps)):
+                if share_color:
+                    lo_p, hi_p = vmin_eff, vmax_eff
+                else:
+                    lo_p, hi_p = _auto_limits([mmap])
+                if peel.kind == 'heal':
+                    hp.mollview(mmap, fig=fig.number, cmap=cmap,
+                                min=lo_p, max=hi_p, unit=cbar_label,
+                                title=_peel_title_heal(peel),
+                                sub=(nrows, ncols, i + 1), hold=False,
+                                cbar=True)
+                    hp.graticule()
+                else:
+                    ax = fig.add_subplot(nrows, ncols, i + 1)
+                    im = _imshow_one(ax, mmap, peel, lo_p, hi_p)
+                    _attach_cbar(im, ax, cbar_label)
+                    ax.set_xlabel(xlabel_str); ax.set_ylabel(ylabel_str)
+                    ax.set_title(_peel_title_rect(peel), fontsize=10)
+            if title is None:
+                title = os.path.basename(self.fits_file)
+            fig.suptitle(title, fontsize=10, y=0.995)
+            if savefig:
+                fig.savefig(savefig, dpi=150, bbox_inches='tight')
+            if show:
+                plt.show()
+            return fig, fig.axes
+
+        if figsize is None:
+            figsize = (4.6 * ncols, 3.9 * nrows)
         fig, axes = plt.subplots(nrows, ncols, figsize=figsize, squeeze=False)
         axes_flat = axes.ravel()
 
@@ -1131,9 +1231,7 @@ class LaRTOutput:
                 lo, hi = _auto_limits([mmap])
                 im = _imshow_one(ax, mmap, peel, lo, hi)
             _attach_cbar(im, ax, cbar_label)
-            ax.set_title(f'$\\alpha$={peel.alpha:+.1f}, '
-                         f'$\\beta$={peel.beta:+.1f}, '
-                         f'$\\gamma$={peel.gamma:+.1f}', fontsize=10)
+            ax.set_title(_peel_title_rect(peel), fontsize=10)
             ax.set_xlabel(xlabel_str); ax.set_ylabel(ylabel_str)
 
         for j in range(nobs, nrows * ncols):
@@ -1269,10 +1367,51 @@ class LaRTOutput:
                                             component=component,
                                             vel_range=vel_range_eff)
 
+        def _peel_title_rect(peel):
+            return (f"$\\alpha$={peel.alpha:+.1f}, "
+                    f"$\\beta$={peel.beta:+.1f}, "
+                    f"$\\gamma$={peel.gamma:+.1f}")
+
+        def _peel_title_heal(peel):
+            return (f"HEALPix nside={peel.nside}, "
+                    f"obs=({peel.obsx:+.2f},{peel.obsy:+.2f},"
+                    f"{peel.obsz:+.2f})")
+
+        def _heal_norm_bounds(maps_list):
+            """Convert _make_norm() to (min, max) bounds for healpy.mollview.
+
+            healpy.mollview takes plain numeric min/max and a separate
+            ``norm='log'`` flag rather than a matplotlib Norm object.
+            """
+            n = _make_norm(maps_list)
+            return float(n.vmin), float(n.vmax)
+
         # --- single observer ------------------------------------------
         if observer is not None:
             peel = self.peelings[observer]
             mmap = _moment0(peel)
+            if peel.kind == 'heal':
+                hp = _import_healpy("integrated-intensity maps")
+                lo, hi = _heal_norm_bounds([mmap])
+                if figsize is None:
+                    figsize = (8.0, 5.2)
+                fig = plt.figure(figsize=figsize)
+                if title is None:
+                    moll_title = (f"{os.path.basename(peel.file_name)}  "
+                                  f"-  {_peel_title_heal(peel)}")
+                else:
+                    moll_title = title
+                hp.mollview(mmap, fig=fig.number, cmap=cmap,
+                            min=lo, max=hi, unit=cbar_label,
+                            norm=('log' if log else None),
+                            title=moll_title, hold=False, cbar=True)
+                hp.graticule()
+                if savefig:
+                    fig.savefig(savefig, dpi=150)
+                if show:
+                    plt.show()
+                return fig, fig.gca()
+
             norm_ = _make_norm([mmap])
             if figsize is None:
                 figsize = (5.5, 4.6)
@@ -1282,9 +1421,7 @@ class LaRTOutput:
             ax.set_xlabel(xlabel_str); ax.set_ylabel(ylabel_str)
             if title is None:
                 title = (f"{os.path.basename(peel.file_name)}\n"
-                         f"$\\alpha$={peel.alpha:+.1f}, "
-                         f"$\\beta$={peel.beta:+.1f}, "
-                         f"$\\gamma$={peel.gamma:+.1f}")
+                         f"{_peel_title_rect(peel)}")
             ax.set_title(title, fontsize=11)
             fig.tight_layout()
             if savefig:
@@ -1298,11 +1435,48 @@ class LaRTOutput:
         if ncols is None:
             ncols = int(np.ceil(np.sqrt(nobs)))
         nrows = int(np.ceil(nobs / ncols))
-        if figsize is None:
-            figsize = (4.6 * ncols, 3.9 * nrows)
 
         maps = [_moment0(p) for p in self.peelings]
 
+        any_heal = any(p.kind == 'heal' for p in self.peelings)
+        if any_heal:
+            hp = _import_healpy("integrated-intensity maps")
+            if figsize is None:
+                figsize = (6.0 * ncols, 4.2 * nrows)
+            fig = plt.figure(figsize=figsize)
+            if share_color:
+                lo_shared, hi_shared = _heal_norm_bounds(maps)
+            for i, (peel, mmap) in enumerate(zip(self.peelings, maps)):
+                if share_color:
+                    lo_p, hi_p = lo_shared, hi_shared
+                else:
+                    lo_p, hi_p = _heal_norm_bounds([mmap])
+                if peel.kind == 'heal':
+                    hp.mollview(mmap, fig=fig.number, cmap=cmap,
+                                min=lo_p, max=hi_p, unit=cbar_label,
+                                norm=('log' if log else None),
+                                title=_peel_title_heal(peel),
+                                sub=(nrows, ncols, i + 1), hold=False,
+                                cbar=True)
+                    hp.graticule()
+                else:
+                    ax = fig.add_subplot(nrows, ncols, i + 1)
+                    im = _imshow_one(ax, mmap, peel,
+                                     _make_norm([mmap]))
+                    _attach_cbar(im, ax, cbar_label)
+                    ax.set_xlabel(xlabel_str); ax.set_ylabel(ylabel_str)
+                    ax.set_title(_peel_title_rect(peel), fontsize=10)
+            if title is None:
+                title = os.path.basename(self.fits_file)
+            fig.suptitle(title, fontsize=10, y=0.995)
+            if savefig:
+                fig.savefig(savefig, dpi=150, bbox_inches='tight')
+            if show:
+                plt.show()
+            return fig, fig.axes
+
+        if figsize is None:
+            figsize = (4.6 * ncols, 3.9 * nrows)
         if share_color:
             shared_norm = _make_norm(maps)
         fig, axes = plt.subplots(nrows, ncols, figsize=figsize, squeeze=False)
@@ -1313,9 +1487,7 @@ class LaRTOutput:
             norm_ = shared_norm if share_color else _make_norm([mmap])
             im = _imshow_one(ax, mmap, peel, norm_)
             _attach_cbar(im, ax, cbar_label)
-            ax.set_title(f'$\\alpha$={peel.alpha:+.1f}, '
-                         f'$\\beta$={peel.beta:+.1f}, '
-                         f'$\\gamma$={peel.gamma:+.1f}', fontsize=10)
+            ax.set_title(_peel_title_rect(peel), fontsize=10)
             ax.set_xlabel(xlabel_str); ax.set_ylabel(ylabel_str)
 
         for j in range(nobs, nrows * ncols):
@@ -1426,6 +1598,11 @@ class LaRTOutput:
             None if no annulus filter was requested."""
             if not use_annulus:
                 return None
+            if peel.kind == 'heal':
+                raise NotImplementedError(
+                    "rin/rout annulus selection is not defined for a "
+                    "HEALPix inside observer; omit rin/rout or pass a "
+                    "rectangular peel-off observer.")
             xs, ys, _, _ = _peel_pixel_coords_code(peel)
             rgrid = np.hypot(xs[None, :], ys[:, None])
             return (rgrid >= rlo) & (rgrid <= rhi)
@@ -1438,20 +1615,25 @@ class LaRTOutput:
             else:
                 cube = peel.direc
             mask = _annulus_mask(peel)
+            axes_sum = _spatial_sum_axes(peel)
             if mask is None:
                 if mode == 'sum':
-                    return cube.sum(axis=(0, 1))
-                return cube.mean(axis=(0, 1))
+                    return cube.sum(axis=axes_sum)
+                return cube.mean(axis=axes_sum)
             npix = int(mask.sum())
             if npix == 0:
                 raise ValueError(
                     f"annulus rin={rin}, rout={rout} contains no pixels for "
                     f"observer at distance {peel.distance} "
                     f"(image pixel pitch ~{abs(float(peel.header.get('CD2_2', 1.0)))*np.pi/180*peel.distance:.3g} code units).")
-            weighted = (cube * mask[..., None]).sum(axis=(0, 1))
+            weighted = (cube * mask[..., None]).sum(axis=axes_sum)
             return weighted if mode == 'sum' else weighted / npix
 
         def _label(peel):
+            if peel.kind == 'heal':
+                return (rf'HEALPix nside={peel.nside},$\ '
+                        rf'obs=({peel.obsx:+.2f},{peel.obsy:+.2f},'
+                        rf'{peel.obsz:+.2f})$')
             return (rf'$\alpha={peel.alpha:+.0f}^\circ,\ '
                     rf'\beta={peel.beta:+.0f}^\circ,\ '
                     rf'\gamma={peel.gamma:+.0f}^\circ$')
@@ -1626,6 +1808,33 @@ class LaRTOutput:
             mmap = peel.velocity_moment_map(self.velocity, order=0,
                                             component=component,
                                             vel_range=vel_range_eff)
+            if peel.kind == 'heal':
+                # HEALPix inside observer: bin pixels by angular distance from
+                # the line-of-sight to the box centre (observer-to-source).
+                # Falls back to the +z axis when the observer sits at the
+                # origin and that direction is undefined.
+                hp = _import_healpy("angular-distance radial profile")
+                ref = np.array([-peel.obsx, -peel.obsy, -peel.obsz],
+                               dtype=float)
+                rnorm = float(np.linalg.norm(ref))
+                ref = ref / rnorm if rnorm > 0.0 else np.array([0., 0., 1.])
+                ipix = np.arange(peel.npix)
+                vx, vy, vz = hp.pix2vec(peel.nside, ipix)
+                cos_psi = np.clip(vx*ref[0] + vy*ref[1] + vz*ref[2], -1., 1.)
+                psi = np.degrees(np.arccos(cos_psi))
+                rmax_eff = 180.0 if rmax is None else float(rmax)
+                nb = (max(int(peel.nside), 8)
+                      if nbins is None else int(nbins))
+                if nb < 1:
+                    raise ValueError("nbins must be >= 1")
+                edges = np.linspace(0.0, rmax_eff, nb + 1)
+                centers = 0.5 * (edges[:-1] + edges[1:])
+                counts, _   = np.histogram(psi, bins=edges)
+                weighted, _ = np.histogram(psi, bins=edges,
+                                           weights=mmap.ravel())
+                with np.errstate(invalid='ignore', divide='ignore'):
+                    prof = np.where(counts > 0, weighted / counts, np.nan)
+                return centers, prof
             xs, ys, _, _ = _peel_pixel_coords_code(peel)
             X, Y = np.meshgrid(xs, ys)
             R = np.sqrt(X*X + Y*Y)
@@ -1644,11 +1853,22 @@ class LaRTOutput:
             return centers, prof
 
         def _label(peel: PeelObservation):
+            if peel.kind == 'heal':
+                return (rf'HEALPix nside={peel.nside},$\ '
+                        rf'obs=({peel.obsx:+.2f},{peel.obsy:+.2f},'
+                        rf'{peel.obsz:+.2f})$')
             return (rf'$\alpha={peel.alpha:+.0f}^\circ,\ '
                     rf'\beta={peel.beta:+.0f}^\circ,\ '
                     rf'\gamma={peel.gamma:+.0f}^\circ$')
 
-        xlabel = 'image radius'
+        kinds = {p.kind for p in self.peelings}
+        if kinds == {'heal'}:
+            xlabel = (r'angle from observer$\rightarrow$source direction '
+                      r'[deg]')
+        elif kinds == {'rect'}:
+            xlabel = 'image radius'
+        else:
+            xlabel = 'radial coord (image radius / angular distance [deg])'
         ylabel = r'$\langle\int I\,dv\rangle$ (annular avg)'
 
         def _finalize(ax_, with_legend=False, title_=None):
@@ -1856,6 +2076,11 @@ def _peel_pixel_coords_code(p: 'PeelObservation'):
     dx, dy : float
         Pixel pitch along x / y in code units.
     """
+    if p.kind == 'heal':
+        raise NotImplementedError(
+            "image-plane pixel coordinates are not defined for a HEALPix "
+            "inside-observer cube (kind='heal'); use HEALPix angles via "
+            "healpy.pix2ang(nside, ipix) instead.")
     h    = p.header
     cd1d = abs(float(h.get('CD2_2', 1.0)))
     cd2d = abs(float(h.get('CD3_3', cd1d)))
@@ -1873,6 +2098,27 @@ def _peel_extent_code(p: 'PeelObservation'):
     xs, ys, dx, dy = _peel_pixel_coords_code(p)
     return (xs[0] - 0.5*dx, xs[-1] + 0.5*dx,
             ys[0] - 0.5*dy, ys[-1] + 0.5*dy)
+
+
+def _spatial_sum_axes(p: 'PeelObservation') -> Tuple[int, ...]:
+    """Tuple of axes that sum over the spatial pixels of a peel-off cube.
+
+    ``(0, 1)`` for rectangular cubes (nyim, nxim, nxfreq);
+    ``(0,)`` for HEALPix cubes (npix, nxfreq).
+    """
+    return (0,) if p.kind == 'heal' else (0, 1)
+
+
+def _import_healpy(action: str):
+    """Import healpy lazily and raise a helpful error if it is missing."""
+    try:
+        import healpy as hp
+        return hp
+    except ImportError as exc:                                  # pragma: no cover
+        raise ImportError(
+            f"healpy is required for {action} on HEALPix inside-observer "
+            f"peel-off maps.  Install via `pip install healpy` or "
+            f"`conda install -c conda-forge healpy`.") from exc
 
 
 def _resolve_lim(lim, lo, hi):
@@ -2096,32 +2342,75 @@ def _peel_file_list(main_file: str) -> List[str]:
 
 
 def _read_peel_observation(fname: str) -> Optional[PeelObservation]:
-    """Read one peel-off file (FITS or HDF5).  Returns None if the file
-    is missing or does not contain a ``Scattered`` section."""
+    """Read one peel-off file (FITS or HDF5).
+
+    Auto-detects rectangular peel-off cubes ``(nyim, nxim, nxfreq)`` and
+    HEALPix inside-observer maps ``(npix, nxfreq)``.  Returns None if the
+    file is missing or does not contain a ``Scattered`` section.
+    """
     if not os.path.exists(fname):
         return None
     lf = load_lart(fname)
     scattered = lf.section('Scattered')
     if scattered is None or scattered.data is None:
         return None
-    scatt = np.asarray(scattered.data)               # (nyim, nxim, nxfreq)
+    scatt = np.asarray(scattered.data)
     direct = lf.section('Direct')
     direc = (np.asarray(direct.data) if direct is not None and direct.data is not None
              else np.zeros_like(scatt))
     direct0 = lf.section('Direct0')
     direc0 = (np.asarray(direct0.data)
               if direct0 is not None and direct0.data is not None else None)
-    nyim, nxim, _ = scatt.shape
-    cdx = abs(float(scattered.attr('CD2_2', 0.0)))
-    cdy = abs(float(scattered.attr('CD3_3', cdx)))
-    sr_pix = cdx * cdy * (np.pi/180.0)**2
     # Build a header-ish dict for backwards-compat callers that use
     # ``po.header['KEY']``.  Provide case-variant aliases for the few
     # mixed-case keywords that LaRT writes (alpha/beta/gamma/nphotons).
     hdr = dict(scattered.attrs)
-    for key in ('alpha', 'beta', 'gamma', 'nphotons'):
+    for key in ('alpha', 'beta', 'gamma', 'nphotons',
+                'obsx', 'obsy', 'obsz', 'nside'):
         if key in hdr and key.upper() not in hdr:
             hdr[key.upper()] = hdr[key]
+
+    if scatt.ndim == 2:
+        # HEALPix inside-observer: shape (npix, nxfreq)
+        npix = scatt.shape[0]
+        nside_val = scattered.attr('NSIDE', None)
+        if nside_val is None:
+            nside_val = int(round(np.sqrt(npix / 12.0)))
+        else:
+            nside_val = int(nside_val)
+        if 12 * nside_val * nside_val != npix:
+            raise RuntimeError(
+                f"{fname}: peel-off cube has shape {scatt.shape} but "
+                f"nside={nside_val} implies npix={12*nside_val*nside_val}.")
+        sr_pix = 4.0 * np.pi / float(npix)
+        return PeelObservation(
+            file_name = fname,
+            alpha     = float('nan'),
+            beta      = float('nan'),
+            gamma     = float('nan'),
+            distance  = float(scattered.attr('DISTANCE', 1.0)),
+            dist_cm   = float(scattered.attr('DIST_CM', 1.0)),
+            nphotons  = float(scattered.attr('nphotons', 0.0)),
+            sr_pix    = sr_pix,
+            nxim      = 0,
+            nyim      = 0,
+            cube      = scatt + direc,
+            scatt     = scatt,
+            direc     = direc,
+            direc0    = direc0,
+            header    = hdr,
+            kind      = 'heal',
+            nside     = nside_val,
+            obsx      = float(scattered.attr('obsx', 0.0)),
+            obsy      = float(scattered.attr('obsy', 0.0)),
+            obsz      = float(scattered.attr('obsz', 0.0)),
+        )
+
+    # Rectangular peel-off observer: shape (nyim, nxim, nxfreq)
+    nyim, nxim, _ = scatt.shape
+    cdx = abs(float(scattered.attr('CD2_2', 0.0)))
+    cdy = abs(float(scattered.attr('CD3_3', cdx)))
+    sr_pix = cdx * cdy * (np.pi/180.0)**2
     return PeelObservation(
         file_name = fname,
         alpha     = float(scattered.attr('alpha', 0.0)),
@@ -2138,6 +2427,7 @@ def _read_peel_observation(fname: str) -> Optional[PeelObservation]:
         direc     = direc,
         direc0    = direc0,
         header    = hdr,
+        kind      = 'rect',
     )
 
 
