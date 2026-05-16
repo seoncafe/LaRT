@@ -609,6 +609,7 @@ contains
   subroutine do_resonance6_amr(photon, grid, uz, xfreq_atom, cost, sint, &
                                 S11, S22, S12, S33, S44)
     use define
+    use line_mod, only: compute_HeI_E_coherent
     implicit none
     type(photon_type), intent(inout) :: photon
     type(grid_type),   intent(in)    :: grid
@@ -646,9 +647,14 @@ contains
 
     xfreq_atom = photon%xfreq - uz
 
-    photon%E1 = line%b(iup)%E1(1)
-    photon%E2 = line%b(iup)%E2(1)
-    photon%E3 = line%b(iup)%E3(1)
+    if (par%HeI_coherent) then
+      call compute_HeI_E_coherent(xfreq_atom, Dx2, Dx3, &
+                                  photon%E1, photon%E2, photon%E3)
+    else
+      photon%E1 = line%b(iup)%E1(1)
+      photon%E2 = line%b(iup)%E2(1)
+      photon%E3 = line%b(iup)%E3(1)
+    end if
 
     cost  = rand_resonance(photon%E1)
     cost2 = cost**2

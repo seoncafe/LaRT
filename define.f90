@@ -204,6 +204,10 @@ public
      !--- tau0 and N_gas are reagared to be taumax and N_gasmax, respectively.
      character(len=20) :: line_id  = 'ly_alpha'
      logical       :: fine_structure = .false.
+     !-- He I 10833 coherent (frequency-dependent) E1/E3 via Real-Phi
+     !-- polynomial form (Seon, scatter_matrix_HeI memo, eqs 29 & 30 bottom line).
+     !-- When .false. the legacy per-component incoherent (E1,E2,E3) values are used.
+     logical       :: HeI_coherent   = .false.
      !-- Hydrogen + Deuterium combined Ly-α (line_id = 'ly_alpha_HD').
      !-- include_deuterium=.true. with line_id='ly_alpha' is promoted to 'ly_alpha_HD'.
      logical       :: include_deuterium = .false.

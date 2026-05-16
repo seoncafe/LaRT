@@ -21,7 +21,7 @@ module line_clump_mod
   use define
   use voigt_mod
   use random
-  use line_mod,  only: line
+  use line_mod,  only: line, compute_HeI_E_coherent
   use clump_mod, only: cl_voigt_a, cl_Dfreq, cl_Dfreq_ref
   implicit none
   public
@@ -233,9 +233,14 @@ contains
      iup    = 3
   endif
   xfreq_atom_loc = xfreq_loc - uz_loc
-  photon%E1 = line%b(iup)%E1(1)
-  photon%E2 = line%b(iup)%E2(1)
-  photon%E3 = line%b(iup)%E3(1)
+  if (par%HeI_coherent) then
+     call compute_HeI_E_coherent(xfreq_atom_loc, Dx2, Dx3, &
+                                 photon%E1, photon%E2, photon%E3)
+  else
+     photon%E1 = line%b(iup)%E1(1)
+     photon%E2 = line%b(iup)%E2(1)
+     photon%E3 = line%b(iup)%E3(1)
+  endif
   cost  = rand_resonance(photon%E1)
   cost2 = cost**2
   sint  = sqrt(1.0_wp - cost2)

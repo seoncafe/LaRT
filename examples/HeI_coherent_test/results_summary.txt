@@ -1,0 +1,75 @@
+He I 10833 coherent vs. incoherent: summary of all 20 runs
+============================================================
+Generated: 2026-05-16  (extended with tau=0.1)
+Hardware: 64 MPI ranks
+Setup: sphere geometry, T = 1e4 K, no_photons = 5e6/case, distance = 100 (far-field)
+
+Spectrum / cross-section sanity (read via python/read_lart.read_lart):
+                  case     Nscat    peak Jout     sum Jout      img.sum
+--------------------------------------------------------------------------------
+         pt_tau0.1_inc      0.10   5.9118e-03   2.0509e-01   3.0520e+02
+         pt_tau0.1_coh      0.10   5.9216e-03   2.0509e-01   3.0513e+02
+
+           pt_tau1_inc      1.30   4.2889e-03   2.0509e-01   1.8842e+03
+           pt_tau1_coh      1.30   4.2882e-03   2.0509e-01   1.8842e+03
+
+          pt_tau10_inc     23.41   4.4335e-03   1.3674e-01   2.0783e+03
+          pt_tau10_coh     23.40   4.4532e-03   1.3674e-01   2.0772e+03
+
+         pt_tau100_inc    337.96   6.0871e-03   9.1157e-02   1.4584e+03
+         pt_tau100_coh    337.98   6.0874e-03   9.1157e-02   1.4588e+03
+
+        pt_tau1000_inc   4098.50   6.7318e-03   5.4695e-02   8.8270e+02
+        pt_tau1000_coh   4097.10   6.7420e-03   5.4695e-02   8.8389e+02
+
+         un_tau0.1_inc      0.08   5.9875e-03   2.0509e-01   2.2821e+02
+         un_tau0.1_coh      0.08   5.9757e-03   2.0509e-01   2.2829e+02
+
+           un_tau1_inc      0.87   4.8848e-03   2.0509e-01   1.4196e+03
+           un_tau1_coh      0.87   4.8713e-03   2.0509e-01   1.4199e+03
+
+          un_tau10_inc     13.04   3.3076e-03   1.3674e-01   1.8826e+03
+          un_tau10_coh     13.05   3.2995e-03   1.3674e-01   1.8820e+03
+
+         un_tau100_inc    186.39   4.2930e-03   9.1157e-02   1.4372e+03
+         un_tau100_coh    186.46   4.3017e-03   9.1158e-02   1.4363e+03
+
+        un_tau1000_inc   2307.00   5.1584e-03   5.4695e-02   8.8931e+02
+        un_tau1000_coh   2306.30   5.1522e-03   5.4695e-02   8.9031e+02
+--------------------------------------------------------------------------------
+
+Sanity checks (all PASS):
+  1. N_scat agrees between inc and coh to < 0.1 % at every (source, tau).
+     Confirms the upper-state selection probability is unchanged, as the
+     cross-section is the incoherent 1:3:5 Lorentzian sum (J'-J' interference
+     cancels in W11 + 2*W14).
+
+  2. sum(Jout) is identical between inc and coh.
+     Confirms photon-number conservation.
+
+  3. tau=0.1 cases: N_scat ~ 0.1 means most photons escape without scattering
+     even once -- the spectrum is dominated by the source profile and the
+     coherent treatment effectively has no signature here.
+
+  4. Image-integrated p (sum_pixels Q,U / sum I) ~ 0 for all runs --
+     correct for axisymmetric sphere viewed from infinity by a single
+     observer (azimuthal cancellation of Q,U).
+
+  5. Per-pixel polarization p(b) is highest for the optically thin point-source
+     case (~12 % at b ~ 0.8 for tau=1) and decreases with tau as multiple
+     scatterings depolarize.
+
+  6. Coherent vs. incoherent differences in p(b):
+     - tau=0.1 / 1 / 10: difference below the Monte Carlo noise (single/few
+       scatterings sample the line core where coherent and incoherent E1
+       nearly coincide).
+     - tau=1000: p(b) changes by 5-15% (relative); the coherent treatment
+       slightly increases p because the modified E1(nu) keeps photons more
+       linearly polarized in the wings where they spend more time at high tau.
+
+Visual outputs (see compare.ipynb):
+  - 2-D scattered intensity images (frequency summed) clearly show the sphere
+    boundary at r = 1.
+  - Radial surface-brightness profiles I(b) overlay inc vs. coh.
+  - Local polarization profiles p(b) overlay inc vs. coh.
+  - Plot of E1, E2, E3 vs. velocity offset from the polynomial form.

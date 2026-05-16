@@ -5,6 +5,36 @@ module line_mod
 contains
 
 !++++++++++++++++++++++++++++++++++++++
+  pure subroutine compute_HeI_E_coherent(xa, Dx2, Dx3, E1, E2, E3)
+  !---
+  !-- Frequency-dependent (E1, E2, E3) for He I 10833 coherent treatment
+  !-- following the Real-Phi polynomial form (Seon, scatter_matrix_HeI memo,
+  !-- eqs 29 & 30 bottom line). Inputs are dimensionless Doppler offsets
+  !-- relative to the reference component (LaRT convention: b(1) = P_2):
+  !--   xa  = xfreq_atom                              (offset from P_2)
+  !--   Dx2 = line%delE_Hz(2)/Dfreq   (= nu_P2 - nu_P1, negative)
+  !--   Dx3 = line%delE_Hz(3)/Dfreq   (= nu_P2 - nu_P0, negative)
+  !-- The polynomial form is non-singular at every frequency.
+  !---
+  implicit none
+  real(kind=wp), intent(in)  :: xa, Dx2, Dx3
+  real(kind=wp), intent(out) :: E1, E2, E3
+  real(kind=wp) :: D0, D1, D2, D2D0, D2D1, D0D1, p, den
+  D2   = xa
+  D1   = xa + Dx2
+  D0   = xa + Dx3
+  D2D0 = D2*D0
+  D2D1 = D2*D1
+  D0D1 = D0*D1
+  p    = D2*D0*D1
+  den  = 4.0_wp*(D2D1*D2D1 + 3.0_wp*D2D0*D2D0 + 5.0_wp*D0D1*D0D1)
+  E1   = (3.0_wp*D2D0*D2D0 +  7.0_wp*D0D1*D0D1 + 8.0_wp*p*D1 + 18.0_wp*p*D0) / den
+  E3   = (3.0_wp*D2D0*D2D0 + 15.0_wp*D0D1*D0D1 + 8.0_wp*D2*p + 10.0_wp*p*D0) / den
+  E2   = 1.0_wp - E1
+  end subroutine compute_HeI_E_coherent
+!++++++++++++++++++++++++++++++++++++++
+
+!++++++++++++++++++++++++++++++++++++++
   function calc_voigt1(grid,xfreq,icell,jcell,kcell) result(voigt1)
   use define
   implicit none
@@ -364,9 +394,14 @@ contains
   !--- xfreq_atom = frequency in the atom's rest frame.
   xfreq_atom = photon%xfreq - uz
 
-  photon%E1 = line%b(iup)%E1(1)
-  photon%E2 = line%b(iup)%E2(1)
-  photon%E3 = line%b(iup)%E3(1)
+  if (par%HeI_coherent) then
+     call compute_HeI_E_coherent(xfreq_atom, Dx2, Dx3, &
+                                 photon%E1, photon%E2, photon%E3)
+  else
+     photon%E1 = line%b(iup)%E1(1)
+     photon%E2 = line%b(iup)%E2(1)
+     photon%E3 = line%b(iup)%E3(1)
+  endif
 
   !--- Select a new scattering angle (cos(theta)).
   cost  = rand_resonance(photon%E1)
