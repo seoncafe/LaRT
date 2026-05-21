@@ -209,6 +209,11 @@ except ImportError:
 
 
 # ---------------------------------------------------------------------------
+# Optional physics column names (order matters for text output)
+# ---------------------------------------------------------------------------
+_OPTIONAL_COLUMNS = ('metallicity', 'xHI', 'n_e', 'n_ion', 'emissivity', 'ndust')
+
+# ---------------------------------------------------------------------------
 # Cell
 # ---------------------------------------------------------------------------
 
@@ -235,7 +240,8 @@ class Cell:
     """
 
     __slots__ = ('cx', 'cy', 'cz', 'h', 'level', 'children',
-                 'dens', 'T', 'vx', 'vy', 'vz')
+                 'dens', 'T', 'vx', 'vy', 'vz',
+                 'metallicity', 'xHI', 'n_e', 'n_ion', 'emissivity', 'ndust')
 
     def __init__(self, cx, cy, cz, h, level):
         self.cx    = cx
@@ -244,12 +250,19 @@ class Cell:
         self.h     = h
         self.level = level
         self.children = None
-        # Physical defaults
+        # Physical defaults (mandatory)
         self.dens = 0.0
         self.T  = 1e4
         self.vx = 0.0
         self.vy = 0.0
         self.vz = 0.0
+        # Optional physics columns (None = not set)
+        self.metallicity = None
+        self.xHI         = None
+        self.n_e         = None
+        self.n_ion       = None
+        self.emissivity  = None
+        self.ndust       = None
 
     # ------------------------------------------------------------------ #
     @property
@@ -1277,6 +1290,96 @@ class AMRGrid:
             lf.vx = float(vx); lf.vy = float(vy); lf.vz = float(vz)
 
     # ------------------------------------------------------------------ #
+    # Optional physics property setters
+    # ------------------------------------------------------------------ #
+
+    def _set_optional(self, attr, fn):
+        """Generic setter for optional per-leaf scalar attributes."""
+        if callable(fn):
+            leaflist = self.leaves()
+            try:
+                cx, cy, cz = self._coords(leaflist)
+                vals = self._broadcast(fn(cx, cy, cz), len(leaflist))
+            except Exception:
+                for lf in leaflist:
+                    setattr(lf, attr, float(fn(lf.cx, lf.cy, lf.cz)))
+                return
+            for lf, v in zip(leaflist, vals):
+                setattr(lf, attr, float(v))
+        else:
+            val = float(fn)
+            for lf in self.leaves():
+                setattr(lf, attr, val)
+
+    def set_metallicity(self, fn):
+        """
+        Set metallicity per leaf cell.
+
+        Parameters
+        ----------
+        fn : callable or float
+            ``fn(cx, cy, cz) -> metallicity``.
+            If a scalar is given, all leaves get that value.
+            Numpy-vectorisable callables are evaluated in one call (fast path).
+        """
+        self._set_optional('metallicity', fn)
+
+    def set_neutral_fraction(self, fn):
+        """
+        Set neutral hydrogen fraction (xHI) per leaf cell.
+
+        Parameters
+        ----------
+        fn : callable or float
+            ``fn(cx, cy, cz) -> xHI`` (range [0, 1]).
+        """
+        self._set_optional('xHI', fn)
+
+    def set_electron_density(self, fn):
+        """
+        Set electron number density (n_e) per leaf cell.
+
+        Parameters
+        ----------
+        fn : callable or float
+            ``fn(cx, cy, cz) -> n_e [cm^-3]``.
+        """
+        self._set_optional('n_e', fn)
+
+    def set_ion_density(self, fn):
+        """
+        Set ion number density (n_ion) per leaf cell.
+
+        Parameters
+        ----------
+        fn : callable or float
+            ``fn(cx, cy, cz) -> n_ion [cm^-3]``.
+        """
+        self._set_optional('n_ion', fn)
+
+    def set_emissivity(self, fn):
+        """
+        Set emissivity per leaf cell.
+
+        Parameters
+        ----------
+        fn : callable or float
+            ``fn(cx, cy, cz) -> emissivity``.
+        """
+        self._set_optional('emissivity', fn)
+
+    def set_dust_density(self, fn):
+        """
+        Set dust number density (ndust) per leaf cell.
+
+        Parameters
+        ----------
+        fn : callable or float
+            ``fn(cx, cy, cz) -> ndust [cm^-3]``.
+        """
+        self._set_optional('ndust', fn)
+
+    # ------------------------------------------------------------------ #
     # Tree traversal
     # ------------------------------------------------------------------ #
 
@@ -1360,10 +1463,18 @@ class AMRGrid:
 
     def _leaf_table_array(self):
         leaflist = self.leaves()
-        data = np.empty(len(leaflist), dtype=[
-            ('x', 'f8'), ('y', 'f8'), ('z', 'f8'), ('level', 'i4'),
-            ('dens', 'f8'), ('T', 'f8'), ('vx', 'f8'), ('vy', 'f8'), ('vz', 'f8'),
-        ])
+        # Mandatory columns
+        dt = [('x', 'f8'), ('y', 'f8'), ('z', 'f8'), ('level', 'i4'),
+              ('dens', 'f8'), ('T', 'f8'), ('vx', 'f8'), ('vy', 'f8'), ('vz', 'f8')]
+
+        # Detect which optional columns have any non-None value
+        opt_present = []
+        for attr in _OPTIONAL_COLUMNS:
+            if any(getattr(lf, attr, None) is not None for lf in leaflist):
+                opt_present.append(attr)
+                dt.append((attr, 'f8'))
+
+        data = np.empty(len(leaflist), dtype=dt)
         # Column-wise assignment is much faster than per-row structured-array writes
         data['x']      = [lf.cx     for lf in leaflist]
         data['y']      = [lf.cy     for lf in leaflist]
@@ -1374,6 +1485,8 @@ class AMRGrid:
         data['vx']     = [lf.vx     for lf in leaflist]
         data['vy']     = [lf.vy     for lf in leaflist]
         data['vz']     = [lf.vz     for lf in leaflist]
+        for attr in opt_present:
+            data[attr] = [getattr(lf, attr, None) or 0.0 for lf in leaflist]
         return data
 
     @staticmethod
@@ -1514,7 +1627,14 @@ class AMRGrid:
                 np.asarray(first_group['vz'][:], dtype=float),
             ])
 
-        return cls._build_from_rows(boxlen, data, origin=origin)
+            # Probe for optional physics columns
+            opt_columns = {}
+            for attr in _OPTIONAL_COLUMNS:
+                if attr in cols:
+                    opt_columns[attr] = np.asarray(first_group[attr][:], dtype=float)
+
+        return cls._build_from_rows(boxlen, data, origin=origin,
+                                    opt_columns=opt_columns or None)
 
     @classmethod
     def _read_fits(cls, filename):
@@ -1537,6 +1657,7 @@ class AMRGrid:
                 float(header.get('ORIGINZ', -h)),
             )
             table = table_hdu.data
+            col_names = [n.upper() for n in table.names]
             dens_key = ('dens' if 'dens' in table.names
                         else 'gasDen' if 'gasDen' in table.names
                         else 'nH')
@@ -1552,14 +1673,25 @@ class AMRGrid:
                 np.asarray(table['vz'], dtype=float),
             ])
 
-        return cls._build_from_rows(boxlen, data, origin=origin)
+            # Probe for optional physics columns
+            opt_columns = {}
+            for attr in _OPTIONAL_COLUMNS:
+                if attr in table.names:
+                    opt_columns[attr] = np.asarray(table[attr], dtype=float)
+
+        return cls._build_from_rows(boxlen, data, origin=origin,
+                                    opt_columns=opt_columns or None)
 
     def _insert_cell(self, cx, cy, cz, target_level,
-                     dens=0.0, T=1e4, vx=0.0, vy=0.0, vz=0.0):
+                     dens=0.0, T=1e4, vx=0.0, vy=0.0, vz=0.0, **opt):
         """Navigate from root to the leaf at (cx,cy,cz)/target_level, splitting as needed.
 
         O(target_level) per call — avoids the O(tree_size) full traversal of refine().
         Child index convention matches Cell.split(): iz*4 + iy*2 + ix.
+
+        Optional keyword arguments matching ``_OPTIONAL_COLUMNS`` names
+        (metallicity, xHI, n_e, n_ion, emissivity, ndust) are stored on the
+        leaf cell when provided.
         """
         cell = self.root
         for _ in range(target_level):
@@ -1574,15 +1706,41 @@ class AMRGrid:
         cell.vx = vx
         cell.vy = vy
         cell.vz = vz
+        for attr in _OPTIONAL_COLUMNS:
+            val = opt.get(attr)
+            if val is not None:
+                setattr(cell, attr, float(val))
 
     @classmethod
-    def _build_from_rows(cls, boxlen, data, origin=None):
+    def _build_from_rows(cls, boxlen, data, origin=None, opt_columns=None):
+        """Build a grid from a 2-D array of leaf-cell rows.
+
+        Parameters
+        ----------
+        boxlen : float
+        data : ndarray, shape (nleaf, >=9)
+            Columns 0-8: x, y, z, level, dens, T, vx, vy, vz.
+        origin : tuple or None
+        opt_columns : dict or None
+            Mapping from ``_OPTIONAL_COLUMNS`` name to 1-D array of length
+            nleaf.  Only non-None entries are stored on the leaf cells.
+        """
         grid = cls(boxlen, origin=origin)
-        for row in data:
-            grid._insert_cell(
-                float(row[0]), float(row[1]), float(row[2]), int(row[3]),
-                float(row[4]), float(row[5]), float(row[6]), float(row[7]), float(row[8]),
-            )
+        if opt_columns:
+            for i, row in enumerate(data):
+                kw = {k: float(v[i]) for k, v in opt_columns.items()}
+                grid._insert_cell(
+                    float(row[0]), float(row[1]), float(row[2]), int(row[3]),
+                    float(row[4]), float(row[5]), float(row[6]), float(row[7]),
+                    float(row[8]), **kw,
+                )
+        else:
+            for row in data:
+                grid._insert_cell(
+                    float(row[0]), float(row[1]), float(row[2]), int(row[3]),
+                    float(row[4]), float(row[5]), float(row[6]), float(row[7]),
+                    float(row[8]),
+                )
         return grid
 
     def write(self, filename, bitpix=0, format='hdf5'):
@@ -1638,7 +1796,7 @@ class AMRGrid:
 
         leaflist = self.leaves()
         nleaf    = len(leaflist)
-        mat = np.column_stack([
+        columns = [
             [lf.cx     for lf in leaflist],
             [lf.cy     for lf in leaflist],
             [lf.cz     for lf in leaflist],
@@ -1648,11 +1806,28 @@ class AMRGrid:
             [lf.vx     for lf in leaflist],
             [lf.vy     for lf in leaflist],
             [lf.vz     for lf in leaflist],
-        ])
+        ]
+        col_names = ['x', 'y', 'z', 'level', 'dens', 'T', 'vx', 'vy', 'vz']
+        fmt_list = ['%.6f', '%.6f', '%.6f', '%d', '%.6e', '%.4e',
+                    '%.4f', '%.4f', '%.4f']
+
+        # Append optional columns that have any non-None values
+        for attr in _OPTIONAL_COLUMNS:
+            vals = [getattr(lf, attr, None) for lf in leaflist]
+            if any(v is not None for v in vals):
+                columns.append([v if v is not None else 0.0 for v in vals])
+                col_names.append(attr)
+                fmt_list.append('%.6e')
+
+        mat = np.column_stack(columns)
+        fmt_str = '  '.join(fmt_list)
         with open(filename, 'w') as f:
             f.write(f'{nleaf}  {self.boxlen:.6f}\n')
-            np.savetxt(f, mat,
-                       fmt='%.6f  %.6f  %.6f  %d  %.6e  %.4e  %.4f  %.4f  %.4f')
+            f.write('# ' + '  '.join(col_names) + '\n')
+            for row in mat:
+                vals = list(row)
+                vals[3] = int(vals[3])   # level must be integer for %d
+                f.write(fmt_str % tuple(vals) + '\n')
         print(f'Written {nleaf} leaf cells to {filename}')
 
     @classmethod
@@ -1693,10 +1868,19 @@ class AMRGrid:
         if cls._is_fits_filename(filename):
             return cls._read_fits(filename)
 
-        data = np.loadtxt(filename, skiprows=1)
+        # Parse header: first non-comment line is "nleaf  boxlen",
+        # optional "# col1  col2  ..." comment line lists column names.
+        header_col_names = None
         with open(filename) as f:
             first = f.readline().split()
-        nleaf, boxlen = int(first[0]), float(first[1])
+            nleaf, boxlen = int(first[0]), float(first[1])
+            # Peek at next line for a column-name header
+            pos = f.tell()
+            second = f.readline()
+            if second.startswith('#'):
+                header_col_names = second.lstrip('#').split()
+
+        data = np.loadtxt(filename, comments='#', skiprows=1)
         if data.ndim == 1:
             data = data[np.newaxis, :]
 
@@ -1705,7 +1889,26 @@ class AMRGrid:
                 f'Header nleaf={nleaf} does not match row count {len(data)} in {filename}'
             )
 
-        return cls._build_from_rows(boxlen, data)
+        # Extract optional columns beyond the 9 mandatory ones
+        opt_columns = None
+        ncols = data.shape[1]
+        if ncols > 9:
+            opt_columns = {}
+            if header_col_names and len(header_col_names) >= ncols:
+                # Use column names from header
+                for j in range(9, ncols):
+                    name = header_col_names[j]
+                    if name in _OPTIONAL_COLUMNS:
+                        opt_columns[name] = data[:, j]
+            else:
+                # Fall back to positional mapping
+                for j, attr in enumerate(_OPTIONAL_COLUMNS):
+                    col_idx = 9 + j
+                    if col_idx < ncols:
+                        opt_columns[attr] = data[:, col_idx]
+
+        return cls._build_from_rows(boxlen, data[:, :9],
+                                    opt_columns=opt_columns or None)
 
     # ------------------------------------------------------------------ #
     # Visualisation helpers
@@ -1743,8 +1946,28 @@ class AMRGrid:
             Normal axis of the slice plane.
         value : float, optional
             Position of the slice along ``axis``.  Defaults to box centre.
-        quantity : {'dens', 'T', 'vx', 'vy', 'vz'}
-            Quantity to plot.
+        quantity : str or callable
+            What to colour each leaf-cell polygon by.
+
+            String options:
+
+            * ``'dens'`` (or ``'nH'``) -- gas density
+            * ``'T'``                  -- temperature
+            * ``'vx'``, ``'vy'``, ``'vz'``      -- velocity components
+            * ``'v_mag'`` (or ``'speed'``)      -- :math:`\\sqrt{v_x^2+v_y^2+v_z^2}`,
+              computed on the fly per leaf
+            * any optional column populated on the cells:
+              ``'metallicity'``, ``'xHI'``, ``'n_e'``, ``'n_ion'``,
+              ``'emissivity'``, ``'ndust'``
+
+            Cells where the requested optional column is ``None`` (i.e.
+            the column was not present in the data file) are filled with
+            NaN; with ``log=True`` they are excluded from the polygon
+            collection and show the axis background colour.
+
+            Callable form: ``quantity(lf)`` is invoked for every slice
+            leaf ``lf`` and must return a float, allowing arbitrary
+            user-defined derived quantities.
         ax : matplotlib.axes.Axes, optional
         log : bool
             Plot log10 of the quantity if True.
@@ -1808,7 +2031,19 @@ class AMRGrid:
                   'y': ('x', 'z', 'cx', 'cz', 'cy'),
                   'z': ('x', 'y', 'cx', 'cy', 'cz')}
         ha, va, ca, da, na = ax_map[axis]
-        quantity_key = 'dens' if quantity == 'nH' else quantity
+        # Quantity resolution (see docstring).
+        if callable(quantity):
+            quantity_key = quantity
+            quantity_label = getattr(quantity, '__name__', 'quantity')
+        elif quantity == 'nH':
+            quantity_key = 'dens'
+            quantity_label = quantity_key
+        elif quantity in ('v_mag', 'speed'):
+            quantity_key = quantity
+            quantity_label = '|v|'
+        else:
+            quantity_key = quantity
+            quantity_label = quantity_key
 
         # Collect only leaves that intersect the slice plane (tree pruning).
         # This visits O(N_slice * depth) nodes instead of all N_total leaves.
@@ -1828,7 +2063,15 @@ class AMRGrid:
             h_arr[i]  = lf.h
             cx_arr[i] = getattr(lf, ca)
             cy_arr[i] = getattr(lf, da)
-            v_arr[i]  = getattr(lf, quantity_key)
+            if callable(quantity_key):
+                val = quantity_key(lf)
+            elif quantity_key in ('v_mag', 'speed'):
+                val = (lf.vx*lf.vx + lf.vy*lf.vy + lf.vz*lf.vz) ** 0.5
+            else:
+                val = getattr(lf, quantity_key)
+                if val is None:
+                    val = np.nan
+            v_arr[i]  = val
 
         # Exclude cells that should show as background instead of colourmap.
         # For log scale: non-positive values have no valid log → background.
@@ -1903,7 +2146,7 @@ class AMRGrid:
         ax.set_aspect('equal')
         ax.set_xlabel(ha)
         ax.set_ylabel(va)
-        label = f'log10({quantity_key})' if log else quantity_key
+        label = f'log10({quantity_label})' if log else quantity_label
 
         cax = inset_axes(
             ax,

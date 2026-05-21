@@ -50,17 +50,24 @@ contains
   par%spectral_type   = strlowcase(par%spectral_type)
   par%amr_type        = strlowcase(par%amr_type)
 
+  !--- deprecation: amr_type='ramses' is no longer supported in LaRT.x.
+  !    Users must first convert RAMSES data to generic format via
+  !    convert_ramses_to_generic.x or convert_ramses_to_generic.py.
+  if (par%use_amr_grid .and. trim(par%amr_type) == 'ramses') then
+     write(6,'(a)') 'ERROR: par%amr_type = ''ramses'' is no longer supported.'
+     write(6,'(a)') '  Direct RAMSES binary reading has been removed from LaRT.x.'
+     write(6,'(a)') '  Please convert RAMSES data first using:'
+     write(6,'(a)') '    convert_ramses_to_generic.x  <repository> <snapnum> <output.h5>'
+     write(6,'(a)') '  or the Python converter:'
+     write(6,'(a)') '    python convert_ramses_to_generic.py  <repository> <snapnum> -o <output.h5>'
+     write(6,'(a)') '  Then set par%amr_type = ''generic'' and par%amr_file = ''<output.h5>'''
+     stop 'amr_type = ''ramses'' is deprecated. Use the converter.'
+  end if
+
   !--- Normalize geometry string to a canonical value.
-  !    Default is 'sphere'.  RAMSES AMR defaults to 'rectangle' because
-  !    RAMSES grids are not necessarily spherical.
-  !    'box' is accepted as a synonym for 'rectangle'.
   select case(trim(par%geometry))
   case ('')
-     if (par%use_amr_grid .and. trim(par%amr_type) == 'ramses') then
-        par%geometry = 'rectangle'
-     else
-        par%geometry = 'sphere'
-     end if
+     par%geometry = 'sphere'
   case ('box')
      par%geometry = 'rectangle'
   end select

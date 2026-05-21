@@ -147,6 +147,96 @@ contains
   end function amr_find_cell
 
   !=========================================================================
+  ! Returns the deepest cell (leaf or internal) whose volume contains
+  ! (x,y,z).  Unlike amr_find_cell, when the descent reaches an internal
+  ! cell that has no child in the relevant octant (a "gap"), this returns
+  ! that internal cell rather than 0.  Useful for pole traversal and any
+  ! code that needs to step across gaps with the geometry of the gap-cell.
+  !=========================================================================
+  integer function amr_find_enclosing_cell(x, y, z) result(icell_out)
+    real(wp), intent(in) :: x, y, z
+    integer :: icell, ioct, child
+
+    icell_out = 0
+    if (x < amr_grid%xmin .or. x > amr_grid%xmax .or. &
+        y < amr_grid%ymin .or. y > amr_grid%ymax .or. &
+        z < amr_grid%zmin .or. z > amr_grid%zmax) return
+
+    icell = 1
+    do
+      if (amr_grid%ileaf(icell) > 0) then
+        icell_out = icell
+        return
+      end if
+      ioct = 1
+      if (x >= amr_grid%cx(icell)) ioct = ioct + 1
+      if (y >= amr_grid%cy(icell)) ioct = ioct + 2
+      if (z >= amr_grid%cz(icell)) ioct = ioct + 4
+      child = amr_grid%children(ioct, icell)
+      if (child == 0) then
+        icell_out = icell   ! deepest internal cell that contains (x,y,z)
+        return
+      end if
+      icell = child
+    end do
+  end function amr_find_enclosing_cell
+
+  !=========================================================================
+  ! Step through a virtual sub-cell of an internal cell: half the size of
+  ! `icell`, centered in the sub-octant containing (x, y, z).  Used by
+  ! pole traversal and any code that needs to advance across gaps one
+  ! sub-octant at a time so it can find leaves that live in other
+  ! sub-octants of the same internal cell.
+  !=========================================================================
+  subroutine amr_gap_exit(icell, x, y, z, kx, ky, kz, t_exit, iface)
+    integer,  intent(in)  :: icell
+    real(wp), intent(in)  :: x, y, z, kx, ky, kz
+    real(wp), intent(out) :: t_exit
+    integer,  intent(out) :: iface
+
+    real(wp) :: cx, cy, cz, h_sub
+    real(wp) :: cx_sub, cy_sub, cz_sub
+    real(wp) :: t(6)
+    integer  :: ix, iy, iz
+
+    cx = amr_grid%cx(icell);  cy = amr_grid%cy(icell);  cz = amr_grid%cz(icell)
+    h_sub = amr_grid%ch(icell) * 0.5_wp
+
+    ix = 0;  if (x >= cx) ix = 1
+    iy = 0;  if (y >= cy) iy = 1
+    iz = 0;  if (z >= cz) iz = 1
+
+    cx_sub = cx + real(2*ix - 1, wp) * h_sub
+    cy_sub = cy + real(2*iy - 1, wp) * h_sub
+    cz_sub = cz + real(2*iz - 1, wp) * h_sub
+
+    if (kx > 0.0_wp) then
+      t(1) = (cx_sub + h_sub - x) / kx;  t(2) = hugest
+    else if (kx < 0.0_wp) then
+      t(1) = hugest;  t(2) = (cx_sub - h_sub - x) / kx
+    else
+      t(1) = hugest;  t(2) = hugest
+    end if
+    if (ky > 0.0_wp) then
+      t(3) = (cy_sub + h_sub - y) / ky;  t(4) = hugest
+    else if (ky < 0.0_wp) then
+      t(3) = hugest;  t(4) = (cy_sub - h_sub - y) / ky
+    else
+      t(3) = hugest;  t(4) = hugest
+    end if
+    if (kz > 0.0_wp) then
+      t(5) = (cz_sub + h_sub - z) / kz;  t(6) = hugest
+    else if (kz < 0.0_wp) then
+      t(5) = hugest;  t(6) = (cz_sub - h_sub - z) / kz
+    else
+      t(5) = hugest;  t(6) = hugest
+    end if
+
+    iface  = minloc(t, dim=1)
+    t_exit = t(iface)
+  end subroutine amr_gap_exit
+
+  !=========================================================================
   ! Compute the distance from (x,y,z) traveling (kx,ky,kz) to the nearest
   ! face of cell icell.  iface: 1=+x, 2=-x, 3=+y, 4=-y, 5=+z, 6=-z.
   !=========================================================================
@@ -352,8 +442,9 @@ contains
   !=========================================================================
   subroutine amr_build_neighbors
     use mpi
-    integer  :: icell, ierr
+    integer  :: icell, ierr, iface
     real(wp) :: cx, cy, cz, h, hp
+    integer  :: ineigh
 
     call create_shared_mem(amr_grid%neighbor, [6, amr_grid%ncells])
 
@@ -364,7 +455,12 @@ contains
         cy  = amr_grid%cy(icell)
         cz  = amr_grid%cz(icell)
         h   = amr_grid%ch(icell)
-        hp  = h * (1.0_wp + 1.0e-8_wp)
+        ! Query the would-be same-level neighbor's CENTER (1 cell width past icell's face),
+        ! NOT just past the face itself.  Querying at cx + h lands EXACTLY on the parent's
+        ! +x face when icell is on the +x side of its parent, and amr_find_cell_at_level's
+        ! `>=` descent then routes the query back into icell (self-loop in the neighbor
+        ! table).  Querying at cx + 2*h is unambiguously inside the +x neighbor.
+        hp  = 2.0_wp * h
 
         if (cx + hp <= amr_grid%xmax) &
           amr_grid%neighbor(1, icell) = amr_find_cell_at_level(cx+hp, cy,   cz,   amr_grid%level(icell))
@@ -378,14 +474,69 @@ contains
           amr_grid%neighbor(5, icell) = amr_find_cell_at_level(cx,    cy,   cz+hp, amr_grid%level(icell))
         if (cz - hp >= amr_grid%zmin) &
           amr_grid%neighbor(6, icell) = amr_find_cell_at_level(cx,    cy,   cz-hp, amr_grid%level(icell))
+
+        ! If amr_find_cell_at_level returned an ANCESTOR of icell, the descent
+        ! ran out of refinement (sparse-data octree gap).  Such an ancestor would
+        ! route a descent in amr_next_leaf back into icell itself (self-loop
+        ! equivalent).  Mark these as "no neighbor" so the raytrace treats them
+        ! as escapes.
+        do iface = 1, 6
+          ineigh = amr_grid%neighbor(iface, icell)
+          if (ineigh > 0 .and. ineigh /= icell .and. is_ancestor(ineigh, icell)) then
+            amr_grid%neighbor(iface, icell) = 0
+          end if
+        end do
       end do
+
+      block
+        integer :: nself, iface_dbg
+        nself = 0
+        do icell = 1, amr_grid%ncells
+          do iface_dbg = 1, 6
+            if (amr_grid%neighbor(iface_dbg, icell) == icell) nself = nself + 1
+          end do
+        end do
+        if (nself /= 0) then
+          write(6,'(a,i0)') 'amr_build_neighbors WARNING: self-loops detected: ', nself
+          flush(6)
+        end if
+      end block
     end if
     call MPI_BARRIER(mpar%hostcomm, ierr)
   end subroutine amr_build_neighbors
 
+  ! Return .true. if 'anc' is an ancestor of 'desc' in the octree.
+  pure logical function is_ancestor(anc, desc)
+    integer, intent(in) :: anc, desc
+    integer :: c
+    is_ancestor = .false.
+    c = desc
+    do while (c > 0)
+      c = amr_grid%parent(c)
+      if (c == anc) then
+        is_ancestor = .true.
+        return
+      end if
+    end do
+  end function is_ancestor
+
   !=========================================================================
   ! Return the leaf index a photon enters after crossing face iface of
-  ! cell icell.  (x, y, z) is the photon position AT the face (code units).
+  ! cell icell.  (x, y, z) is the photon position AT the face (code units),
+  ! used ONLY for the two transverse sub-octant bits; the iface-normal
+  ! sub-octant bit is determined topologically from iface itself so that
+  ! a photon sitting exactly on the face cannot be re-routed by floating-
+  ! point round-off in the normal coordinate.
+  !
+  ! Face convention: 1=+x, 2=-x, 3=+y, 4=-y, 5=+z, 6=-z (source cell).
+  ! The photon enters the destination cell through the opposite face, so:
+  !   iface=1 -> dest -x side -> x sub-octant bit = 0
+  !   iface=2 -> dest +x side -> x sub-octant bit = 1
+  !   iface=3 -> dest -y side -> y sub-octant bit = 0
+  !   iface=4 -> dest +y side -> y sub-octant bit = 1
+  !   iface=5 -> dest -z side -> z sub-octant bit = 0
+  !   iface=6 -> dest +z side -> z sub-octant bit = 1
+  !
   ! Returns 0 if the photon has left the box.
   !=========================================================================
   integer function amr_next_leaf(icell, iface, x, y, z) result(il_new)
@@ -398,10 +549,30 @@ contains
     if (ineigh == 0) return   ! outside box
 
     do while (amr_grid%ileaf(ineigh) == 0)
-      ioct  = 1
-      if (x >= amr_grid%cx(ineigh)) ioct = ioct + 1
-      if (y >= amr_grid%cy(ineigh)) ioct = ioct + 2
-      if (z >= amr_grid%cz(ineigh)) ioct = ioct + 4
+      ioct = 1
+      select case (iface)
+      case (1)                                                    ! dest -x side
+        if (y >= amr_grid%cy(ineigh)) ioct = ioct + 2
+        if (z >= amr_grid%cz(ineigh)) ioct = ioct + 4
+      case (2)                                                    ! dest +x side
+        ioct = ioct + 1
+        if (y >= amr_grid%cy(ineigh)) ioct = ioct + 2
+        if (z >= amr_grid%cz(ineigh)) ioct = ioct + 4
+      case (3)                                                    ! dest -y side
+        if (x >= amr_grid%cx(ineigh)) ioct = ioct + 1
+        if (z >= amr_grid%cz(ineigh)) ioct = ioct + 4
+      case (4)                                                    ! dest +y side
+        if (x >= amr_grid%cx(ineigh)) ioct = ioct + 1
+        ioct = ioct + 2
+        if (z >= amr_grid%cz(ineigh)) ioct = ioct + 4
+      case (5)                                                    ! dest -z side
+        if (x >= amr_grid%cx(ineigh)) ioct = ioct + 1
+        if (y >= amr_grid%cy(ineigh)) ioct = ioct + 2
+      case (6)                                                    ! dest +z side
+        if (x >= amr_grid%cx(ineigh)) ioct = ioct + 1
+        if (y >= amr_grid%cy(ineigh)) ioct = ioct + 2
+        ioct = ioct + 4
+      end select
       child = amr_grid%children(ioct, ineigh)
       if (child == 0) exit
       ineigh = child
@@ -409,6 +580,67 @@ contains
 
     il_new = amr_grid%ileaf(ineigh)
   end function amr_next_leaf
+
+  !=========================================================================
+  ! Same as amr_next_leaf but tells the caller whether a returned il_new==0
+  ! is "outside the box" or "inside a gap" (internal cell with no child at
+  ! the relevant octant).  When in a gap, icell_gap and h_gap give the
+  ! internal cell index and its half-width.
+  !
+  ! Output codes:
+  !   il_new  > 0 :  valid leaf found
+  !   il_new == 0 .and. icell_gap > 0 :  in a gap; h_gap = gap-cell half-width
+  !   il_new == 0 .and. icell_gap == 0:  truly outside the box
+  !=========================================================================
+  subroutine amr_next_leaf_or_gap(icell, iface, x, y, z, il_new, icell_gap, h_gap)
+    integer,  intent(in)  :: icell, iface
+    real(wp), intent(in)  :: x, y, z
+    integer,  intent(out) :: il_new, icell_gap
+    real(wp), intent(out) :: h_gap
+    integer :: ineigh, child, ioct
+
+    il_new    = 0
+    icell_gap = 0
+    h_gap     = 0.0_wp
+    ineigh = amr_grid%neighbor(iface, icell)
+    if (ineigh == 0) return   ! truly outside box
+
+    do while (amr_grid%ileaf(ineigh) == 0)
+      ioct = 1
+      select case (iface)
+      case (1)
+        if (y >= amr_grid%cy(ineigh)) ioct = ioct + 2
+        if (z >= amr_grid%cz(ineigh)) ioct = ioct + 4
+      case (2)
+        ioct = ioct + 1
+        if (y >= amr_grid%cy(ineigh)) ioct = ioct + 2
+        if (z >= amr_grid%cz(ineigh)) ioct = ioct + 4
+      case (3)
+        if (x >= amr_grid%cx(ineigh)) ioct = ioct + 1
+        if (z >= amr_grid%cz(ineigh)) ioct = ioct + 4
+      case (4)
+        if (x >= amr_grid%cx(ineigh)) ioct = ioct + 1
+        ioct = ioct + 2
+        if (z >= amr_grid%cz(ineigh)) ioct = ioct + 4
+      case (5)
+        if (x >= amr_grid%cx(ineigh)) ioct = ioct + 1
+        if (y >= amr_grid%cy(ineigh)) ioct = ioct + 2
+      case (6)
+        if (x >= amr_grid%cx(ineigh)) ioct = ioct + 1
+        if (y >= amr_grid%cy(ineigh)) ioct = ioct + 2
+        ioct = ioct + 4
+      end select
+      child = amr_grid%children(ioct, ineigh)
+      if (child == 0) then
+        icell_gap = ineigh
+        h_gap     = amr_grid%ch(ineigh)
+        return
+      end if
+      ineigh = child
+    end do
+
+    il_new = amr_grid%ileaf(ineigh)
+  end subroutine amr_next_leaf_or_gap
 
   ! ---- private helpers ----
 

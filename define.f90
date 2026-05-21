@@ -354,9 +354,39 @@ public
      character(len=256):: clump_input_file      = ''
      !--- AMR grid parameters
      logical            :: use_amr_grid    = .false.
-     character(len=128) :: amr_type        = 'ramses'  ! 'ramses' or 'generic'
-     character(len=256) :: amr_file        = ''        ! RAMSES repository or generic file
-     integer            :: amr_snapnum     = 0         ! RAMSES snapshot number
+     character(len=128) :: amr_type        = 'generic'  ! 'generic' (RAMSES direct read removed; use converter)
+     character(len=256) :: amr_file        = ''        ! generic AMR file path
+     integer            :: amr_snapnum     = 0         ! (deprecated) RAMSES snapshot number
+     !--- Extended AMR physics parameters
+     !    These control how LaRT computes physical quantities when optional
+     !    columns (metallicity, xHI, n_e, n_ion, emissivity, ndust) are
+     !    absent from the generic AMR input file.  When the file provides
+     !    a column, LaRT uses it directly regardless of these settings.
+     character(len=32)  :: ionization_model  = 'cie_formula'
+       ! 'cie_formula'  : single-formula CIE (existing default)
+       ! 'cie_table'    : CIE from Gnat & Sternberg 2007 table
+       ! 'full_neutral' : xHI = 1 everywhere
+       ! 'from_file'    : require xHI column (error if absent)
+     character(len=32)  :: dust_model        = 'global_dgr'
+       ! 'global_dgr'   : use par%DGR globally (existing default)
+       ! 'laursen09'    : Laursen+09 metallicity-based dust
+       ! 'from_file'    : require ndust column (error if absent)
+     character(len=32)  :: emissivity_model  = 'none'
+       ! 'none'         : no physics-based emissivity (existing default)
+       ! 'caseB'        : Case B recombination + collisional excitation
+       ! 'from_file'    : require emissivity column (error if absent)
+     character(len=32)  :: ion_model         = 'none'
+       ! 'none'         : not applicable (Lya uses nHI from ionization_model)
+       ! 'solar_cie'    : solar abundances (Asplund+09) * CIE ion fractions
+       ! 'from_file'    : require n_ion column (error if absent)
+     real(kind=wp)      :: metallicity_global = -1.0_wp
+       ! Global metallicity (Z, mass fraction).  Negative = unset.
+       ! Used by 'laursen09' dust and 'solar_cie' ion models when no
+       ! metallicity column is present in the file.
+     real(kind=wp)      :: Z_ref              = 0.0134_wp
+       ! Reference solar metallicity for DGR scaling (Asplund+09)
+     real(kind=wp)      :: f_ion_dust         = 0.01_wp
+       ! Fraction of ionized-gas dust (Laursen+09)
      !--- input/output filename related
      character(len=128) :: base_name       = ''
      character(len=128) :: out_file        = ''

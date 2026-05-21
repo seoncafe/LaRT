@@ -127,7 +127,9 @@ contains
         exit
       end if
 
-      ! Advance to face
+      ! Advance to face.  amr_next_leaf uses iface (topological) for the
+      ! normal sub-octant bit, so a photon sitting exactly on the face is
+      ! routed correctly without an epsilon nudge.
       tau = tau + t_exit * rhokap
       x   = x + t_exit * kx
       y   = y + t_exit * ky

@@ -127,6 +127,7 @@ contains
      photon%x = par%xs_point
      photon%y = par%ys_point
      photon%z = par%zs_point
+     if (par%use_amr_grid) photon%icell_amr = amr_find_leaf(photon%x, photon%y, photon%z)
      call setup_isotropic_injection(grid,photon)
   endselect
 
@@ -375,34 +376,42 @@ contains
   type(photon_type), intent(inout) :: photon
   real(kind=wp) :: rp, cost, sint, phi
 
-  select case(trim(par%geometry))
-  case ('plane_atmosphere')
-     photon%x = grid%xrange * rand_number() + grid%xmin
-     photon%y = grid%yrange * rand_number() + grid%ymin
-     if (par%sampling_method > 0) then
-        call random_alias_linear_wgt(emiss_prof%prob_alias, emiss_prof%alias, &
-                                     emiss_prof%axis, emiss_prof%prob, emiss_prof%wgt, photon%z, photon%wgt)
-     else
-        call random_alias_linear(emiss_prof%prob_alias, emiss_prof%alias, &
-                                 emiss_prof%axis, emiss_prof%prob, photon%z)
-        photon%wgt = 1.0_wp
-     endif
-  case ('spherical_atmosphere', 'sphere')
-     if (par%sampling_method > 0) then
-        call random_alias_linear_wgt(emiss_prof%prob_alias, emiss_prof%alias, &
-                                     emiss_prof%axis, emiss_prof%prob, emiss_prof%wgt, rp, photon%wgt)
-     else
-        call random_alias_linear(emiss_prof%prob_alias, emiss_prof%alias, &
-                                 emiss_prof%axis, emiss_prof%prob, rp)
-        photon%wgt = 1.0_wp
-     endif
-     cost     = 2.0_wp*rand_number()-1.0_wp
-     sint     = sqrt(1.0_wp-cost*cost)
-     phi      = twopi*rand_number()
-     photon%x = rp*sint*cos(phi)
-     photon%y = rp*sint*sin(phi)
-     photon%z = rp*cost
-  case default
+  !--- Branch on the setup state (associated 1D profile) rather than on
+  !    par%geometry alone, because setup.f90 promotes an unset geometry to
+  !    'sphere' even when the user wants cell-based AMR emissivity sampling.
+  if (associated(emiss_prof%prob_alias)) then
+     select case(trim(par%geometry))
+     case ('plane_atmosphere')
+        photon%x = grid%xrange * rand_number() + grid%xmin
+        photon%y = grid%yrange * rand_number() + grid%ymin
+        if (par%sampling_method > 0) then
+           call random_alias_linear_wgt(emiss_prof%prob_alias, emiss_prof%alias, &
+                                        emiss_prof%axis, emiss_prof%prob, emiss_prof%wgt, photon%z, photon%wgt)
+        else
+           call random_alias_linear(emiss_prof%prob_alias, emiss_prof%alias, &
+                                    emiss_prof%axis, emiss_prof%prob, photon%z)
+           photon%wgt = 1.0_wp
+        endif
+     case default
+        ! 'sphere', 'spherical_atmosphere', or any other geometry: assume the
+        ! 1D profile is radial. (par%geometry='' is mapped to 'sphere' upstream.)
+        if (par%sampling_method > 0) then
+           call random_alias_linear_wgt(emiss_prof%prob_alias, emiss_prof%alias, &
+                                        emiss_prof%axis, emiss_prof%prob, emiss_prof%wgt, rp, photon%wgt)
+        else
+           call random_alias_linear(emiss_prof%prob_alias, emiss_prof%alias, &
+                                    emiss_prof%axis, emiss_prof%prob, rp)
+           photon%wgt = 1.0_wp
+        endif
+        cost     = 2.0_wp*rand_number()-1.0_wp
+        sint     = sqrt(1.0_wp-cost*cost)
+        phi      = twopi*rand_number()
+        photon%x = rp*sint*cos(phi)
+        photon%y = rp*sint*sin(phi)
+        photon%z = rp*cost
+     end select
+  else
+     ! Cell-based emissivity sampling (per-cell alias table).
      if (par%use_amr_grid) then
         if (par%sampling_method == 0) then
            call random_emiss_alias_amr(photon)
@@ -424,7 +433,7 @@ contains
            call random_emiss_composite(grid,photon)
         endif
      endif
-  endselect
+  endif
 
   call setup_isotropic_injection(grid,photon)
   end subroutine setup_diffuse_emissivity

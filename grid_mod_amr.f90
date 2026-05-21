@@ -15,7 +15,9 @@ module grid_mod_amr
   !   amr_grid%Jout(*), Jin(*), Jabs(*) allocated
   !-----------------------------------------------------------------------
   use octree_mod
-  use read_ramses_amr_mod
+  use read_generic_amr_mod
+  use physics_amr_mod
+  use ion_data_mod
   use read_text_data
   use random
   use voigt_mod
@@ -43,11 +45,21 @@ contains
     integer,  allocatable :: leaf_level(:)
     integer  :: nleaf
     real(wp) :: boxlen_code   ! box length in code units (kpc, pc, cm, etc.)
+    real(wp) :: box_origin_x, box_origin_y, box_origin_z   ! lower-corner origin
+
+    ! Optional extended arrays (allocated only if present in generic file)
+    real(wp), allocatable :: Z_arr(:)       ! metallicity
+    real(wp), allocatable :: xHI_arr(:)     ! neutral fraction from file
+    real(wp), allocatable :: ne_arr(:)      ! electron density from file
+    real(wp), allocatable :: nion_arr(:)    ! ion density from file
+    real(wp), allocatable :: emiss_arr(:)   ! emissivity from file
+    real(wp), allocatable :: ndust_arr(:)   ! dust density from file
+    logical :: have_Z, have_xHI, have_ne, have_nion, have_emiss, have_ndust
 
     ! Working arrays
     real(wp), allocatable :: nHI_frac(:)   ! nHI/nH neutral fraction
     integer  :: il
-    real(wp) :: vtherm, T4, k_ionize, k_recomb
+    real(wp) :: vtherm
     real(wp) :: nH, opacity_sum, nopac, opac_norm, opac_length
     real(wp) :: xscale, atau0, atau0_cell, xi, chi
     real(wp) :: taupole, N_HIpole, tauhomo, N_HIhomo, NHI_pole_raw
@@ -57,30 +69,33 @@ contains
     opac_norm = 1.0_wp
     !--- Step 1: Read leaf-cell data ----------------------------------
     if (mpar%p_rank == 0) then
-      if (trim(par%amr_type) == 'ramses') then
-        ! RAMSES reader returns positions in cm (unit_l from info.txt).
-        ! For RAMSES, par%distance2cm is not meaningful; set it = 1 if unset.
-        call ramses_read_leaf_cells(trim(par%amr_file), par%amr_snapnum, &
-            xleaf, yleaf, zleaf, leaf_level, &
-            nH_cgs, T_cgs, vx_kms, vy_kms, vz_kms, &
-            nleaf, boxlen_code)
-        if (par%distance2cm <= 0.0_wp) par%distance2cm = 1.0_wp
-      else
-        ! Generic reader returns code units (e.g., kpc).
-        ! par%distance2cm (set by distance_unit in setup_v2c) converts to cm.
-        call generic_amr_read(trim(par%amr_file), &
-            xleaf, yleaf, zleaf, leaf_level, &
-            nH_cgs, T_cgs, vx_kms, vy_kms, vz_kms, &
-            nleaf, boxlen_code)
-      end if
+      ! Generic AMR reader returns code units (e.g., kpc).
+      ! par%distance2cm (set by distance_unit in setup_v2c) converts to cm.
+      ! Optional columns are allocated only if present in the file.
+      call generic_amr_read(trim(par%amr_file), &
+          xleaf, yleaf, zleaf, leaf_level, &
+          nH_cgs, T_cgs, vx_kms, vy_kms, vz_kms, &
+          nleaf, boxlen_code, &
+          metallicity=Z_arr, xHI=xHI_arr, n_e=ne_arr, &
+          n_ion=nion_arr, emissivity=emiss_arr, ndust=ndust_arr, &
+          origin_x=box_origin_x, origin_y=box_origin_y, origin_z=box_origin_z)
       write(6,'(a,i0)')    'AMR nleaf    : ', nleaf
       write(6,'(a,es12.4,a)') 'AMR boxlen   : ', boxlen_code, ' (code units)'
       write(6,'(a,es12.4,a)') 'AMR boxlen   : ', boxlen_code*par%distance2cm, ' cm'
+      if (allocated(Z_arr))     write(6,'(a)') 'AMR optional : metallicity column found'
+      if (allocated(xHI_arr))   write(6,'(a)') 'AMR optional : xHI column found'
+      if (allocated(ne_arr))    write(6,'(a)') 'AMR optional : n_e column found'
+      if (allocated(nion_arr))  write(6,'(a)') 'AMR optional : n_ion column found'
+      if (allocated(emiss_arr)) write(6,'(a)') 'AMR optional : emissivity column found'
+      if (allocated(ndust_arr)) write(6,'(a)') 'AMR optional : ndust column found'
     end if
 
-    ! Broadcast nleaf and boxlen_code to all ranks
-    call MPI_BCAST(nleaf,       1, MPI_INTEGER,          0, MPI_COMM_WORLD, ierr)
-    call MPI_BCAST(boxlen_code, 1, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, ierr)
+    ! Broadcast nleaf, boxlen_code, and origin to all ranks
+    call MPI_BCAST(nleaf,        1, MPI_INTEGER,          0, MPI_COMM_WORLD, ierr)
+    call MPI_BCAST(boxlen_code,  1, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, ierr)
+    call MPI_BCAST(box_origin_x, 1, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, ierr)
+    call MPI_BCAST(box_origin_y, 1, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, ierr)
+    call MPI_BCAST(box_origin_z, 1, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, ierr)
 
     if (mpar%p_rank /= 0) then
       allocate(xleaf(nleaf), yleaf(nleaf), zleaf(nleaf))
@@ -98,16 +113,69 @@ contains
     call MPI_BCAST(vy_kms(1),     nleaf, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, ierr)
     call MPI_BCAST(vz_kms(1),     nleaf, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, ierr)
 
+    ! Broadcast optional column presence flags and data
+    have_Z     = allocated(Z_arr)
+    have_xHI   = allocated(xHI_arr)
+    have_ne    = allocated(ne_arr)
+    have_nion  = allocated(nion_arr)
+    have_emiss = allocated(emiss_arr)
+    have_ndust = allocated(ndust_arr)
+    call MPI_BCAST(have_Z,     1, MPI_LOGICAL, 0, MPI_COMM_WORLD, ierr)
+    call MPI_BCAST(have_xHI,   1, MPI_LOGICAL, 0, MPI_COMM_WORLD, ierr)
+    call MPI_BCAST(have_ne,    1, MPI_LOGICAL, 0, MPI_COMM_WORLD, ierr)
+    call MPI_BCAST(have_nion,  1, MPI_LOGICAL, 0, MPI_COMM_WORLD, ierr)
+    call MPI_BCAST(have_emiss, 1, MPI_LOGICAL, 0, MPI_COMM_WORLD, ierr)
+    call MPI_BCAST(have_ndust, 1, MPI_LOGICAL, 0, MPI_COMM_WORLD, ierr)
+
+    if (mpar%p_rank /= 0) then
+      if (have_Z)     allocate(Z_arr(nleaf))
+      if (have_xHI)   allocate(xHI_arr(nleaf))
+      if (have_ne)    allocate(ne_arr(nleaf))
+      if (have_nion)  allocate(nion_arr(nleaf))
+      if (have_emiss) allocate(emiss_arr(nleaf))
+      if (have_ndust) allocate(ndust_arr(nleaf))
+    end if
+    if (have_Z)     call MPI_BCAST(Z_arr(1),     nleaf, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, ierr)
+    if (have_xHI)   call MPI_BCAST(xHI_arr(1),   nleaf, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, ierr)
+    if (have_ne)    call MPI_BCAST(ne_arr(1),     nleaf, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, ierr)
+    if (have_nion)  call MPI_BCAST(nion_arr(1),   nleaf, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, ierr)
+    if (have_emiss) call MPI_BCAST(emiss_arr(1),  nleaf, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, ierr)
+    if (have_ndust) call MPI_BCAST(ndust_arr(1),  nleaf, MPI_DOUBLE_PRECISION, 0, MPI_COMM_WORLD, ierr)
+
     !--- Step 2: Build octree in code units ---------------------------
-    ! Tree positions stay in code units (kpc, pc, etc.), exactly like the
-    ! Cartesian grid.  Raytrace path lengths are in code units; rhokap is
-    ! scaled to per-code-unit via *= distance2cm (same as Cartesian).
-    ! (RAMSES reader returns cm, so for RAMSES distance2cm = 1 → no change.)
-    ! Coordinates are in [-boxlen/2, +boxlen/2] (box centered at origin).
+    ! Box extent is [origin, origin+boxlen] in the same frame as the input
+    ! cell positions.  For data with default centered origin (-boxlen/2),
+    ! box runs [-boxlen/2, +boxlen/2].  For data with corner-based origin
+    ! (ORIGINX=0), box runs [0, boxlen].
+    if (mpar%p_rank == 0) then
+      write(6,'(a,3es12.4)') 'AMR box origin: ', box_origin_x, box_origin_y, box_origin_z
+      write(6,'(a,3es12.4)') 'AMR box extent: ', box_origin_x + boxlen_code, &
+                                                  box_origin_y + boxlen_code, &
+                                                  box_origin_z + boxlen_code
+      write(6,'(a,3es12.4)') 'AMR data x rng: ', minval(xleaf), maxval(xleaf)
+      write(6,'(a,3es12.4)') 'AMR data y rng: ', minval(yleaf), maxval(yleaf)
+      write(6,'(a,3es12.4)') 'AMR data z rng: ', minval(zleaf), maxval(zleaf)
+      block
+        real(wp) :: cx_box, cy_box, cz_box
+        cx_box = box_origin_x + 0.5_wp * boxlen_code
+        cy_box = box_origin_y + 0.5_wp * boxlen_code
+        cz_box = box_origin_z + 0.5_wp * boxlen_code
+        if (minval(xleaf) > cx_box .or. maxval(xleaf) < cx_box .or. &
+            minval(yleaf) > cy_box .or. maxval(yleaf) < cy_box .or. &
+            minval(zleaf) > cz_box .or. maxval(zleaf) < cz_box) then
+          write(6,'(a)') '------------------------------------------------------------'
+          write(6,'(a)') 'WARNING: AMR data does not cover the box center.'
+          write(6,'(a,3es12.4)') '  box center:  ', cx_box, cy_box, cz_box
+          write(6,'(a)') '  pole traversal (from box center +z) will return N(HI)_pole=0,'
+          write(6,'(a)') '  and tau normalization will fall back to tauhomo.'
+          write(6,'(a)') '------------------------------------------------------------'
+        end if
+      end block
+    end if
     call amr_build_tree(xleaf, yleaf, zleaf, leaf_level, nleaf, &
-        -0.5_wp*boxlen_code, 0.5_wp*boxlen_code, &
-        -0.5_wp*boxlen_code, 0.5_wp*boxlen_code, &
-        -0.5_wp*boxlen_code, 0.5_wp*boxlen_code)
+        box_origin_x, box_origin_x + boxlen_code, &
+        box_origin_y, box_origin_y + boxlen_code, &
+        box_origin_z, box_origin_z + boxlen_code)
 
     ! Precompute face-neighbor table for O(1) cell-boundary crossings.
     call amr_build_neighbors
@@ -138,7 +206,13 @@ contains
 
     !--- Step 4: Allocate physical arrays and fill --------------------
     allocate(nHI_frac(nleaf))
-    call amr_alloc_phys(par%DGR > 0.0_wp)
+    ! Allocate rhokapD whenever dust is in play: global DGR, ndust column
+    ! in the file, or laursen09 dust_model with a metallicity source.
+    call amr_alloc_phys( &
+        par%DGR > 0.0_wp .or. &
+        have_ndust .or. &
+        (trim(par%dust_model) == 'laursen09' .and. &
+         (have_Z .or. par%metallicity_global >= 0.0_wp)))
 
     ! Shared arrays: only rank 0 on each node fills; others wait at barrier.
     if (mpar%h_rank == 0) then
@@ -148,25 +222,76 @@ contains
       amr_grid%Dfreq(il)   = vtherm / (line%wavelength0 * um2km)
       amr_grid%voigt_a(il) = (line%damping / fourpi) / amr_grid%Dfreq(il)
 
-      ! Neutral fraction
-      if (par%use_cie_condition) then
-        T4       = T_cgs(il) / 1.0e4_wp
-        k_ionize = 5.84862e-9_wp * sqrt(T4) * exp(-15.78215_wp / T4)
-        k_recomb = 4.13e-13_wp * T4**(-0.7131_wp - 0.0115_wp*log(T4))
-        nHI_frac(il) = k_recomb / (k_ionize + k_recomb)
+      ! --- Neutral fraction: file column > ionization_model > use_cie_condition ---
+      if (have_xHI) then
+        nHI_frac(il) = xHI_arr(il)
       else
-        nHI_frac(il) = 1.0_wp  ! assume fully neutral; user can modify
+        select case (trim(par%ionization_model))
+        case ('cie_formula')
+          if (par%use_cie_condition) then
+            nHI_frac(il) = cie_neutral_fraction_formula(T_cgs(il))
+          else
+            nHI_frac(il) = 1.0_wp
+          end if
+        case ('cie_table')
+          nHI_frac(il) = cie_neutral_fraction_table(nH_cgs(il), T_cgs(il))
+        case ('full_neutral')
+          nHI_frac(il) = 1.0_wp
+        case ('from_file')
+          write(6,'(a)') 'ERROR: ionization_model=from_file but xHI column not found in file.'
+          stop 'ionization_model=from_file requires xHI column'
+        case default
+          if (par%use_cie_condition) then
+            nHI_frac(il) = cie_neutral_fraction_formula(T_cgs(il))
+          else
+            nHI_frac(il) = 1.0_wp
+          end if
+        end select
       end if
 
-      ! rhokap = nHI * cross0 / Dfreq  [cm^-1]
-      ! *= distance2cm converts to per-code-unit (same as Cartesian mode).
-      nH = nH_cgs(il) * nHI_frac(il)
+      ! --- Line opacity: rhokap = n_scatterer * cross0 / Dfreq * distance2cm ---
+      if (have_nion) then
+        nH = nion_arr(il)
+      else
+        select case (trim(par%ion_model))
+        case ('solar_cie')
+          if (have_Z) then
+            nH = solar_ion_density(nH_cgs(il), Z_arr(il), T_cgs(il), trim(line%ion_id))
+          else if (par%metallicity_global >= 0.0_wp) then
+            nH = solar_ion_density(nH_cgs(il), par%metallicity_global, T_cgs(il), trim(line%ion_id))
+          else
+            nH = nH_cgs(il) * nHI_frac(il)
+          end if
+        case ('from_file')
+          write(6,'(a)') 'ERROR: ion_model=from_file but n_ion column not found.'
+          stop 'ion_model=from_file requires n_ion column'
+        case default  ! 'none'
+          nH = nH_cgs(il) * nHI_frac(il)
+        end select
+      end if
       amr_grid%rhokap(il) = nH * line%cross0 / amr_grid%Dfreq(il) * par%distance2cm
 
-      ! Dust opacity (also per code unit)
-      if (par%DGR > 0.0_wp) then
-        amr_grid%rhokapD(il) = amr_grid%rhokap(il) * amr_grid%Dfreq(il) / line%cross0 &
-                                * par%cext_dust * par%DGR
+      ! --- Dust opacity: file ndust > dust_model > global DGR ---
+      if (have_ndust) then
+        amr_grid%rhokapD(il) = ndust_arr(il) * par%cext_dust * par%distance2cm
+      else
+        select case (trim(par%dust_model))
+        case ('laursen09')
+          if (have_Z) then
+            amr_grid%rhokapD(il) = laursen09_ndust(nH_cgs(il), nHI_frac(il), &
+                Z_arr(il), par%Z_ref, par%f_ion_dust) * par%cext_dust * par%distance2cm
+          else if (par%metallicity_global >= 0.0_wp) then
+            amr_grid%rhokapD(il) = laursen09_ndust(nH_cgs(il), nHI_frac(il), &
+                par%metallicity_global, par%Z_ref, par%f_ion_dust) * par%cext_dust * par%distance2cm
+          end if
+        case ('from_file')
+          write(6,'(a)') 'ERROR: dust_model=from_file but ndust column not found in file.'
+          stop 'dust_model=from_file requires ndust column'
+        case default  ! 'global_dgr'
+          if (par%DGR > 0.0_wp) then
+            amr_grid%rhokapD(il) = nH_cgs(il) * par%cext_dust * par%DGR * par%distance2cm
+          end if
+        end select
       end if
 
       ! Velocity in units of v_thermal (same convention as Cartesian code)
@@ -179,14 +304,20 @@ contains
     !    generic AMR data velocities.  This lets the user reuse the same
     !    octree structure (density, temperature, refinement) while testing
     !    different velocity scalings without regenerating the AMR file.
-    !    Only enabled for amr_type='generic' (RAMSES velocities are physical).
-    if (trim(par%amr_type) == 'generic' .and. len_trim(par%velocity_type) > 0) then
+    !    Overrides file velocities with analytic model (Hubble, SSH, etc.).
+    if (len_trim(par%velocity_type) > 0) then
        call assign_amr_velocities_from_type(T_cgs)
     end if
     end if
     call MPI_BARRIER(mpar%hostcomm, ierr)
 
     deallocate(nHI_frac)
+    if (allocated(Z_arr))     deallocate(Z_arr)
+    if (allocated(xHI_arr))   deallocate(xHI_arr)
+    if (allocated(ne_arr))    deallocate(ne_arr)
+    if (allocated(nion_arr))  deallocate(nion_arr)
+    if (allocated(emiss_arr)) deallocate(emiss_arr)
+    if (allocated(ndust_arr)) deallocate(ndust_arr)
 
     !--- Step 5: Normalize to input optical depth / column density -----
     ! tau_pole: traverse from box center in +z direction to compute actual
@@ -207,29 +338,43 @@ contains
 
     ! Pole traversal from box center (+z direction): compute tau and N(HI) simultaneously.
     ! This matches the Cartesian convention (tau from center to sphere surface).
+    ! When the octree only partially covers the box (e.g. when the user passes a
+    ! subset of a larger simulation), the traversal may step into a region where
+    ! no leaf cell exists.  We skip across that gap one virtual sub-cell at a
+    ! time (zero opacity contribution) so the traversal can resume on the far
+    ! side and reach the box boundary, giving a correct N(HI)_pole.
     NHI_pole_raw = 0.0_wp
     block
-      integer  :: il_cur, icell_cur, il_next, iface_cur
+      integer  :: il_cur, icell_cur, iface_cur, icell_gap
       real(wp) :: xc, yc, zc, t_exit_cur, tau_raw_half
+      integer  :: niter
+      integer, parameter :: NITER_MAX = 10000000
       xc = amr_grid%cx(1)
       yc = amr_grid%cy(1)
       zc = amr_grid%cz(1)
-      il_cur = amr_find_leaf(xc, yc, zc)
       tau_raw_half = 0.0_wp
-      if (il_cur > 0) then
-        do
+      niter        = 0
+      do
+        niter = niter + 1
+        if (niter > NITER_MAX) exit
+        if (zc >= amr_grid%zmax) exit
+
+        il_cur = amr_find_leaf(xc, yc, zc)
+        if (il_cur > 0) then
           icell_cur = amr_grid%icell_of_leaf(il_cur)
           call amr_cell_exit(icell_cur, xc, yc, zc, 0.0_wp, 0.0_wp, 1.0_wp, t_exit_cur, iface_cur)
-          tau_raw_half  = tau_raw_half + amr_grid%rhokap(il_cur) &
-                          * voigt(0.0_wp, amr_grid%voigt_a(il_cur)) * t_exit_cur
-          NHI_pole_raw  = NHI_pole_raw + amr_grid%rhokap(il_cur) &
-                          * amr_grid%Dfreq(il_cur) / line%cross0 * t_exit_cur
+          tau_raw_half = tau_raw_half + amr_grid%rhokap(il_cur) &
+                         * voigt(0.0_wp, amr_grid%voigt_a(il_cur)) * t_exit_cur
+          NHI_pole_raw = NHI_pole_raw + amr_grid%rhokap(il_cur) &
+                         * amr_grid%Dfreq(il_cur) / line%cross0 * t_exit_cur
           zc = zc + t_exit_cur
-          il_next = amr_next_leaf(icell_cur, iface_cur, xc, yc, zc)
-          if (il_next <= 0) exit
-          il_cur = il_next
-        end do
-      end if
+        else
+          icell_gap = amr_find_enclosing_cell(xc, yc, zc)
+          if (icell_gap <= 0) exit
+          call amr_gap_exit(icell_gap, xc, yc, zc, 0.0_wp, 0.0_wp, 1.0_wp, t_exit_cur, iface_cur)
+          zc = zc + t_exit_cur
+        end if
+      end do
       if (tau_raw_half > 0.0_wp) then
         taupole = tau_raw_half
       else
@@ -414,6 +559,10 @@ contains
 
   !=========================================================================
   ! Prepare diffuse-emissivity sampling data for AMR runs.
+  !
+  ! Only runs if par%source_geometry == 'diffuse_emissivity'. Otherwise
+  ! returns immediately so that par%emiss_file (which may double as a
+  ! mode keyword like 'density1') has no side effects when not requested.
   !=========================================================================
   subroutine amr_setup_emissivity(grid)
     use define
@@ -424,9 +573,19 @@ contains
     integer  :: il, ierr
     real(wp) :: cell_volume, total_positive_volume, norm
     real(wp) :: f_comp, f_comp1
+    logical  :: did_setup
 
-    if (len_trim(par%emiss_file) <= 0) return
+    ! Nothing to do if the source is not diffuse_emissivity.
+    if (trim(par%source_geometry) /= 'diffuse_emissivity') return
 
+    if (len_trim(par%emiss_file) <= 0) then
+      write(6,'(a)') 'ERROR: source_geometry=diffuse_emissivity but par%emiss_file is empty.'
+      write(6,'(a)') '       Set par%emiss_file to a profile file (.txt/.dat) or to'
+      write(6,'(a)') '       the keyword density1/density2 for per-cell sampling.'
+      stop 'amr_setup_emissivity: missing emissivity configuration'
+    end if
+
+    did_setup = .false.
     select case(trim(get_extension(par%emiss_file)))
     case ('txt', 'dat')
       if (trim(par%geometry) == 'plane_atmosphere') then
@@ -436,18 +595,22 @@ contains
         call setup_spherical_emissivity(trim(par%emiss_file), emiss_prof, grid, &
                                         par%sampling_method, par%f_composite)
       end if
-      return
+      return   ! 1D profile path: emiss_prof is populated, skip cell alias setup.
     case ('density1')
       call create_shared_mem(amr_grid%Pem, [amr_grid%nleaf])
       if (mpar%h_rank == 0) amr_grid%Pem(:) = amr_grid%rhokap(:)
+      did_setup = .true.
     case ('density2')
       call create_shared_mem(amr_grid%Pem, [amr_grid%nleaf])
       if (mpar%h_rank == 0) amr_grid%Pem(:) = amr_grid%rhokap(:)**2
+      did_setup = .true.
     case default
       write(6,'(a)') 'AMR diffuse emissivity currently supports txt/dat, density1, and density2.'
       stop 'amr_setup_emissivity: unsupported emissivity input for AMR mode'
     end select
     call MPI_BARRIER(mpar%hostcomm, ierr)
+
+    if (.not. did_setup) return
 
     select case(par%sampling_method)
     case (0)
@@ -461,6 +624,9 @@ contains
         if (norm > 0.0_wp) then
           amr_grid%Pem(:) = amr_grid%Pem(:) / norm
           call random_alias_setup(amr_grid%Pem, amr_grid%alias)
+        else
+          write(6,'(a)') 'ERROR: total emissivity is zero across all AMR leaf cells.'
+          stop 'amr_setup_emissivity: emissivity sum is zero (sampling_method=0)'
         end if
       end if
     case (1)
@@ -497,6 +663,9 @@ contains
             end if
           end do
           call random_alias_setup(amr_grid%Pem, amr_grid%alias)
+        else
+          write(6,'(a)') 'ERROR: total emissivity is zero across all AMR leaf cells.'
+          stop 'amr_setup_emissivity: emissivity sum is zero (sampling_method=1)'
         end if
       end if
     case default

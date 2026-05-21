@@ -153,7 +153,7 @@ OBJSB	= \
 	raytrace_clump.o \
 	peelingoff_rect.o \
 	peelingoff_heal.o \
-	read_ramses_amr.o \
+	read_generic_amr.o \
 	raytrace_amr.o \
 	point_illumination.o \
 	stellar_illumination.o \
@@ -163,6 +163,8 @@ OBJSB	= \
 	sightline_tau_rect.o \
 	sightline_tau_heal.o \
 	scattering_amr.o \
+	ion_data_mod.o \
+	physics_amr_mod.o \
 	grid_mod_amr.o \
 	peelingoff_amr.o \
 	sightline_tau_clump.o \
@@ -204,9 +206,10 @@ convert_ramses ramses2fits:
 	$(FC) $(FFLAGS) -c fitsio_mod.f90
 	$(FC) $(FFLAGS) -c hdf5io_mod.f90
 	$(FC) $(FFLAGS) -c iofile_mod.f90
+	$(FC) $(FFLAGS) -c physics_amr_mod.f90
 	$(FC) $(FFLAGS) -c read_ramses_amr.f90
 	$(FC) $(FFLAGS) -c convert_ramses_to_generic.f90
-	$(FC) $(FFLAGS) define.o fitsio_mod.o hdf5io_mod.o iofile_mod.o read_ramses_amr.o convert_ramses_to_generic.o -lcfitsio -L/usr/local/lib $(HDF5_LIBS) -o convert_ramses_to_generic.x
+	$(FC) $(FFLAGS) define.o fitsio_mod.o hdf5io_mod.o iofile_mod.o physics_amr_mod.o read_ramses_amr.o convert_ramses_to_generic.o -lcfitsio -L/usr/local/lib $(HDF5_LIBS) -o convert_ramses_to_generic.x
 
 clean:
 	/bin/rm -f *.o *.mod

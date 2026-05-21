@@ -1,0 +1,27 @@
+&parameters
+ par%use_amr_grid = .true.
+ par%amr_type     = 'generic'
+ par%amr_file     = '../amr_sphere_generic/uniform_amr_sphere.fits.gz'
+ par%temperature  = 1.0e4
+ par%taumax       = 1.0e4
+ par%source_geometry = 'point'
+ par%xs_point = 0.0
+ par%ys_point = 0.0
+ par%zs_point = 0.0
+ par%spectral_type = 'voigt'
+ par%velocity_min = -200.0
+ par%velocity_max = +200.0
+ par%nvelocity    = 201
+ par%no_photons       = 1e4
+ par%use_master_slave = .true.
+ par%save_peeloff    = .true.
+ par%save_peeloff_2D = .true.
+ par%nxim = 101
+ par%nyim = 101
+ par%distance = 1000.0
+ par%nobs = 1
+ par%alpha(1) = 0.0
+ par%beta(1) = 0.0
+ par%out_file = 'sphere_pt_demo'
+ par%file_format = 'hdf5'
+/

@@ -1,0 +1,15 @@
+&parameters
+ par%use_amr_grid    = .true.
+ par%amr_type        = 'generic'
+ par%amr_file        = 'uniform_amr_sphere.fits.gz'
+ par%no_photons      = 1e3
+ par%taumax          = 1.0e2
+ par%source_geometry = 'diffuse_emissivity'
+ par%emiss_file      = 'density1'
+ par%spectral_type   = 'voigt'
+ par%nxfreq          = 121
+ par%nprint          = 100
+ par%out_merge       = .false.
+ par%file_format     = 'hdf5'
+ par%use_master_slave = .true.
+/

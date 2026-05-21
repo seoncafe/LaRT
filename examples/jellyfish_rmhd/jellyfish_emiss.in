@@ -1,0 +1,33 @@
+&parameters
+ par%grid_type        = 'amr'
+ par%amr_file         = 'jellyfish_galaxy_aligned.fits.gz'
+ par%distance_unit    = 'kpc'
+
+ par%ionization_model = 'from_file'
+
+ !----- Source: diffuse emissivity from the file's `emissivity' column
+ par%source_geometry  = 'diffuse_emissivity'
+ par%emissivity_model = 'from_file'
+ par%spectral_type    = 'voigt'
+
+ par%taumax           = 1.0e4
+
+ par%velocity_min     = -1000.0
+ par%velocity_max     = +1000.0
+ par%nvelocity        = 201
+
+ par%out_file         = 'jellyfish_emiss'
+ par%file_format      = 'hdf5'
+ par%use_master_slave = .true.
+
+ par%no_photons       = 1e4
+
+ par%save_peeloff     = .true.
+ par%save_peeloff_2D  = .true.
+ par%nxim             = 101
+ par%nyim             = 101
+ par%distance         = 1000.0
+ par%nobs             = 1
+ par%alpha(1)         = 0.0
+ par%beta(1)          = 0.0
+/

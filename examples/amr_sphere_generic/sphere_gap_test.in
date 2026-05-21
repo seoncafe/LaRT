@@ -1,0 +1,14 @@
+&parameters
+ par%use_amr_grid  = .true.
+ par%amr_type      = 'generic'
+ par%amr_file      = 'sphere_with_gap.fits.gz'
+ par%no_photons    = 1e3
+ par%taumax        = 1.0e2
+ par%source_geometry = 'point'
+ par%spectral_type = 'voigt'
+ par%nxfreq        = 121
+ par%out_merge     = .false.
+ par%out_file      = 'sphere_gap'
+ par%file_format   = 'hdf5'
+ par%use_master_slave = .true.
+/

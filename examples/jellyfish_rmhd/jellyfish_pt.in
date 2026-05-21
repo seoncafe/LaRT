@@ -1,0 +1,43 @@
+&parameters
+ !----- AMR: 4 kpc region around the galaxy, kept on RAMSES native grid
+ !     (BOXLEN=300 same as the full RAMSES sim; cells outside the
+ !      4 kpc region are absent and walked through via gap-skip).
+ par%grid_type        = 'amr'
+ par%amr_file         = 'jellyfish_galaxy_aligned.fits.gz'
+ par%distance_unit    = 'kpc'
+
+ par%ionization_model = 'from_file'
+
+ !----- Point source at the nHI peak (in shifted coords; the file's
+ !      GALAXYX/Y/Z headers carry the galaxy position).
+ par%source_geometry  = 'point'
+ par%xs_point         = -99.7650149531674801
+ par%ys_point         = -100.1251223728580104
+ par%zs_point         = -99.6673587037598556
+ par%spectral_type    = 'voigt'
+
+ !----- Normalize to a reasonable Lya tau via tauhomo fallback.
+ !      (pole traversal returns 0 because the galaxy is not at the
+ !      300-kpc box center; LaRT falls back to volume-averaged tauhomo
+ !      and rescales rhokap accordingly.)
+ par%taumax           = 1.0e4
+
+ par%velocity_min     = -1000.0
+ par%velocity_max     = +1000.0
+ par%nvelocity        = 201
+
+ par%out_file         = 'jellyfish_pt'
+ par%file_format      = 'hdf5'
+ par%use_master_slave = .true.
+
+ par%no_photons       = 1e4
+
+ par%save_peeloff     = .true.
+ par%save_peeloff_2D  = .true.
+ par%nxim             = 101
+ par%nyim             = 101
+ par%distance         = 1000.0
+ par%nobs             = 1
+ par%alpha(1)         = 0.0
+ par%beta(1)          = 0.0
+/

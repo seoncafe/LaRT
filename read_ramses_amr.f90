@@ -22,6 +22,8 @@ module read_ramses_amr_mod
 
   public :: ramses_read_leaf_cells
   public :: generic_amr_read
+  public :: ramses_metal_var, ramses_xHII_var, ramses_xHeII_var, ramses_xHeIII_var
+  public :: ramses_n_passive, ramses_passive_vars
 
   ! Precision flag for RAMSES hydro output (4 = single, 8 = double)
   integer :: ramses_hydro_prec = 8
@@ -31,6 +33,13 @@ module read_ramses_amr_mod
   character(len=16) :: ramses_velocity_layout = 'momentum'
   character(len=16) :: ramses_thermo_mode    = 'energy'
   logical :: ramses_descriptor_found = .false.
+
+  integer :: ramses_metal_var    = -1      ! metallicity variable index (-1 = not found)
+  integer :: ramses_xHII_var     = -1      ! HII fraction variable index
+  integer :: ramses_xHeII_var    = -1      ! HeII fraction variable index
+  integer :: ramses_xHeIII_var   = -1      ! HeIII fraction variable index
+  integer :: ramses_n_passive    = 0       ! number of passive scalars found
+  integer :: ramses_passive_vars(20) = -1  ! passive scalar variable indices
 
   real(kind=8), parameter :: massH_cgs = 1.6726d-24
   real(kind=8), parameter :: boltzmann_cgs = 1.381d-16
@@ -54,7 +63,9 @@ contains
   subroutine ramses_read_leaf_cells(repository, snapnum, &
       xleaf, yleaf, zleaf, leaf_level, &
       nH_cgs, T_cgs, vx_cgs, vy_cgs, vz_cgs, &
-      nleaf, boxlen_cm)
+      nleaf, boxlen_cm, &
+      metallicity, xHII, xHeII, xHeIII, &
+      nx_base)
 
     character(len=*), intent(in)               :: repository
     integer,          intent(in)               :: snapnum
@@ -64,6 +75,14 @@ contains
     real(wp), allocatable, intent(out)         :: vx_cgs(:), vy_cgs(:), vz_cgs(:)
     integer,               intent(out)         :: nleaf
     real(wp),              intent(out)         :: boxlen_cm
+    real(wp), allocatable, intent(out), optional :: metallicity(:)
+    real(wp), allocatable, intent(out), optional :: xHII(:)
+    real(wp), allocatable, intent(out), optional :: xHeII(:)
+    real(wp), allocatable, intent(out), optional :: xHeIII(:)
+    ! RAMSES base-grid dimension (nx = ny = nz; usually 1 for cosmological
+    ! runs, >1 for non-cubic-base setups like jellyfish with nx=3).  Needed
+    ! by the converter to fix octree alignment when nx > 1.
+    integer,               intent(out), optional :: nx_base
 
     ! RAMSES unit scales
     real(kind=8) :: unit_l, unit_d, unit_t, unit_v, boxlen_code
@@ -78,6 +97,8 @@ contains
     real(wp), allocatable :: nH(:), Tgas(:)
     real(wp), allocatable :: vel_x(:), vel_y(:), vel_z(:)
     integer,  allocatable :: lvl(:)
+    ! Temp storage for optional hydro fields
+    real(wp), allocatable :: metal_tmp(:), xHII_tmp(:), xHeII_tmp(:), xHeIII_tmp(:)
 
     ! Read unit scales and number of CPUs from info file
     call ramses_read_info(repository, snapnum, ncpu, &
@@ -86,6 +107,27 @@ contains
 
     unit_v    = unit_l / unit_t  ! cm/s
     boxlen_cm = boxlen_code * unit_l
+
+    ! Read nx from the first AMR file header (for the converter alignment fix).
+    if (present(nx_base)) then
+      block
+        character(len=512) :: amr1
+        integer :: iu_hdr, ncpu_h, ndim_h, nx_h, ny_h, nz_h
+        write(amr1,'(a,"/output_",i5.5,"/amr_",i5.5,".out",i5.5)') &
+            trim(repository), snapnum, snapnum, 1
+        iu_hdr = 98
+        open(iu_hdr, file=trim(amr1), form='unformatted', status='old', action='read')
+        read(iu_hdr) ncpu_h
+        read(iu_hdr) ndim_h
+        read(iu_hdr) nx_h, ny_h, nz_h
+        close(iu_hdr)
+        if (nx_h /= ny_h .or. ny_h /= nz_h) then
+          write(*,'(a,3i0)') 'WARNING: non-cubic RAMSES base grid (nx,ny,nz)=', &
+              nx_h, ny_h, nz_h
+        end if
+        nx_base = nx_h
+      end block
+    end if
 
     ! First pass: count leaf cells
     nleaf_total = ramses_count_leaves(repository, snapnum, ncpu)
@@ -96,14 +138,20 @@ contains
     allocate(nH(nleaf_total), Tgas(nleaf_total))
     allocate(vel_x(nleaf_total), vel_y(nleaf_total), vel_z(nleaf_total))
 
+    ! Allocate optional hydro field arrays when requested and detected
+    if (present(metallicity) .and. ramses_metal_var > 0) allocate(metal_tmp(nleaf_total))
+    if (present(xHII)        .and. ramses_xHII_var  > 0) allocate(xHII_tmp(nleaf_total))
+    if (present(xHeII)       .and. ramses_xHeII_var > 0) allocate(xHeII_tmp(nleaf_total))
+    if (present(xHeIII)      .and. ramses_xHeIII_var > 0) allocate(xHeIII_tmp(nleaf_total))
+
     ! Second pass: read actual data
     call ramses_read_all_cpus(repository, snapnum, ncpu, &
         unit_l, unit_d, unit_t, unit_v, gamma_eos, boxlen_code, &
         xl, yl, zl, lvl, nH, Tgas, vel_x, vel_y, vel_z, &
-        nleaf_total)
+        nleaf_total, metal_tmp, xHII_tmp, xHeII_tmp, xHeIII_tmp)
 
-    ! Convert positions from code units (fraction of boxlen) to physical [cm],
-    ! then center at the box origin so coordinates lie in [-boxlen/2, +boxlen/2].
+    ! Convert positions from code units (fraction of boxlen, range [0,1]) to
+    ! physical [cm], centered at origin so the box spans [-boxlen_cm/2, +boxlen_cm/2].
     xl = (xl - 0.5_wp) * boxlen_cm
     yl = (yl - 0.5_wp) * boxlen_cm
     zl = (zl - 0.5_wp) * boxlen_cm
@@ -118,6 +166,20 @@ contains
     vx_cgs      = vel_x / 1.0e5_wp  ! cm/s → km/s
     vy_cgs      = vel_y / 1.0e5_wp
     vz_cgs      = vel_z / 1.0e5_wp
+
+    ! Move optional arrays to caller
+    if (present(metallicity)) then
+      if (allocated(metal_tmp)) call move_alloc(metal_tmp, metallicity)
+    end if
+    if (present(xHII)) then
+      if (allocated(xHII_tmp)) call move_alloc(xHII_tmp, xHII)
+    end if
+    if (present(xHeII)) then
+      if (allocated(xHeII_tmp)) call move_alloc(xHeII_tmp, xHeII)
+    end if
+    if (present(xHeIII)) then
+      if (allocated(xHeIII_tmp)) call move_alloc(xHeIII_tmp, xHeIII)
+    end if
 
     deallocate(xl, yl, zl, lvl, nH, Tgas, vel_x, vel_y, vel_z)
   end subroutine ramses_read_leaf_cells
@@ -270,7 +332,7 @@ contains
       unit_l, unit_d, unit_t, unit_v, gamma_eos, boxlen_code, &
       xleaf, yleaf, zleaf, leaf_level, &
       nH_arr, T_arr, vx_arr, vy_arr, vz_arr, &
-      nleaf_total)
+      nleaf_total, metal_arr, xHII_arr, xHeII_arr, xHeIII_arr)
 
     character(len=*), intent(in) :: repository
     integer,          intent(in) :: snapnum, ncpu
@@ -280,6 +342,10 @@ contains
     real(wp), intent(out) :: nH_arr(nleaf_total), T_arr(nleaf_total)
     real(wp), intent(out) :: vx_arr(nleaf_total), vy_arr(nleaf_total), vz_arr(nleaf_total)
     integer,  intent(in)  :: nleaf_total
+    real(wp), allocatable, intent(inout), optional :: metal_arr(:)
+    real(wp), allocatable, intent(inout), optional :: xHII_arr(:)
+    real(wp), allocatable, intent(inout), optional :: xHeII_arr(:)
+    real(wp), allocatable, intent(inout), optional :: xHeIII_arr(:)
 
     character(len=512) :: amr_file, hydro_file
     integer :: iu_amr = 97, iu_hyd = 98
@@ -497,6 +563,24 @@ contains
                   T_arr(il_out) = 1.0e4_wp
                 end if
                 T_arr(il_out) = max(T_arr(il_out), 10.0_wp)
+
+                ! Extract optional hydro fields (data already in var array)
+                if (present(metal_arr)) then
+                  if (allocated(metal_arr) .and. ramses_metal_var > 0) &
+                      metal_arr(il_out) = real(var(j, ind, ramses_metal_var), wp)
+                end if
+                if (present(xHII_arr)) then
+                  if (allocated(xHII_arr) .and. ramses_xHII_var > 0) &
+                      xHII_arr(il_out) = real(var(j, ind, ramses_xHII_var), wp)
+                end if
+                if (present(xHeII_arr)) then
+                  if (allocated(xHeII_arr) .and. ramses_xHeII_var > 0) &
+                      xHeII_arr(il_out) = real(var(j, ind, ramses_xHeII_var), wp)
+                end if
+                if (present(xHeIII_arr)) then
+                  if (allocated(xHeIII_arr) .and. ramses_xHeIII_var > 0) &
+                      xHeIII_arr(il_out) = real(var(j, ind, ramses_xHeIII_var), wp)
+                end if
               end if
             end do
           end do
@@ -685,6 +769,12 @@ contains
     ramses_thermo_var = 5
     ramses_velocity_layout = 'momentum'
     ramses_thermo_mode = 'energy'
+    ramses_metal_var    = -1
+    ramses_xHII_var     = -1
+    ramses_xHeII_var    = -1
+    ramses_xHeIII_var   = -1
+    ramses_n_passive    = 0
+    ramses_passive_vars = -1
     names = ''
 
     write(filename, '(a,"/output_",i5.5,"/hydro_file_descriptor.txt")') &
@@ -739,12 +829,33 @@ contains
       case ('pressure', 'gas_pressure', 'thermal_energy_density')
         ramses_thermo_mode = 'pressure'
         ramses_thermo_var = ivar
-        return
+        exit
       case ('total_energy', 'energy')
         ramses_thermo_mode = 'energy'
         ramses_thermo_var = ivar
-        return
+        exit
       end select
+    end do
+
+    ! Detect metallicity, ionization fractions, and passive scalars
+    do ivar = 1, size(names)
+      select case (trim(names(ivar)))
+      case ('metallicity', 'metal')
+        ramses_metal_var = ivar
+      case ('xhii', 'hii_fraction')
+        ramses_xHII_var = ivar
+      case ('xheii')
+        ramses_xHeII_var = ivar
+      case ('xheiii')
+        ramses_xHeIII_var = ivar
+      end select
+      ! Detect passive scalars (pattern: 'passive_scalar_N')
+      if (index(trim(names(ivar)), 'passive_scalar_') == 1) then
+        if (ramses_n_passive < size(ramses_passive_vars)) then
+          ramses_n_passive = ramses_n_passive + 1
+          ramses_passive_vars(ramses_n_passive) = ivar
+        end if
+      end if
     end do
   end subroutine ramses_detect_layout
 

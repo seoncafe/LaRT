@@ -652,6 +652,116 @@ class LaRTOutput:
         return '\n'.join(lines)
 
     # ------------------------------------------------------------------
+    # Plotting: 1-D emergent spectrum (Jout / Jin / Jabs vs velocity)
+    # ------------------------------------------------------------------
+    def plot_spectrum(self,
+                      ax=None,
+                      components=('Jout', 'Jin'),
+                      x: str = 'velocity',
+                      log: bool = False,
+                      xlim: Optional[tuple] = None,
+                      ylim: Optional[tuple] = None,
+                      xmin: Optional[float] = None,
+                      xmax: Optional[float] = None,
+                      ymin: Optional[float] = None,
+                      ymax: Optional[float] = None,
+                      colors: Optional[dict] = None,
+                      title: Optional[str] = None,
+                      show: bool = False,
+                      savefig: Optional[str] = None,
+                      **plot_kwargs):
+        r"""Plot the all-angle emergent spectrum :math:`J(\nu)`.
+
+        Convenience wrapper that draws one or more of ``Jout``, ``Jin``,
+        ``Jabs``, ``Jabs2`` as a function of velocity / frequency /
+        wavelength (whichever is available on the Spectrum table).
+
+        Parameters
+        ----------
+        ax : matplotlib.axes.Axes, optional
+            Existing axes to draw on; created if None.
+        components : tuple of str, optional
+            Subset of {'Jout', 'Jin', 'Jabs', 'Jabs2'} to plot.  Components
+            that are not present in the file are silently skipped.
+            Default ``('Jout', 'Jin')``.
+        x : {'velocity', 'xfreq', 'wavelength'}
+            Quantity for the x-axis (default 'velocity', km/s).
+        log : bool
+            Plot on a log y-axis if True.
+        xlim, ylim : (lo, hi) tuple, optional
+            Axis limits.  Either bound may be None to leave it autoscaled.
+        xmin, xmax, ymin, ymax : float, optional
+            Per-bound shorthand; merged with xlim/ylim.
+        colors : dict, optional
+            Mapping from component name to matplotlib colour.
+        title, show, savefig : convenience options.
+        **plot_kwargs
+            Forwarded to ``ax.plot`` for every component.
+
+        Returns
+        -------
+        ax : matplotlib.axes.Axes
+        """
+        if self.xfreq is None:
+            raise RuntimeError(
+                "Spectrum table not available -- this LaRT output has no "
+                "frequency axis.")
+        import matplotlib.pyplot as plt
+
+        xlim_eff = _resolve_lim(xlim, xmin, xmax)
+        ylim_eff = _resolve_lim(ylim, ymin, ymax)
+
+        xvals, xlabel, yvar, yunit = _x_axis_pick(self, x)
+        factor = _spectral_jacobian(self, xvals)
+
+        default_colors = {'Jout':  'tab:blue',
+                          'Jin':   'gray',
+                          'Jabs':  'tab:red',
+                          'Jabs2': 'tab:orange'}
+        default_styles = {'Jin':   {'linestyle': '--', 'alpha': 0.6}}
+        cmap = dict(default_colors)
+        if colors:
+            cmap.update(colors)
+
+        if ax is None:
+            _, ax = plt.subplots(figsize=(7.0, 4.0))
+
+        plotted = []
+        for name in components:
+            arr = getattr(self, name, None)
+            if arr is None:
+                continue
+            style = dict(default_styles.get(name, {}))
+            style.update(plot_kwargs)
+            ax.plot(xvals, arr * factor,
+                    color=cmap.get(name, None),
+                    label=name,
+                    **style)
+            plotted.append(name)
+        if not plotted:
+            raise RuntimeError(
+                f"None of the requested components {components} are present "
+                f"in this LaRT output.")
+
+        if log:
+            ax.set_yscale('log')
+        if xlim_eff is not None:
+            ax.set_xlim(*xlim_eff)
+        if ylim_eff is not None:
+            ax.set_ylim(*ylim_eff)
+        ax.set_xlabel(xlabel)
+        ax.set_ylabel(rf'$J({yvar}){yunit}$')
+        if title is not None:
+            ax.set_title(title)
+        ax.legend(loc='best')
+        ax.grid(alpha=0.3)
+        if savefig is not None:
+            ax.figure.savefig(savefig)
+        if show:
+            plt.show()
+        return ax
+
+    # ------------------------------------------------------------------
     # Plotting: Jmu only
     # ------------------------------------------------------------------
     def plot_jmu(self,
