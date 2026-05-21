@@ -6,8 +6,9 @@ module raytrace_clump_mod
 ! a sphere of radius sphere_R. Outside the clumps the medium is vacuum.
 ! Each clump has its own opacity cl_rhokap(icl), Voigt parameter cl_voigt_a(icl),
 ! Doppler frequency cl_Dfreq(icl), and thermal velocity cl_vtherm(icl).
-! Phase 1: every entry is uniform (filled in init_clumps); later phases set
-! these from radial profiles.
+! With uniform clump properties every entry equals the corresponding _ref
+! scalar; when a radial profile is active, init_clumps sets the entries
+! as functions of clump-center radius.
 !
 ! Frequency convention (same as Cartesian):
 !   photon%xfreq is in units of cl_Dfreq_ref (= grid%Dfreq_ref).

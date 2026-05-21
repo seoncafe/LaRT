@@ -326,8 +326,8 @@ public
      !    may overlap. check_has_overlap() is called after placement and, if
      !    overlaps are detected, the overlap-aware raytrace is used automatically.
      logical       :: clump_allow_overlap  = .false.
-     !--- radial-profile inputs (Phase 2 onwards). When all three profiles
-     !    are 'constant' (default), the uniform clump behavior is used.
+     !--- radial-profile inputs. When all three profiles are 'constant'
+     !    (default), the uniform clump behavior is used.
      !    Each axis selects its own shape independently:
      !       'constant'    : value uniform in r (default)
      !       'powerlaw'    : f(r) = (r/r0)**(-alpha) for r >= r0; = 1 for r < r0

@@ -77,8 +77,8 @@ contains
   !    derived consistently from the same distribution.
   !
   !    For generated uniform clumps (cl_radius(:) = const, cl_rhokap(:) = const),
-  !    the per-clump sums collapse to the original closed-form Phase-1
-  !    expressions (4/3) * f_cov_shell * tau_per_clump_lc and the equivalent
+  !    the per-clump sums collapse to the original closed-form expressions
+  !    (4/3) * f_cov_shell * tau_per_clump_lc and the equivalent
   !    column-density form, so backward compatibility is preserved.  See
   !    compute_clump_scalars in clump_mod.f90 for the exact formulas.
   call compute_clump_scalars(par%tauhomo, par%taumax, par%N_gashomo, par%N_gasmax)

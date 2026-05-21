@@ -7,7 +7,8 @@ module clump_mod
 ! radius sphere_R. Each clump has its own opacity cl_rhokap(:), temperature
 ! cl_temperature(:), Doppler frequency cl_Dfreq(:), Voigt parameter
 ! cl_voigt_a(:), and independent Gaussian random bulk velocities.
-! In Phase 1 every entry is uniform; later phases populate the arrays
+! When all radial profiles are 'constant', every per-clump entry equals
+! the corresponding reference scalar; otherwise the arrays are populated
 ! from radial profiles.
 !
 ! Algorithms:
@@ -30,9 +31,9 @@ module clump_mod
                                                  ! (= max(0, par%rmin); 0 -> filled sphere)
 
   !--- Per-clump physical properties (MPI shared memory, dimension N_clumps).
-  !    In Phase 1 every entry is uniform (filled with the corresponding _ref
-  !    scalar below); later phases (radial profiles) populate them as
-  !    functions of clump-center radius.
+  !    When all radial profiles are 'constant', every entry is uniform and
+  !    equals the corresponding _ref scalar below; when a radial profile is
+  !    active, they are populated as functions of clump-center radius.
   real(kind=wp), pointer, save :: cl_radius(:)      => null()  ! clump radius [code units]
   real(kind=wp), pointer, save :: cl_radius2(:)     => null()  ! cl_radius(icl)**2
   real(kind=wp), pointer, save :: cl_rhokap(:)      => null()  ! opacity/code-unit inside clump
@@ -42,10 +43,10 @@ module clump_mod
   real(kind=wp), pointer, save :: cl_temperature(:) => null()  ! clump temperature [K]
 
   !--- Reference / representative scalars used during initialisation, grid
-  !    setup, and FITS-header reporting. In Phase 1 these equal every
-  !    cl_*(icl) entry. cl_radius_max is also used to size the RSA / CSR
-  !    acceleration grids so that the 27-neighbor overlap search remains
-  !    complete when r_cl varies between clumps.
+  !    setup, and FITS-header reporting. In the uniform case these equal
+  !    every cl_*(icl) entry. cl_radius_max is also used to size the RSA /
+  !    CSR acceleration grids so that the 27-neighbor overlap search
+  !    remains complete when r_cl varies between clumps.
   real(kind=wp), save :: cl_radius_max      = 0.0_wp
   real(kind=wp), save :: cl_rhokap_ref      = 0.0_wp
   real(kind=wp), save :: cl_voigt_a_ref     = 0.0_wp
@@ -68,7 +69,7 @@ module clump_mod
   real(kind=dp), pointer, save :: cl_vy(:) => null()
   real(kind=dp), pointer, save :: cl_vz(:) => null()
 
-  !--- Radial-profile machinery (Phase 3+4+5).
+  !--- Radial-profile machinery.
   !    base_* values are the user-supplied peak values that the shape factors
   !    multiply. r_cl(r) = base_radius_in * shape_radius(r), etc.
   !    Profiles defined on r in [0, sphere_R].
@@ -618,7 +619,7 @@ contains
      return
   end if
 
-  !--- Phase 2/3: detect any active radial profile.
+  !--- Detect any active radial profile.
   profiles_active = (trim(par%clump_radius_profile)  /= 'constant') .or. &
                     (trim(par%clump_density_profile) /= 'constant') .or. &
                     (trim(par%clump_number_profile)  /= 'constant')
@@ -783,10 +784,9 @@ contains
   call create_shared_mem(cl_vtherm,      [int(N_clumps)])
   call create_shared_mem(cl_temperature, [int(N_clumps)])
 
-  !--- Phase 1: fill per-clump arrays uniformly with the reference values
-  !    so that behavior is identical to the previous scalar implementation.
-  !    Phase 5 will replace this loop with profile-driven assignments after
-  !    clump positions are placed.
+  !--- Fill per-clump arrays uniformly with the reference values. When
+  !    radial profiles are active, the profile-driven assignments below
+  !    overwrite these defaults once clump positions are placed.
   if (mpar%h_rank == 0) then
      cl_radius(:)      = cl_radius_max
      cl_radius2(:)     = cl_radius_max * cl_radius_max
@@ -982,7 +982,7 @@ contains
      cl_x(icl) = real(xc, dp);  cl_y(icl) = real(yc, dp);  cl_z(icl) = real(zc, dp)
 
      if (profiles_active) then
-        !--- per-clump physical assignments from profiles (Phase 5)
+        !--- per-clump physical assignments from radial profiles
         cl_radius(icl)     = rcl_trial
         cl_radius2(icl)    = rcl_trial * rcl_trial
         if (allocated(tab_temperature)) then
@@ -1673,7 +1673,7 @@ contains
   bitpix = -32   ! save as float32 (sufficient precision for positions/velocities)
 
   !--- Compute realized f_vol and f_cov from actual placed clumps.
-  !    Uniform case: closed-form (preserves Phase 1 numbers).
+  !    Uniform case: closed-form expression.
   !    Profile case: 4π/3 * Σ r_cl^3 / V_shell and (LOS f_cov from quadrature).
   !    From-file case: per-clump sums (no profile tables available).
   !    All formulas use shell volume V_shell = (4π/3)(R^3 - rmin^3) and shell
@@ -1748,8 +1748,8 @@ contains
   !    is fully captured by the corresponding header keyword (CL_RAD,
   !    RHOKAP, TEMP_CL) and the column would be a 4-byte-per-row constant
   !    waste. read_clumps_info() falls back to the header keyword when the
-  !    column is absent, so old 6-column files (predating Phase 6) and new
-  !    constant-case files are read the same way.
+  !    column is absent, so legacy 6-column files and new constant-case
+  !    files are read the same way.
   allocate(tmp(ncl))
 
   tmp = cl_x(1:ncl)
@@ -1767,7 +1767,7 @@ contains
   tmp = cl_vz(1:ncl) * cl_vtherm(1:ncl)
   call io_write_table_column(iofh, 'VZ', tmp, status, bitpix)
 
-  !--- per-clump physical columns (Phase 6 additions): write only if non-constant.
+  !--- per-clump physical columns: write only if non-constant.
   kap_min_w  = minval(cl_rhokap(1:ncl))
   kap_max_w  = maxval(cl_rhokap(1:ncl))
   kap_mean_w = sum(cl_rhokap(1:ncl)) / max(real(ncl,wp), 1.0_wp)
@@ -1838,9 +1838,9 @@ contains
   ! DENSITY, DENS for the per-clump opacity proxy).  If none of the
   ! columns are present, fall back to the value of header keyword
   ! `keyname` and fill `dst` uniformly with it.  This is how
-  !   - a pre-Phase-6 file without the R_CLUMP/RHOKAP/TEMP columns, and
-  !   - a post-Phase-8 column-skipping file where the column was dropped
-  !     because it was effectively constant
+  !   - a legacy file without the R_CLUMP/RHOKAP/TEMP columns, and
+  !   - a column-skipping file where the column was dropped because it
+  !     was effectively constant
   ! are both handled with a single read path.
   !
   ! Optional output `found_name` returns the name of the column that was
@@ -2015,7 +2015,7 @@ contains
 
      !--- R_CLUMP / RHOKAP / TEMP are optional. write_clumps_info omits
      !    each one when its spread is below const_tol (= 1e-3 of mean).
-     !    Old (pre-Phase-6) FITS files do not carry these columns at all.
+     !    Legacy FITS files do not carry these columns at all.
      !    In both cases we fall back to the corresponding header keyword.
      call read_perclump_or_keyword(iofh, 'R_CLUMP',                'CL_RAD',  tmp, ncl, cl_radius)
      call read_perclump_or_keyword(iofh, 'RHOKAP,DENSITY,DENS',    'RHOKAP',  tmp, ncl, cl_rhokap, &
@@ -2197,9 +2197,9 @@ contains
   !       N * r_cl^3 * rhokap_ref * voigt0 / (R^2 + R*r0 + r0^2)
   !     = (4/3) * f_cov * tau_per_clump
   !
-  ! so this routine is backward compatible with the previous Phase-1 formulas
-  ! used for procedurally generated uniform clumps.  Computed on p_rank == 0,
-  ! then broadcast.
+  ! so this routine is backward compatible with the original closed-form
+  ! formula used for procedurally generated uniform clumps.  Computed on
+  ! p_rank == 0, then broadcast.
   !---------------------------------------------------------------------------
   use line_mod
   implicit none

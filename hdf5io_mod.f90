@@ -13,9 +13,8 @@ module hdf5io_mod
 !
 ! EXTNAME keyword written to a section renames its group to /<EXTNAME>/.
 !
-! Phase 2 limitations:
-!   - Datasets are contiguous (no chunking, no compression).
-!   - out_merge (read-old + sum + write-new) is not yet supported when both
+! Current limitations:
+!   - out_merge (read-old + sum + write-new) is not supported when both
 !     ends are HDF5; io_open_old works for plain reads only.
 !   - hsize_t / hid_t are assumed to be 8-byte integers (matches HDF5 1.14).
 !
