@@ -2,13 +2,14 @@
 
 LaRT v2.0 is a radiative transfer code for resonance-line scattering. In addition to Ly-alpha, it is designed to handle resonance and fluorescence scattering of a variety of metallic lines.
 
-This version adds support for adaptive mesh refinement (AMR) grids, including both RAMSES-based AMR outputs and more general AMR grid data. **The AMR implementation is currently under active testing and validation, and its behavior should be checked carefully before being used as fully verified production software.**
+This version adds support for adaptive mesh refinement (AMR) grids. RAMSES snapshots are no longer read directly by `LaRT.x`; instead, they are first converted to a generic AMR file (HDF5, gzipped FITS, or plain text) via a standalone converter (`convert_ramses_to_generic.{x,py}`). **The AMR implementation is currently under active testing and validation, and its behavior should be checked carefully before being used as fully verified production software.**
 
 ## Status
 
-- AMR support has been added; testing and validation are ongoing.
+- AMR support: octree grid with per-leaf physical quantities; testing and validation are ongoing.
+- **Converter-centric architecture**: `par%amr_type='ramses'` is now a fatal error in `LaRT.x`. Use the converter to produce a generic AMR file, then run with `par%amr_type='generic'`. The generic format carries the mandatory 9 columns (x, y, z, level, nH, T, vx, vy, vz) plus optional `metallicity`, `xHI`, `n_e`, `n_ion`, `emissivity`, `ndust` columns.
+- **RASCAS-style per-cell core-skip**: `xcrit` is now recomputed at every scattering from the local cell's `voigt_a × rhokap × dl_face` (Smith+15 Eq.35). This replaces the volume-averaged `xcrit` for inhomogeneous (e.g. galaxy-scale) boxes where the old prescription gave `xcrit = 0` and photons trapped in dense regions never escaped. The old behavior is retained behind `par%core_skip_global = .true.` for benchmarking.
 - Clump overlap handling added: file-loaded or internally generated overlapping clumps are handled with an event-based multi-component raytrace; enabled via `par%clump_allow_overlap = .true.` for internally generated populations.
-- Both RAMSES AMR snapshots and a generic text/FITS/HDF5 AMR format are supported.
 - **HDF5 I/O support (output and input)** is now available alongside FITS for all output streams (spectrum, peel-off, sight-line tau, CALCJ/CALCP arrays) and all gridded inputs (density, temperature, velocity, emissivity, clump files). The default is HDF5 (`par%file_format = 'hdf5'`); set `par%file_format = 'fits'` to fall back to `.fits.gz`. Build with `make HDF5=1` (default) or `make HDF5=0` to skip the HDF5 link dependency. See `HDF5_CHANGES.txt` and `python/lart_io.py` for the schema and a format-agnostic Python reader/converter.
 - The usage guide is still being prepared.
 

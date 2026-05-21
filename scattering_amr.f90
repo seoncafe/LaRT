@@ -148,6 +148,7 @@ contains
     real(wp) :: ux, uy, uxy
     real(wp) :: kx1, ky1, kz1, kr
     real(wp) :: g_recoil
+    real(wp) :: xcrit_cell, xcrit_cell2
 
     il = photon%icell_amr
     photon%nscatt_gas = photon%nscatt_gas + photon%wgt
@@ -158,16 +159,22 @@ contains
     phi  = twopi * rand_number()
     cosp = cos(phi);  sinp = sin(phi)
 
-    ! Atom thermal velocity component perpendicular to k (core-skip or full)
-    if (par%core_skip .and. abs(photon%xfreq) < amr_grid%xcrit) then
-      phi2 = twopi * rand_number()
-      uxy  = sqrt(amr_grid%xcrit2 - log(rand_number()))
-      ux   = uxy * cos(phi2);  uy = uxy * sin(phi2)
+    ! Atom thermal velocity component perpendicular to k (core-skip or full).
+    ! RASCAS-style: xcrit recomputed per scattering from local cell atau and
+    ! the photon's distance to the nearest cell face (Smith+15 Eq.35).
+    if (par%core_skip) then
+      call amr_xcrit_local(il, photon%x, photon%y, photon%z, xcrit_cell, xcrit_cell2)
     else
-      phi2 = twopi * rand_number()
-      uxy  = sqrt(-log(rand_number()))
-      ux   = uxy * cos(phi2);  uy = uxy * sin(phi2)
+      xcrit_cell  = 0.0_wp
+      xcrit_cell2 = 0.0_wp
     end if
+    phi2 = twopi * rand_number()
+    if (par%core_skip .and. abs(photon%xfreq) < xcrit_cell) then
+      uxy  = sqrt(xcrit_cell2 - log(rand_number()))
+    else
+      uxy  = sqrt(-log(rand_number()))
+    end if
+    ux   = uxy * cos(phi2);  uy = uxy * sin(phi2)
     !-- For ly_alpha_HD D scatter: convert atom perpendicular velocity
     !-- from D Doppler units to caller's H-Doppler convention.
     !-- Same factor as for uz: divide by ratio_Dfreq_HD = Dfreq_H/Dfreq_D.
@@ -320,6 +327,7 @@ contains
     real(wp) :: S11, S12, S22, S33, S44
     real(wp) :: Q0, U0, I1, Q1, U1, V1
     real(wp) :: ux, uy, uxy, g_recoil
+    real(wp) :: xcrit_cell, xcrit_cell2
 
     il = photon%icell_amr
     photon%nscatt_gas = photon%nscatt_gas + photon%wgt
@@ -337,10 +345,17 @@ contains
     end do
     cosp = cos(phi);  sinp = sin(phi)
 
-    ! Update photon frequency (core-skip or full thermal sampling)
-    if (par%core_skip .and. abs(photon%xfreq) < amr_grid%xcrit) then
+    ! Update photon frequency (core-skip or full thermal sampling).
+    ! RASCAS-style per-cell xcrit (Smith+15 Eq.35), see amr_xcrit_local.
+    if (par%core_skip) then
+      call amr_xcrit_local(il, photon%x, photon%y, photon%z, xcrit_cell, xcrit_cell2)
+    else
+      xcrit_cell  = 0.0_wp
+      xcrit_cell2 = 0.0_wp
+    end if
+    if (par%core_skip .and. abs(photon%xfreq) < xcrit_cell) then
       phi2 = twopi * rand_number()
-      uxy  = sqrt(amr_grid%xcrit2 - log(rand_number()))
+      uxy  = sqrt(xcrit_cell2 - log(rand_number()))
       ux   = uxy * cos(phi2);  uy = uxy * sin(phi2)
       !-- For ly_alpha_HD D scatter: convert atom perpendicular velocity
       !-- from D Doppler units to caller's H-Doppler convention.

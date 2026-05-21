@@ -182,6 +182,48 @@ contains
   end function amr_find_enclosing_cell
 
   !=========================================================================
+  ! RASCAS-style per-cell core-skip threshold (Smith+15 Eq.35).
+  !   atau_cell = voigt_a(il) * rhokap(il) * dl_face
+  !   xcrit     = (atau_cell)^(1/3) / 5   if atau_cell > 1, else 0
+  ! dl_face is the minimum distance from (x,y,z) to any face of leaf cell il,
+  ! i.e. the radius of the largest sphere centered at the photon position that
+  ! is still contained in the cell.  When par%core_skip_global = .true. the
+  ! routine returns the volume-averaged amr_grid%xcrit / xcrit2 instead.
+  ! Reads from module-level amr_grid.
+  !=========================================================================
+  subroutine amr_xcrit_local(il, x, y, z, xcrit_out, xcrit2_out)
+    integer,  intent(in)  :: il
+    real(wp), intent(in)  :: x, y, z
+    real(wp), intent(out) :: xcrit_out, xcrit2_out
+    integer  :: icell
+    real(wp) :: h, dl_face, atau_cell
+    real(wp), parameter :: third = 1.0_wp/3.0_wp
+
+    if (par%core_skip_global) then
+      xcrit_out  = amr_grid%xcrit
+      xcrit2_out = amr_grid%xcrit2
+      return
+    end if
+
+    xcrit_out  = 0.0_wp
+    xcrit2_out = 0.0_wp
+    if (il <= 0) return
+
+    icell = amr_grid%icell_of_leaf(il)
+    h     = amr_grid%ch(icell)
+    dl_face = min( h - abs(x - amr_grid%cx(icell)), &
+                   h - abs(y - amr_grid%cy(icell)), &
+                   h - abs(z - amr_grid%cz(icell)) )
+    if (dl_face <= 0.0_wp) return
+
+    atau_cell = amr_grid%voigt_a(il) * amr_grid%rhokap(il) * dl_face
+    if (atau_cell > 1.0_wp) then
+      xcrit_out  = atau_cell**third / 5.0_wp
+      xcrit2_out = xcrit_out * xcrit_out
+    end if
+  end subroutine amr_xcrit_local
+
+  !=========================================================================
   ! Step through a virtual sub-cell of an internal cell: half the size of
   ! `icell`, centered in the sub-octant containing (x, y, z).  Used by
   ! pole traversal and any code that needs to advance across gaps one

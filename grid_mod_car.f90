@@ -1332,4 +1332,46 @@ contains
   if (associated(grid%P2_new)) deallocate(grid%P2_new)
 #endif
   end subroutine grid_destroy
+
+  !=========================================================================
+  ! RASCAS-style per-cell core-skip threshold (Smith+15 Eq.35) for the
+  ! Cartesian grid.
+  !   atau_cell = voigt_a(i,j,k) * rhokap(i,j,k) * dl_face
+  !   xcrit     = (atau_cell)^(1/3) / 5   if atau_cell > 1, else 0
+  ! dl_face = min distance from (x,y,z) to any of the six cell faces.
+  ! Returns the volume-averaged grid%xcrit when par%core_skip_global=.true.
+  !=========================================================================
+  subroutine car_xcrit_local(grid, i, j, k, x, y, z, xcrit_out, xcrit2_out)
+  use define
+  implicit none
+  type(grid_type), intent(in)  :: grid
+  integer,         intent(in)  :: i, j, k
+  real(wp),        intent(in)  :: x, y, z
+  real(wp),        intent(out) :: xcrit_out, xcrit2_out
+  real(wp) :: dlx, dly, dlz, dl_face, atau_cell
+  real(wp), parameter :: third = 1.0_wp/3.0_wp
+
+  if (par%core_skip_global) then
+     xcrit_out  = grid%xcrit
+     xcrit2_out = grid%xcrit2
+     return
+  endif
+
+  xcrit_out  = 0.0_wp
+  xcrit2_out = 0.0_wp
+  if (i < 1 .or. j < 1 .or. k < 1) return
+
+  dlx = min(x - grid%xface(i), grid%xface(i+1) - x)
+  dly = min(y - grid%yface(j), grid%yface(j+1) - y)
+  dlz = min(z - grid%zface(k), grid%zface(k+1) - z)
+  dl_face = min(dlx, dly, dlz)
+  if (dl_face <= 0.0_wp) return
+
+  atau_cell = grid%voigt_a(i,j,k) * grid%rhokap(i,j,k) * dl_face
+  if (atau_cell > 1.0_wp) then
+     xcrit_out  = atau_cell**third / 5.0_wp
+     xcrit2_out = xcrit_out * xcrit_out
+  endif
+  end subroutine car_xcrit_local
+
 end module grid_mod

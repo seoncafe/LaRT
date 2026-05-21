@@ -1,16 +1,21 @@
 &parameters
+ !----- AMR: 4 kpc galaxy region with native physics columns (xHI,
+ !      n_e, ndust, emissivity), produced by the power-of-2 aligned
+ !      converter.
  par%grid_type        = 'amr'
- par%amr_file         = 'jellyfish_galaxy_aligned.fits.gz'
+ par%amr_file         = 'jellyfish_galaxy.h5'
  par%distance_unit    = 'kpc'
 
  par%ionization_model = 'from_file'
 
- !----- Source: diffuse emissivity from the file's `emissivity' column
+ !----- Source: diffuse Case-B emissivity from the file's `emissivity'
+ !      column (computed by the converter with --compute-physics).
  par%source_geometry  = 'diffuse_emissivity'
  par%emissivity_model = 'from_file'
  par%spectral_type    = 'voigt'
 
- par%taumax           = 1.0e4
+ !----- Use the data's native opacity (no taumax override).
+ !par%taumax           = (unset)
 
  par%velocity_min     = -1000.0
  par%velocity_max     = +1000.0
@@ -20,12 +25,20 @@
  par%file_format      = 'hdf5'
  par%use_master_slave = .true.
 
- par%no_photons       = 1e4
+ par%no_photons       = 1.0e5
+ par%nprint           = 10000
+ par%core_skip        = .true.
 
  par%save_peeloff     = .true.
  par%save_peeloff_2D  = .true.
+ !----- Image plane: 101 x 101 pixels at 0.05 kpc / pixel.  par%dxim is in
+ !      degrees, so for distance = 1000 kpc the angle 0.05/1000 rad ~
+ !      0.002865 deg / pixel gives 50 pc / pixel, +/- 2.5 kpc field
+ !      (matched to the 4 kpc galaxy region).
  par%nxim             = 101
  par%nyim             = 101
+ par%dxim             = 0.002865
+ par%dyim             = 0.002865
  par%distance         = 1000.0
  par%nobs             = 1
  par%alpha(1)         = 0.0

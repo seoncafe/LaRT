@@ -1,26 +1,32 @@
 &parameters
- !----- AMR: 4 kpc region around the galaxy, kept on RAMSES native grid
- !     (BOXLEN=300 same as the full RAMSES sim; cells outside the
- !      4 kpc region are absent and walked through via gap-skip).
+ !----- AMR: 4 kpc galaxy region (extracted with the power-of-2 aligned
+ !      converter).  jellyfish_galaxy.h5 carries native xHI, n_e, ndust,
+ !      and emissivity columns; ionization_model='from_file' uses the
+ !      converter's CIE xHI directly.  Outside the 4 kpc cube the box is
+ !      sparse and gap-skip walks through the empty space.
  par%grid_type        = 'amr'
- par%amr_file         = 'jellyfish_galaxy_aligned.fits.gz'
+ par%amr_file         = 'jellyfish_galaxy.h5'
  par%distance_unit    = 'kpc'
 
  par%ionization_model = 'from_file'
 
- !----- Point source at the nHI peak (in shifted coords; the file's
- !      GALAXYX/Y/Z headers carry the galaxy position).
+ !----- Point source at the galaxy centre (box centre = (0,0,0) in the
+ !      centered convention).  Per-cell RASCAS core-skipping
+ !      (par%core_skip = .true., par%core_skip_global = .false.) makes
+ !      the dense-core placement tractable: xcrit is recomputed at
+ !      every scattering from the local cell's voigt_a * rhokap * dl_face
+ !      (Smith+15 Eq.35), so photons launched inside the high-tau core
+ !      thermalise to the wings and escape on a tractable timescale.
  par%source_geometry  = 'point'
- par%xs_point         = -99.7650149531674801
- par%ys_point         = -100.1251223728580104
- par%zs_point         = -99.6673587037598556
+ par%xs_point         =  0.0
+ par%ys_point         =  0.0
+ par%zs_point         =  0.0
  par%spectral_type    = 'voigt'
 
- !----- Normalize to a reasonable Lya tau via tauhomo fallback.
- !      (pole traversal returns 0 because the galaxy is not at the
- !      300-kpc box center; LaRT falls back to volume-averaged tauhomo
- !      and rescales rhokap accordingly.)
- par%taumax           = 1.0e4
+ !----- Use the data's native opacity.  par%taumax is intentionally NOT
+ !      set, so LaRT does not rescale rhokap; the column density along
+ !      the pole comes directly from the AMR data.
+ !par%taumax           = (unset)
 
  par%velocity_min     = -1000.0
  par%velocity_max     = +1000.0
@@ -30,12 +36,20 @@
  par%file_format      = 'hdf5'
  par%use_master_slave = .true.
 
- par%no_photons       = 1e4
+ par%no_photons       = 1.0e5
+ par%nprint           = 10000
+ par%core_skip        = .true.
 
  par%save_peeloff     = .true.
  par%save_peeloff_2D  = .true.
+ !----- Image plane: 101 x 101 pixels at 0.05 kpc / pixel.  par%dxim is in
+ !      degrees, so for distance = 1000 kpc the angle 0.05/1000 rad ~
+ !      0.002865 deg / pixel gives 50 pc / pixel, +/- 2.5 kpc field
+ !      (matched to the 4 kpc galaxy region).
  par%nxim             = 101
  par%nyim             = 101
+ par%dxim             = 0.002865
+ par%dyim             = 0.002865
  par%distance         = 1000.0
  par%nobs             = 1
  par%alpha(1)         = 0.0

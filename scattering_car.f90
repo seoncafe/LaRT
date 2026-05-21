@@ -6,6 +6,7 @@ module scatter_mod
   !--- now, peelingoff subrotines are defined in define.f90 (2023.01.16).
   !use peelingoff_mod
   use mathlib
+  use grid_mod, only: car_xcrit_local
   public
 contains
   !=====================================
@@ -202,6 +203,7 @@ contains
     real(kind=wp) :: DnuHK,xfreq_atom,qK,qH,pH,pK
     real(kind=wp) :: ux,uy,uxy,uz,E1,g_recoil
     real(kind=wp) :: vth_ratio
+    real(kind=wp) :: xcrit_cell, xcrit_cell2
     real(kind=wp), parameter :: three_over_four = 3.0_wp/4.0_wp, &
                                 three_over_two  = 3.0_wp/2.0_wp, &
                                 one_over_three  = 1.0_wp/3.0_wp, &
@@ -243,9 +245,17 @@ contains
     else
        vth_ratio = 1.0_wp
     endif
-    if (par%core_skip .and. abs(photon%xfreq) < grid%xcrit) then
+    !-- RASCAS-style per-cell xcrit (Smith+15 Eq.35), see car_xcrit_local.
+    if (par%core_skip) then
+       call car_xcrit_local(grid, photon%icell, photon%jcell, photon%kcell, &
+                            photon%x, photon%y, photon%z, xcrit_cell, xcrit_cell2)
+    else
+       xcrit_cell  = 0.0_wp
+       xcrit_cell2 = 0.0_wp
+    endif
+    if (par%core_skip .and. abs(photon%xfreq) < xcrit_cell) then
        phi2 = twopi * rand_number()
-       uxy  = sqrt(grid%xcrit2 - log(rand_number()))
+       uxy  = sqrt(xcrit_cell2 - log(rand_number()))
        ux   = uxy * cos(phi2)
        uy   = uxy * sin(phi2)
        !-- For ly_alpha_HD D scatter: convert atom perpendicular velocity
@@ -446,6 +456,7 @@ contains
   real(kind=wp) :: DnuHK,xfreq_atom,qK,qH,pH,pK
   real(kind=wp) :: ux,uy,uxy,uz,E1,g_recoil
   real(kind=wp) :: vth_ratio
+  real(kind=wp) :: xcrit_cell, xcrit_cell2
   integer :: i1,i2,i3
   integer :: ix
   real(kind=wp), parameter :: one_over_three  = 1.0_wp/3.0_wp, &
@@ -480,9 +491,17 @@ contains
   ! Note that the acceleration scheme uses a cut-off exponential distribution to obtain velocity amplitude, and
   ! divide it into x- and y- components, whereas the original scheme uses a gaussian distribution to obtain velocity components.
   ! This causes the difference in 1/sqrt(2) factor.
-  if (par%core_skip .and. abs(photon%xfreq) < grid%xcrit) then
+  !-- RASCAS-style per-cell xcrit (Smith+15 Eq.35), see car_xcrit_local.
+  if (par%core_skip) then
+     call car_xcrit_local(grid, i1, i2, i3, photon%x, photon%y, photon%z, &
+                          xcrit_cell, xcrit_cell2)
+  else
+     xcrit_cell  = 0.0_wp
+     xcrit_cell2 = 0.0_wp
+  endif
+  if (par%core_skip .and. abs(photon%xfreq) < xcrit_cell) then
      phi2 = twopi * rand_number()
-     uxy  = sqrt(grid%xcrit2 - log(rand_number()))
+     uxy  = sqrt(xcrit_cell2 - log(rand_number()))
      ux   = uxy * cos(phi2)
      uy   = uxy * sin(phi2)
      !-- For ly_alpha_HD D scatter: convert atom perpendicular velocity
