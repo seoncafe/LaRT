@@ -1,8 +1,8 @@
 # LaRT v2.0
 
-LaRT v2.0 is a radiative transfer code for resonance-line scattering. In addition to Ly-alpha, it is designed to handle resonance and fluorescence scattering of a variety of metallic lines.
+LaRT v2.0 is a radiative transfer code for resonance-line scattering. In addition to Ly$\alpha$, it is designed to handle resonance and fluorescence scattering of a variety of metallic lines.
 
-This version adds support for adaptive mesh refinement (AMR) grids. RAMSES snapshots are not read directly by `LaRT.x`; instead, they are first converted to a generic AMR file (HDF5, gzipped FITS, or plain text) via a standalone converter (`convert_ramses_to_generic.{x,py}`). **The AMR implementation is currently under active testing and validation, and its behavior should be checked carefully before being used as fully verified production software.**
+This version adds support for adaptive mesh refinement (AMR) grids. RAMSES snapshots are not read directly by `LaRT.x`; instead, they are first converted to a generic AMR file (HDF5, gzipped FITS, or plain text) via a standalone converter (`convert_ramses_to_generic.{x,py}`). **The AMR implementation is currently under active testing and validation.**
 
 ## Status
 
