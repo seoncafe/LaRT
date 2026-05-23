@@ -86,22 +86,32 @@ from AMR_grid import AMRGrid
 # Density profiles
 # ---------------------------------------------------------------------------
 
-def make_density_fn(profile, n0, rmax, sigma=None, r_scale=None):
+def make_density_fn(profile, n0, rmax, sigma=None, r_scale=None,
+                    density_alpha=0.0, rmin=0.0):
     if profile == 'uniform':
         def fn(x, y, z):
             r = np.sqrt(np.asarray(x)**2 + np.asarray(y)**2 + np.asarray(z)**2)
-            return np.where(r <= rmax, n0, 0.0)
+            return np.where((r <= rmax) & (r >= rmin), n0, 0.0)
     elif profile == 'gaussian':
         sig = sigma if sigma else rmax * 0.4
         def fn(x, y, z):
             r2 = np.asarray(x)**2 + np.asarray(y)**2 + np.asarray(z)**2
-            return np.where(np.sqrt(r2) <= rmax,
+            r  = np.sqrt(r2)
+            return np.where((r <= rmax) & (r >= rmin),
                             n0 * np.exp(-r2 / (2.0 * sig**2)), 0.0)
     elif profile == 'exponential':
         rs = r_scale if r_scale else rmax * 0.3
         def fn(x, y, z):
             r = np.sqrt(np.asarray(x)**2 + np.asarray(y)**2 + np.asarray(z)**2)
-            return np.where(r <= rmax, n0 * np.exp(-r / rs), 0.0)
+            return np.where((r <= rmax) & (r >= rmin), n0 * np.exp(-r / rs), 0.0)
+    elif profile == 'power_law':
+        # n(r) = n0 * (rmax/r)^density_alpha
+        # Matches LaRT Cartesian convention in grid_mod_car.f90.
+        def fn(x, y, z):
+            r = np.sqrt(np.asarray(x)**2 + np.asarray(y)**2 + np.asarray(z)**2)
+            safe_r = np.where(r > 0, r, 1.0)
+            dens = n0 * (rmax / safe_r) ** density_alpha
+            return np.where((r <= rmax) & (r >= rmin) & (r > 0), dens, 0.0)
     else:
         raise ValueError(f'Unknown density profile: {profile!r}')
     return fn
@@ -111,7 +121,8 @@ def make_density_fn(profile, n0, rmax, sigma=None, r_scale=None):
 # Velocity laws
 # ---------------------------------------------------------------------------
 
-def make_velocity_fn(law, rmax, v_exp=0.0, v_power=1.0, vrot=0.0, rinner=None):
+def make_velocity_fn(law, rmax, v_exp=0.0, v_power=1.0, vrot=0.0, rinner=None,
+                     rmin=0.0):
     """
     Return a vectorised velocity function  fn(x, y, z) -> (vx, vy, vz) [km/s].
     Velocity is zero outside the sphere of radius rmax.
@@ -136,26 +147,31 @@ def make_velocity_fn(law, rmax, v_exp=0.0, v_power=1.0, vrot=0.0, rinner=None):
         return None
 
     # ── radial laws ────────────────────────────────────────────────────────
-    if law in ('hubble', 'constant_radial', 'power_law'):
+    if law in ('hubble', 'constant_radial', 'power_law', 'linear_decelerate'):
         def fn(x, y, z):
             x_ = np.asarray(x, float); y_ = np.asarray(y, float)
             z_ = np.asarray(z, float)
             r  = np.sqrt(x_**2 + y_**2 + z_**2)
-            inside   = r <= rmax
+            inside   = (r <= rmax) & (r >= rmin)
             safe_r   = np.where(r > 0.0, r, 1.0)
 
             if law == 'hubble':
-                # v_r = v_exp * r/rmax  →  v_i = v_exp/rmax * x_i
                 scale = np.where(inside, v_exp / rmax, 0.0)
                 return scale * x_, scale * y_, scale * z_
 
             elif law == 'constant_radial':
-                # v_r = v_exp (unit radial vector)
                 scale = np.where(inside & (r > 0.0), v_exp / safe_r, 0.0)
                 return scale * x_, scale * y_, scale * z_
 
+            elif law == 'linear_decelerate':
+                # v_r = v_exp * (rmax - r) / (rmax - rmin)
+                denom = rmax - rmin if rmax > rmin else 1.0
+                vr = np.where(inside & (r > 0.0),
+                              v_exp * (rmax - safe_r) / denom, 0.0)
+                scale = np.where(r > 0.0, vr / safe_r, 0.0)
+                return scale * x_, scale * y_, scale * z_
+
             else:  # power_law
-                # v_r = v_exp * (r/rmax)^v_power
                 vr    = np.where(inside & (r > 0.0),
                                  v_exp * (safe_r / rmax) ** v_power, 0.0)
                 scale = np.where(r > 0.0, vr / safe_r, 0.0)
@@ -212,6 +228,7 @@ def make_velocity_fn(law, rmax, v_exp=0.0, v_power=1.0, vrot=0.0, rinner=None):
 
 def build_radial_grid(boxlen, rmax, level_min, level_max, spacing, ratio,
                       density, n0, temperature, sigma=None, r_scale=None,
+                      density_alpha=0.0, rmin=0.0,
                       custom_radii=None, refine_boundary=False,
                       boundary_level_max=None,
                       velocity='none', v_exp=0.0, v_power=1.0,
@@ -225,10 +242,11 @@ def build_radial_grid(boxlen, rmax, level_min, level_max, spacing, ratio,
     radii : list of float
         Shell boundary radii used (outermost first).
     """
-    dens_fn = make_density_fn(density, n0, rmax, sigma=sigma, r_scale=r_scale)
+    dens_fn = make_density_fn(density, n0, rmax, sigma=sigma, r_scale=r_scale,
+                              density_alpha=density_alpha, rmin=rmin)
     vel_fn  = make_velocity_fn(velocity, rmax,
                                v_exp=v_exp, v_power=v_power,
-                               vrot=vrot, rinner=rinner)
+                               vrot=vrot, rinner=rinner, rmin=rmin)
 
     grid = AMRGrid(boxlen)
     grid.refine_sphere_radial(
@@ -496,9 +514,15 @@ def parse_args():
                    help='Sphere radius [code unit] (default: boxlen/2)')
 
     p.add_argument('--density',
-                   choices=['uniform', 'gaussian', 'exponential'],
+                   choices=['uniform', 'gaussian', 'exponential', 'power_law'],
                    default='uniform',
                    help='Density profile (default: uniform)')
+    p.add_argument('--density_alpha', type=float, default=0.0,
+                   help='[power_law] exponent: n(r) = n0 * (rmax/r)^alpha '
+                        '(default: 0; 2 = isothermal)')
+    p.add_argument('--rmin', type=float, default=0.0,
+                   help='Inner shell radius: density and velocity = 0 for r < rmin '
+                        '(default: 0)')
     p.add_argument('--n0', type=float, default=1.0,
                    help='Peak density [cm^-3] (default: 1.0)')
     p.add_argument('--sigma', type=float, default=None,
@@ -530,12 +554,14 @@ def parse_args():
     vg = p.add_argument_group('velocity law')
     vg.add_argument('--velocity',
                     choices=['none', 'hubble', 'constant_radial', 'power_law',
+                             'linear_decelerate',
                              'rotating_solid_body', 'rotating_galaxy_halo'],
                     default='none',
                     help='Velocity law (default: none)\n'
                          '  hubble               : v_r = V_exp * r/rmax\n'
                          '  constant_radial      : v_r = V_exp\n'
                          '  power_law            : v_r = V_exp * (r/rmax)^v_power\n'
+                         '  linear_decelerate    : v_r = V_exp * (rmax-r)/(rmax-rmin)\n'
                          '  rotating_solid_body  : solid-body rotation about z (Garavito-Camargo+2014)\n'
                          '  rotating_galaxy_halo : flat rotation above rinner (Kim et al.)')
     vg.add_argument('--vexp', type=float, default=0.0,
@@ -581,6 +607,8 @@ def main():
         temperature        = args.temperature,
         sigma              = args.sigma,
         r_scale            = args.r_scale,
+        density_alpha      = args.density_alpha,
+        rmin               = args.rmin,
         boundary_level_max = args.boundary_level_max,
         velocity           = args.velocity,
         v_exp              = args.vexp,

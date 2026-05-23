@@ -401,6 +401,16 @@ contains
         if (par%DGR > 0.0_wp .and. associated(amr_grid%rhokapD)) &
             amr_grid%rhokapD(:) = amr_grid%rhokapD(:) * opac_norm
       end if
+    else if (par%N_gasmax > 0.0_wp) then
+      ! N_gasmax: ion/gas column density from center to +z boundary.
+      ! N_HIpole was computed as sum(rhokap * Dfreq / cross0 * t_exit) along +z pole,
+      ! which gives the column density in the same units as N_gasmax.
+      if (N_HIpole > 0.0_wp) then
+        opac_norm           = par%N_gasmax / N_HIpole
+        amr_grid%rhokap(:) = amr_grid%rhokap(:) * opac_norm
+        if (par%DGR > 0.0_wp .and. associated(amr_grid%rhokapD)) &
+            amr_grid%rhokapD(:) = amr_grid%rhokapD(:) * opac_norm
+      end if
     end if
     end if
     call MPI_BARRIER(mpar%hostcomm, ierr)
@@ -428,6 +438,7 @@ contains
     if (par%tauhomo <= 0.0_wp) par%tauhomo = tauhomo
     if (par%N_HImax  <= 0.0_wp) par%N_HImax  = N_HIpole
     if (par%N_HIhomo <= 0.0_wp) par%N_HIhomo = N_HIhomo
+    if (par%N_gasmax <= 0.0_wp) par%N_gasmax = N_HIpole
     par%tauhomo = tauhomo
     par%taumax  = taupole
 
