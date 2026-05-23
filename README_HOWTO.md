@@ -221,6 +221,7 @@ They can be used even when a realistic density is given.
 | `rmin` | -999 | Inner radius (density = 0 for r < rmin) |
 | `rmax` | -999 | Outer radius (density = 0 for r > rmax) |
 | `density_rscale` | -999 | Scale length for exponential density profile |
+| `density_alpha` | 0.0 | Power-law index: n(r) = n0 * (rmax/r)^density_alpha. 0 = uniform, 2 = isothermal. |
 
 ### Velocity
 
@@ -228,6 +229,8 @@ They can be used even when a realistic density is given.
 |-----------------|---------|
 | `'hubble'` | V(r) = Vexp * (r / r_max) |
 | `'constant_radial'` | V(r) = Vexp * r / \|r\| |
+| `'power_law'` | V(r) = Vexp * (r / rmax)^velocity_alpha |
+| `'linear_decelerate'` | V(r) = Vexp * (rmax - r) / (rmax - rmin); V=Vexp at rmin, V=0 at rmax |
 | `'ssh'` | Song, Seon, Hwang (2020); two-zone radial profile |
 | `'rotating_solid_body'` | V = Vrot * r_cyl / rmax |
 | `'rotating_galaxy_halo'` | Solid-body core (r < rinner) + flat rotation curve |
@@ -238,6 +241,7 @@ They can be used even when a realistic density is given.
 | Parameter | Default | Description |
 |-----------|---------|-------------|
 | `Vexp` | 0.0 | Maximum velocity [km/s]; >0 = outflow, <0 = infall |
+| `velocity_alpha` | 1.0 | Power-law exponent for `'power_law'` velocity type |
 | `Vpeak` | 0.0 | Peak velocity for `'ssh'` [km/s] |
 | `rpeak` | 0.0 | Peak radius for `'ssh'` |
 | `DeltaV` | 0.0 | Velocity difference for `'ssh'` [km/s] |
@@ -320,6 +324,7 @@ If `use_stokes = .true.`, then `hgg` and `albedo` are obtained from the scatteri
 |---------------|-----|------------|------|
 | `'ly_alpha'` (default) | H I | 1216 | singlet / doublet |
 | `'ly_alpha_HD'` | H I + D I | 1216 + 1215 | dual resonance |
+| `'CII_1334'` | C II | 1334 (+1336 fluorescence) | resonance + fluorescence |
 | `'CIV_1548'` | C IV | 1548, 1551 | doublet |
 | `'NV_1239'` | N V | 1239, 1243 | doublet |
 | `'OVI_1032'` | O VI | 1032, 1038 | doublet |
@@ -452,8 +457,11 @@ Activated by `par%use_clump_medium = .true.`.
 | `clump_profile_file` | `''` | Tabulated profile file |
 
 **Supported velocity types in clump mode:**
-`'hubble'`, `'constant_radial'`, `'parallel_velocity'`,
-`'ssh'`, `'rotating_solid_body'`, `'rotating_galaxy_halo'`
+`'hubble'`, `'constant_radial'`, `'power_law'`, `'linear_decelerate'`,
+`'parallel_velocity'`, `'ssh'`, `'rotating_solid_body'`, `'rotating_galaxy_halo'`
+
+**Supported density/number profiles in clump mode:**
+`'constant'`, `'power_law'` (alias `'powerlaw'`), `'gaussian'`, `'exponential'`, `'file'`
 
 ---
 

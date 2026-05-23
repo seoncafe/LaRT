@@ -265,9 +265,11 @@ public
      real(kind=wp) :: rmin = -999.0
      real(kind=wp) :: rmax = -999.0
      real(kind=wp) :: source_rmax = -999.0_wp
-     !--- density scale
+     !--- density scale / profile
      real(kind=wp) :: density_rscale = -999.9_wp
      real(kind=wp) :: density_zscale = -999.9_wp
+     real(kind=wp) :: density_alpha  = 0.0_wp   ! power-law index: n(r) = n0*(rmax/r)^density_alpha
+     real(kind=wp) :: velocity_alpha = 1.0_wp   ! power-law index: v(r) = Vexp*(r/rmax)^velocity_alpha
      !--- location of a point source
      real(kind=wp) :: xs_point = 0.0_wp
      real(kind=wp) :: ys_point = 0.0_wp

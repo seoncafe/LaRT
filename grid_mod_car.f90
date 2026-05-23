@@ -27,7 +27,7 @@ contains
 
   !---
   real(kind=wp) :: nopac, nadd
-  real(kind=wp) :: vtherm, rr, opacity1, opacity_sum
+  real(kind=wp) :: vtherm, rr, opacity1, opacity_sum, rpeak_dens
   real(kind=wp), allocatable :: Temp(:,:,:), tmp_arr(:,:,:)
   real(kind=wp), allocatable :: xx(:), yy(:), zz(:)
 
@@ -342,6 +342,33 @@ contains
         do i=1,grid%nx
            grid%rhokap(i,j,k) = grid%rhokap(i,j,k)*exp(-abs(zz(k))/par%density_zscale)
            if (par%DGR > 0.0_wp) grid%rhokapD(i,j,k) = grid%rhokapD(i,j,k)*exp(-abs(zz(k))/par%density_zscale)
+        enddo
+        enddo
+        enddo
+     endif
+
+     !--- Power-law density profile: n(r) = n0 * (rmax/r)^density_alpha
+     !--- Carr et al. (2018, 2023): n(r) = n0 * (R_SF/r)^delta
+     !--- density_alpha = 0 gives uniform density; density_alpha = 2 gives isothermal (n ~ r^-2).
+     !--- Applied as a multiplicative factor on top of existing density (from taumax/N_HImax normalization).
+     if (par%density_alpha /= 0.0_wp) then
+        if (par%rmax <= 0.0_wp) then
+           rpeak_dens = maxval([grid%xmax,grid%ymax,grid%zmax])
+        else
+           rpeak_dens = par%rmax
+        endif
+        do k=1,grid%nz
+        do j=1,grid%ny
+        do i=1,grid%nx
+           if (trim(par%geometry) == 'cylinder') then
+              rr = sqrt(xx(i)**2 + yy(j)**2)
+           else
+              rr = sqrt(xx(i)**2 + yy(j)**2 + zz(k)**2)
+           endif
+           if (rr > 0.0_wp) then
+              grid%rhokap(i,j,k) = grid%rhokap(i,j,k) * (rpeak_dens/rr)**par%density_alpha
+              if (par%DGR > 0.0_wp) grid%rhokapD(i,j,k) = grid%rhokapD(i,j,k) * (rpeak_dens/rr)**par%density_alpha
+           endif
         enddo
         enddo
         enddo
@@ -728,6 +755,52 @@ contains
               grid%vfx(i,j,k) = par%Vexp/vtherm * xx(i) / rr
               grid%vfy(i,j,k) = par%Vexp/vtherm * yy(j) / rr
               grid%vfz(i,j,k) = par%Vexp/vtherm * zz(k) / rr
+           endif
+        enddo
+        enddo
+        enddo
+     else if (trim(par%velocity_type) == 'power_law') then
+        !--- power-law radial velocity: v(r) = Vexp * (r/rmax)^velocity_alpha
+        !--- Carr et al. (2018, 2023): v = v0 * (r/R_SF)^gamma
+        !--- velocity_alpha = 1 reproduces 'hubble'; velocity_alpha = 0 reproduces 'constant_radial'.
+        if (par%rmax <= 0.0_wp) then
+           par%rpeak = maxval([grid%xmax,grid%ymax,grid%zmax])
+        else
+           par%rpeak = par%rmax
+        endif
+        do k=1,grid%nz
+        do j=1,grid%ny
+        do i=1,grid%nx
+           rr = sqrt(xx(i)**2 + yy(j)**2 + zz(k)**2)
+           if (rr > grid%dz/10.0_wp .and. grid%rhokap(i,j,k) > 0.0_wp) then
+              vtherm = line%vtherm1*sqrt(Temp(i,j,k))
+              Vscale = par%Vexp * (rr / par%rpeak)**par%velocity_alpha
+              grid%vfx(i,j,k) = Vscale/vtherm * xx(i)/rr
+              grid%vfy(i,j,k) = Vscale/vtherm * yy(j)/rr
+              grid%vfz(i,j,k) = Vscale/vtherm * zz(k)/rr
+           endif
+        enddo
+        enddo
+        enddo
+     else if (trim(par%velocity_type) == 'linear_decelerate') then
+        !--- linearly decelerating outflow: v(r) = Vexp * (rmax - r) / (rmax - rmin)
+        !--- Garel et al. (2024, A&A, 691, A213): alpha_V = -1 model.
+        !--- v = Vexp at r = rmin,  v = 0 at r = rmax.
+        if (par%rmax <= 0.0_wp) then
+           par%rpeak = maxval([grid%xmax,grid%ymax,grid%zmax])
+        else
+           par%rpeak = par%rmax
+        endif
+        do k=1,grid%nz
+        do j=1,grid%ny
+        do i=1,grid%nx
+           rr = sqrt(xx(i)**2 + yy(j)**2 + zz(k)**2)
+           if (rr > grid%dz/10.0_wp .and. grid%rhokap(i,j,k) > 0.0_wp) then
+              vtherm = line%vtherm1*sqrt(Temp(i,j,k))
+              Vscale = par%Vexp * max(0.0_wp, (par%rpeak - rr) / (par%rpeak - max(par%rmin, 0.0_wp)))
+              grid%vfx(i,j,k) = Vscale/vtherm * xx(i)/rr
+              grid%vfy(i,j,k) = Vscale/vtherm * yy(j)/rr
+              grid%vfz(i,j,k) = Vscale/vtherm * zz(k)/rr
            endif
         enddo
         enddo

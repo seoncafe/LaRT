@@ -656,6 +656,50 @@ contains
      line%E1        = 1.0_wp
      line%E2        = 0.0_wp
      line%E3        = 1.0_wp
+  case ('CII_1334')
+     !-- C II  2s2.2p 2P^o_{1/2} -> 2s.2p2 2D_{3/2}
+     !-- Resonance:     1334.5326 A (2D_{3/2} -> 2P^o_{1/2}, ground)
+     !-- Fluorescence:  1335.7077 A (2D_{3/2} -> 2P^o_{3/2}, excited ground)
+     !--   also 1335.6626 A (2D_{3/2} -> 2P^o_{3/2}, weak; A=4.76e7)
+     !-- NIST ASD v5.12:
+     !--   1334.5326: A = 2.41e8 s^-1, f = 0.129, gl-gu = 2-4
+     !--   1335.7077: A = 2.88e8 s^-1, f = 0.115, gl-gu = 4-4
+     !--   1335.6626: A = 4.76e7 s^-1, f = 0.0127, gl-gu = 4-4  (blended with 1335.71)
+     !-- Ground-state fine-structure splitting: 2P^o_{3/2} - 2P^o_{1/2} = 63.42 cm^-1
+     !-- E1, E2, E3 from scattering_coefficients.py:
+     !--   Resonance  (1/2 -> 3/2 -> 1/2): E1=1/2,  E2=1/2,  E3=5/6
+     !--   Fluoresc.  (1/2 -> 3/2 -> 3/2): E1=-2/5, E2=7/5,  E3=1/3
+     line%ion_id    = 'C II'
+     line%line_type = 4
+     line%wavelength0 = 0.13345326_wp
+     line%f12(1)    = 0.129_wp
+
+     line%cross0    = sigma_0/sqrt(pi)*line%f12(1)
+     mass_amu       = 12.011_wp
+     line%vtherm1   = vtherm1_amu/sqrt(mass_amu)
+     line%g_recoil0 = (h_planck/amu/mass_amu)/(line%wavelength0*um2m)**2
+     line%nup       = 1
+     allocate(line%b(line%nup))
+
+     line%b(1)%ndown = 2
+     allocate(line%b(1)%A21(line%b(1)%ndown))
+     allocate(line%b(1)%Elow_Hz(line%b(1)%ndown))
+     allocate(line%b(1)%E1(line%b(1)%ndown))
+     allocate(line%b(1)%E2(line%b(1)%ndown))
+     allocate(line%b(1)%E3(line%b(1)%ndown))
+     allocate(line%b(1)%P_down(line%b(1)%ndown))
+     allocate(line%b(1)%A_down(line%b(1)%ndown))
+     !-- A21(2) includes both 1335.71 (2.88e8) and 1335.66 (4.76e7) transitions
+     !-- to the same lower level 2P^o_{3/2}, so A_total = 2.88e8 + 4.76e7 = 3.356e8
+     line%b(1)%A21(1:2)     = [2.41e8_wp,   3.356e8_wp]
+     line%b(1)%Elow_Hz(1:2) = [0.0_wp,    63.42_wp] * speedc_cm
+     line%b(1)%E1(1:2)      = [1.0_wp/2.0_wp, -2.0_wp/5.0_wp]
+     line%b(1)%E2(1:2)      = [1.0_wp/2.0_wp,  7.0_wp/5.0_wp]
+     line%b(1)%E3(1:2)      = [5.0_wp/6.0_wp,  1.0_wp/3.0_wp]
+     line%b(1)%damping      = sum(line%b(1)%A21(:))
+     line%b(1)%P_down(:)    = line%b(1)%A21(:)/line%b(1)%damping
+     call random_alias_setup(line%b(1)%P_down, line%b(1)%A_down)
+     line%damping   = line%b(1)%damping
   case ('SiII_1527')
      !-- vacuum wavelengths 1527.707, 1533.431 (resonance + fluorescence)
      !-- observed wavelengths 1526.72, 1533.45

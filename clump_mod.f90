@@ -170,7 +170,7 @@ contains
   select case (trim(shape_name))
   case ('constant', '')
      f = 1.0_wp
-  case ('powerlaw')
+  case ('powerlaw', 'power_law')
      if (r0 > 0.0_wp) then
         r_floor = 0.05_wp * r0
         r_eff   = max(r,  r_floor)
@@ -268,20 +268,29 @@ contains
   !===========================================================================
   pure real(kind=wp) function shape_radius(r) result(f)
   real(kind=wp), intent(in) :: r
+  real(kind=wp) :: r0_use
+  r0_use = par%clump_radius_r0
+  if (r0_use <= 0.0_wp) r0_use = sphere_R
   f = profile_shape(par%clump_radius_profile,  par%clump_radius_alpha, &
-                    par%clump_radius_r0, r, 1)
+                    r0_use, r, 1)
   end function shape_radius
 
   pure real(kind=wp) function shape_density(r) result(f)
   real(kind=wp), intent(in) :: r
+  real(kind=wp) :: r0_use
+  r0_use = par%clump_density_r0
+  if (r0_use <= 0.0_wp) r0_use = sphere_R
   f = profile_shape(par%clump_density_profile, par%clump_density_alpha, &
-                    par%clump_density_r0, r, 2)
+                    r0_use, r, 2)
   end function shape_density
 
   pure real(kind=wp) function shape_number(r) result(f)
   real(kind=wp), intent(in) :: r
+  real(kind=wp) :: r0_use
+  r0_use = par%clump_number_r0
+  if (r0_use <= 0.0_wp) r0_use = sphere_R
   f = profile_shape(par%clump_number_profile,  par%clump_number_alpha, &
-                    par%clump_number_r0, r, 3)
+                    r0_use, r, 3)
   end function shape_number
   !===========================================================================
 
@@ -1075,6 +1084,24 @@ contains
            vx = par%Vexp * xc / rr
            vy = par%Vexp * yc / rr
            vz = par%Vexp * zc / rr
+        end if
+
+     case ('power_law')
+        ! v(r) = Vexp * (r / sphere_R)^velocity_alpha  [km/s]
+        if (rr > 0.0_wp) then
+           Vscale = par%Vexp * (rr / sphere_R)**par%velocity_alpha
+           vx = Vscale * xc / rr
+           vy = Vscale * yc / rr
+           vz = Vscale * zc / rr
+        end if
+
+     case ('linear_decelerate')
+        ! v(r) = Vexp * (sphere_R - r) / (sphere_R - rmin)  [km/s]
+        if (rr > 0.0_wp) then
+           Vscale = par%Vexp * max(0.0_wp, (sphere_R - rr) / (sphere_R - max(par%rmin, 0.0_wp)))
+           vx = Vscale * xc / rr
+           vy = Vscale * yc / rr
+           vz = Vscale * zc / rr
         end if
 
      case ('parallel_velocity')

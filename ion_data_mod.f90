@@ -9,7 +9,7 @@ module ion_data_mod
   !   solar_ion_density(nH, Z, T, ion_id) -- n_ion = nH*(Z/Z_sun)*A_X*f_ion
   !
   ! Supported ion_id values (matching line%ion_id in line_mod.f90):
-  !   'H  I', 'He I', 'C IV', 'N V', 'O VI', 'Na I', 'Ca II',
+  !   'H  I', 'He I', 'C II', 'C IV', 'N V', 'O VI', 'Na I', 'Ca II',
   !   'Mg II', 'Si IV', 'Al II', 'Si II', 'Fe II'
   !
   ! CIE ion fractions are computed analytically from the same Voronov (1997)
@@ -70,7 +70,7 @@ contains
       A_X = 1.0_wp
     case ('He I')
       A_X = A_He
-    case ('C IV')
+    case ('C II', 'C IV')
       A_X = A_C
     case ('N V')
       A_X = A_N
@@ -118,6 +118,9 @@ contains
     case ('He I')
       ! He I: peak at ~2e4 K, drops above ~3e4 K
       fit = ion_fit_type(4.25_wp, 0.95_wp, 0.25_wp)
+    case ('C II')
+      ! C+: peak at ~2.5e4 K (Gnat & Sternberg 2007)
+      fit = ion_fit_type(4.35_wp, 0.70_wp, 0.22_wp)
     case ('C IV')
       ! C+3: peak at ~1e5 K
       fit = ion_fit_type(5.05_wp, 0.29_wp, 0.20_wp)
