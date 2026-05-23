@@ -295,7 +295,10 @@ public
      logical       :: continuum_normalize = .true.
      real(kind=wp) :: source_zscale       = 0.0_wp
      real(kind=wp) :: distance2cm          = -999.9_wp
-     real(kind=wp) :: gaussian_width_vel   = 12.843374_wp
+     real(kind=wp) :: gaussian_sigma_vel   = 12.843374_wp  ! Gaussian sigma [km/s] for spectral_type='gaussian'
+     real(kind=wp) :: gaussian_FWHM_vel   = -999.0_wp     ! Gaussian FWHM [km/s]; used by 'gaussian' and 'continuum+gaussian' (default 150 for continuum+gaussian)
+     real(kind=wp) :: EW_line             = 0.0_wp         ! equivalent width [Angstrom] for 'continuum+gaussian'
+     real(kind=wp) :: f_line              = 0.0_wp         ! (internal) line photon fraction for 'continuum+gaussian'
      character(len=128) :: distance_unit   = ''
      character(len=128) :: source_geometry = 'point'
      !character(len=128) :: spectral_type   = 'monochromatic'

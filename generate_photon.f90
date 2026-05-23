@@ -250,12 +250,50 @@ contains
      photon%xfreq = photon%xfreq + rand_voigt(voigt_a_local)
   case ('gaussian')
      !--- bug-fixed (2022.05.28)
-     photon%xfreq = photon%xfreq + rand_gauss() * (par%gaussian_width_vel / (line%vtherm1 * sqrt(par%temperature)))
+     !--- gaussian_FWHM_vel takes precedence over gaussian_sigma_vel if > 0.
+     block
+        real(kind=wp) :: gsig
+        if (par%gaussian_FWHM_vel > 0.0_wp) then
+           gsig = par%gaussian_FWHM_vel / 2.3548200450309493_wp
+        else
+           gsig = par%gaussian_sigma_vel
+        end if
+        photon%xfreq = photon%xfreq + rand_gauss() * (gsig / (line%vtherm1 * sqrt(par%temperature)))
+     end block
      photon%xfreq = photon%xfreq / (Dfreq_local / grid%Dfreq_ref)
   case ('line_prof_file')
      photon%xfreq = rand_alias_constant(line_prof%PDF, line_prof%alias, line_prof%xfreq)
      !--- xfreq should be transformed into units of local cell.
      photon%xfreq = photon%xfreq / (Dfreq_local / grid%Dfreq_ref)
+  case ('continuum+gaussian')
+     !--- Flat continuum + Gaussian emission line (Garel et al. 2024 convention).
+     !--- par%EW_line            : equivalent width of the line [Angstrom]
+     !--- par%gaussian_FWHM_vel  : FWHM of the Gaussian line [km/s] (default 150 if not set)
+     !--- f_line is computed internally from EW and the velocity bandwidth.
+     block
+        real(kind=wp) :: EW_vel, dv_range, f_line, sigma_x, fwhm_use
+        real(kind=wp), parameter :: fwhm2sigma = 1.0_wp / 2.3548200450309493_wp
+        real(kind=wp), parameter :: speedc_kms = 2.99792458e5_wp
+        fwhm_use = par%gaussian_FWHM_vel
+        if (fwhm_use <= 0.0_wp) fwhm_use = 150.0_wp
+        !--- EW in velocity units [km/s]
+        EW_vel   = par%EW_line / (line%wavelength0 * 1.0e4_wp) * speedc_kms
+        !--- velocity bandwidth of the continuum [km/s]
+        dv_range = (grid%xfreq_max - grid%xfreq_min) * line%vtherm1 * sqrt(par%temperature)
+        !--- line photon fraction
+        f_line   = EW_vel / (EW_vel + dv_range)
+        if (rand_number() < f_line) then
+           !--- Gaussian line: sigma_x in xfreq units (reference Dfreq)
+           sigma_x = fwhm_use * fwhm2sigma &
+                   / (line%vtherm1 * sqrt(par%temperature))
+           photon%xfreq = photon%xfreq + rand_gauss() * sigma_x
+        else
+           !--- flat continuum
+           photon%xfreq = rand_number() * (grid%xfreq_max - grid%xfreq_min) + grid%xfreq_min
+        end if
+        !--- xfreq should be transformed into units of local cell.
+        photon%xfreq = photon%xfreq / (Dfreq_local / grid%Dfreq_ref)
+     end block
   endselect
 
   !--- if the photon is generated in the lab frame, then the frequency should be transformed to the fluid rest frame.

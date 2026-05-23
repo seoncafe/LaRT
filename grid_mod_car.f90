@@ -1369,6 +1369,23 @@ contains
      grid%wavelength(:) = (grid%velocity(:)/speedc + 1.0_wp) * (line%wavelength0 * 1e4_wp)
   endif
   call MPI_BARRIER(mpar%hostcomm, ierr)
+
+  !--- Compute line photon fraction for 'continuum+gaussian' spectral type.
+  if (trim(par%spectral_type) == 'continuum+gaussian' .and. par%EW_line > 0.0_wp) then
+     block
+        real(kind=wp) :: EW_vel, dv_range
+        real(kind=wp), parameter :: speedc_kms = 2.99792458e5_wp
+        EW_vel   = par%EW_line / (line%wavelength0 * 1.0e4_wp) * speedc_kms
+        dv_range = (grid%xfreq_max - grid%xfreq_min) * line%vtherm1 * sqrt(par%temperature)
+        par%f_line = EW_vel / (EW_vel + dv_range)
+        if (mpar%p_rank == 0) then
+           write(*,'(a,f8.4)') ' continuum+gaussian: f_line = ', par%f_line
+           write(*,'(a,f8.2,a)') '   EW_line = ', par%EW_line, ' A'
+           write(*,'(a,f8.2,a)') '   dv_range = ', dv_range, ' km/s'
+        endif
+     end block
+  endif
+
   end subroutine car_setup_freq_grid
 
   !-----------------

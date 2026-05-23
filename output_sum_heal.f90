@@ -189,13 +189,18 @@ contains
 !        grid%Jabs2(:) = grid%Jabs2(:)/(par%nphotons*intensity_bin_unit*twopi*area)
 !     endif
 !  endif
-  if (trim(par%spectral_type) == 'continuum' .and. par%continuum_normalize) then
+  if ((trim(par%spectral_type) == 'continuum' .or. &
+       trim(par%spectral_type) == 'continuum+gaussian') .and. par%continuum_normalize) then
      if (.not. associated(grid%Jin)) then
         if (mpar%p_rank == 0) write(*,*) &
            'ERROR: continuum_normalize=T requires save_Jin=T'
         call MPI_ABORT(MPI_COMM_WORLD, 1, ierr)
      endif
-     scale_factor = sum(grid%Jin)/size(grid%Jin)
+     if (par%f_line > 0.0_wp .and. par%f_line < 1.0_wp) then
+        scale_factor = sum(grid%Jin)/size(grid%Jin) * (1.0_wp - par%f_line)
+     else
+        scale_factor = sum(grid%Jin)/size(grid%Jin)
+     endif
      grid%Jout(:) = grid%Jout(:)/scale_factor
      grid%Jin(:)  = grid%Jin(:) /scale_factor
      if (associated(grid%Jabs))  grid%Jabs(:)  = grid%Jabs(:) /scale_factor
@@ -412,12 +417,17 @@ contains
   if (associated(grid%Jmu)) &
      grid%Jmu(:,:) = grid%Jmu(:,:) * par%nmu / (par%nphotons * intensity_bin_unit * twopi * area)
 
-  if (trim(par%spectral_type) == 'continuum' .and. par%continuum_normalize) then
+  if ((trim(par%spectral_type) == 'continuum' .or. &
+       trim(par%spectral_type) == 'continuum+gaussian') .and. par%continuum_normalize) then
      if (.not. associated(grid%Jin)) then
         if (mpar%p_rank == 0) write(*,*) 'ERROR: continuum_normalize=T requires save_Jin=T'
         call MPI_ABORT(MPI_COMM_WORLD, 1, k)
      endif
-     scale_factor = sum(grid%Jin)/size(grid%Jin)
+     if (par%f_line > 0.0_wp .and. par%f_line < 1.0_wp) then
+        scale_factor = sum(grid%Jin)/size(grid%Jin) * (1.0_wp - par%f_line)
+     else
+        scale_factor = sum(grid%Jin)/size(grid%Jin)
+     endif
      grid%Jout(:) = grid%Jout(:)/scale_factor
      grid%Jin(:)  = grid%Jin(:) /scale_factor
      if (associated(grid%Jabs)) grid%Jabs(:) = grid%Jabs(:)/scale_factor
