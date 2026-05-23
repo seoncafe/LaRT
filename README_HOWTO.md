@@ -213,6 +213,7 @@ They can be used even when a realistic density is given.
 | `N_HImax` | HI column density from center to outer boundary |
 | `N_HIhomo` | Same, assuming constant density |
 | `N_HI` | Alias for `N_HImax` (deprecated) |
+| `N_gasmax` | Ion column density [cm^-2] (for metal lines with `ion_model='none'`) |
 
 ### Density
 
@@ -276,8 +277,11 @@ The density will be rescaled if `par%taumax`, `par%N_HImax`, etc. are given.
 | Parameter | Default | Description |
 |-----------|---------|-------------|
 | `comoving_source` | `.true.` | Photon source is comoving with the medium |
-| `spectral_type` | `'voigt'` | `'voigt'`, `'voigt0'`, `'monochromatic'`, `'continuum'`, `'gaussian'` |
-| `gaussian_width_vel` | 12.84 | Gaussian line width [km/s] (for `spectral_type = 'gaussian'`) |
+| `spectral_type` | `'voigt'` | `'voigt'`, `'voigt0'`, `'monochromatic'`, `'continuum'`, `'gaussian'`, `'continuum+gaussian'` |
+| `gaussian_sigma_vel` | 12.84 | Gaussian sigma [km/s] for `spectral_type = 'gaussian'` |
+| `gaussian_FWHM_vel` | -999 | Gaussian FWHM [km/s]; overrides sigma if > 0. Used by `'gaussian'` and `'continuum+gaussian'`. |
+| `EW_line` | 0.0 | Equivalent width [Angstrom] for `'continuum+gaussian'` |
+| `continuum_normalize` | `.true.` | Normalize output spectrum so continuum level = 1 |
 | `line_prof_file` | `''` | Custom line profile from file |
 | `line_prof_file_type` | 0 | 0 = (frequency, strength), 1 = (wavelength, strength) |
 
