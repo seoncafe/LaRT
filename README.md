@@ -19,6 +19,7 @@ For scientific background and related methodology, see:
 - [Seon & Kim (2020), ApJS, 250, 9](https://ui.adsabs.harvard.edu/abs/2020ApJS..250....9S/abstract)
 - [Seon et al. (2022), ApJS, 259, 3](https://ui.adsabs.harvard.edu/abs/2022ApJS..259....3S/abstract)
 - [Seon (2024), ApJ, 971, 184](https://ui.adsabs.harvard.edu/abs/2024ApJ...971..184S/abstract)
+- [Yan et al. (2022), ApJ, 936, 177](https://ui.adsabs.harvard.edu/abs/2022ApJ...936..177Y/abstract) — Lyα radiative transfer in exoplanet atmospheres (WASP-52b)
 
 ## Documentation
 
