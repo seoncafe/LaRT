@@ -22,4 +22,9 @@ For scientific background and related methodology, see:
 
 ## Documentation
 
+For compilation instructions, input parameters, and usage examples, see [README_HOWTO.md](README_HOWTO.md).
 Detailed usage instructions are in preparation.
+
+---
+
+Last updated: 2026-05-23
