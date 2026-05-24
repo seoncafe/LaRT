@@ -406,7 +406,8 @@ class ClumpsOutput:
                          figsize: Tuple[float, float] = (7.0, 7.0),
                          title: Optional[str] = None,
                          show: bool = False,
-                         savefig: Optional[str] = None):
+                         savefig: Optional[str] = None,
+                         add_colorbar: Optional[bool] = None):
         r"""Plot the cross-section of clumps that intersect a coordinate
         slice plane.
 
@@ -436,10 +437,15 @@ class ClumpsOutput:
         if colorby is not None and colorby not in _valid_colorby:
             raise ValueError(f"colorby must be one of {_valid_colorby}; "
                              f"got {colorby!r}")
-        if self.x is None or self.radius is None:
+        if self.x is None:
             raise RuntimeError(
-                f"{self.clumps_file!r} did not contain the X/Y/Z and "
-                f"R_CLUMP columns required for slice plotting.")
+                f"{self.clumps_file!r} did not contain the X/Y/Z columns "
+                f"required for slice plotting.")
+        radii = self._radii_array()
+        if radii is None:
+            raise RuntimeError(
+                f"{self.clumps_file!r} did not contain per-clump R_CLUMP "
+                f"nor the scalar CL_RAD attribute required for slice plotting.")
 
         try:
             from plot_clump_slice import slice_clumps, AXIS_TRIPLE
@@ -453,7 +459,7 @@ class ClumpsOutput:
         from matplotlib.patches import Circle
         from matplotlib.collections import PatchCollection
 
-        a, b, rcross, idx = slice_clumps(self.pos, self.radius, axis, value)
+        a, b, rcross, idx = slice_clumps(self.pos, radii, axis, value)
 
         if colorby is None:
             if self.rhokap is not None:
@@ -497,7 +503,7 @@ class ClumpsOutput:
                 color_vals = np.linalg.norm(vel_arr, axis=1)[idx]
                 color_label = r'$|\mathbf{v}|$ [km s$^{-1}$]'
         elif colorby == 'radius':
-            color_vals = np.asarray(self.radius)[idx]
+            color_vals = np.asarray(radii)[idx]
             color_label = r'$R_{\rm clump}$'
         elif colorby == 'rcross':
             color_vals = rcross
@@ -512,8 +518,17 @@ class ClumpsOutput:
 
         if ax is None:
             fig, ax = plt.subplots(figsize=figsize)
+            _owns_fig = True
         else:
             fig = ax.figure
+            _owns_fig = False
+
+        # Auto-resolve add_colorbar: attach a colorbar by default only when
+        # the caller did not supply their own axes.  When ax is passed in,
+        # the caller is managing layout; they can request one explicitly
+        # with add_colorbar=True.
+        if add_colorbar is None:
+            add_colorbar = _owns_fig
 
         R_sphere = self.sphere_r
         if show_sphere and abs(value) < R_sphere:
@@ -549,8 +564,9 @@ class ClumpsOutput:
             if not fill:
                 col.set_facecolor('none')
             ax.add_collection(col)
-            cb = fig.colorbar(col, ax=ax, fraction=0.046, pad=0.04)
-            cb.set_label(color_label)
+            if add_colorbar:
+                cb = fig.colorbar(col, ax=ax, fraction=0.046, pad=0.04)
+                cb.set_label(color_label)
 
         _, _, _, lab_a, lab_b = AXIS_TRIPLE[axis]
         ax.set_xlabel(lab_a)
@@ -571,7 +587,8 @@ class ClumpsOutput:
         if show_sphere and abs(value) < R_sphere:
             ax.legend(loc='lower right', fontsize=8)
 
-        fig.tight_layout()
+        if _owns_fig:
+            fig.tight_layout()
         if savefig:
             fig.savefig(savefig, dpi=150)
         if show:

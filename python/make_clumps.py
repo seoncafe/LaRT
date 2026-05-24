@@ -68,6 +68,17 @@ from typing import Dict, Tuple
 
 import numpy as np
 
+# numba is used to JIT the RSA inner loop (overlap test + linked-list
+# insert). Falls back to a pure-Python path if numba is unavailable.
+try:
+    from numba import njit
+    _HAVE_NUMBA = True
+except Exception:
+    _HAVE_NUMBA = False
+    def njit(*a, **k):
+        def deco(fn): return fn
+        return deco if (len(a) == 0 or not callable(a[0])) else a[0]
+
 # ---------------------------------------------------------------------------
 # Physical constants (mirror line_mod.f90 / define.f90)
 # ---------------------------------------------------------------------------
@@ -267,59 +278,107 @@ class RadialProfile:
 
 
 # ---------------------------------------------------------------------------
-# RSA placement with a hash grid
+# RSA placement: numba-accelerated CSR linked-list hash grid
 # ---------------------------------------------------------------------------
-class HashGrid:
-    """Uniform 3D grid storing clump indices, for O(N) neighbor lookup.
+def _hash_grid_params(sphere_R: float, n_expected: int, r_cl_max: float
+                      ) -> Tuple[int, float]:
+    """Pick a (rg, rg_cell) such that cell size >= 2 * r_cl_max.
 
-    Cell size is at least 2 * r_cl_max so the 27-neighbor search captures
-    every possible overlap, matching the Fortran linked-list grid.
+    Same heuristic as the legacy ``HashGrid`` class: target ~N^(1/3)
+    cells per side, clamped to [32, 512], then enforce the minimum
+    cell size so the 27-neighbor stencil captures every overlap.
     """
+    rg = min(512, max(32, int(round(n_expected ** (1.0 / 3.0))) + 1))
+    rg_cell = max(2.0 * sphere_R / rg, 2.0 * r_cl_max)
+    rg = max(2, int((2.0 * sphere_R) / rg_cell) + 1)
+    rg_cell = (2.0 * sphere_R) / rg
+    return rg, rg_cell
 
-    def __init__(self, sphere_R: float, n_expected: int, r_cl_max: float):
-        rg = min(512, max(32, int(round(n_expected ** (1.0 / 3.0))) + 1))
-        rg_cell = max(2.0 * sphere_R / rg, 2.0 * r_cl_max)
-        rg = max(2, int((2.0 * sphere_R) / rg_cell) + 1)
-        rg_cell = (2.0 * sphere_R) / rg
-        self.rg = rg
-        self.rg_cell = rg_cell
-        self.sphere_R = sphere_R
-        self.cells: Dict[Tuple[int, int, int], list] = {}
 
-    def cell_idx(self, x: float, y: float, z: float) -> Tuple[int, int, int]:
-        ig = min(self.rg - 1, max(0, int((x + self.sphere_R) / self.rg_cell)))
-        jg = min(self.rg - 1, max(0, int((y + self.sphere_R) / self.rg_cell)))
-        kg = min(self.rg - 1, max(0, int((z + self.sphere_R) / self.rg_cell)))
-        return (ig, jg, kg)
+@njit(cache=True, fastmath=True)
+def _rsa_kernel(N_target: int,
+                xb: np.ndarray, yb: np.ndarray, zb: np.ndarray,
+                rcl_batch: np.ndarray, ok_geom: np.ndarray,
+                cl_x: np.ndarray, cl_y: np.ndarray, cl_z: np.ndarray,
+                cl_r: np.ndarray,
+                head: np.ndarray, nxt: np.ndarray,
+                rg: int, rg_cell: float, sphere_R: float,
+                placed_start: int,
+                profiles_active: bool, min_sep2_uniform: float,
+                allow_overlap: bool) -> int:
+    """Place candidates from one batch into the linked-list hash grid.
 
-    def insert(self, x: float, y: float, z: float, idx: int) -> Tuple[int, int, int]:
-        c = self.cell_idx(x, y, z)
-        self.cells.setdefault(c, []).append(idx)
-        return c
+    Returns the new ``placed`` count. Mutates ``cl_x/y/z/r``, ``head``,
+    ``nxt`` in place.
+    """
+    placed = placed_start
+    n_batch = xb.shape[0]
+    inv_cell = 1.0 / rg_cell
+    rgm1 = rg - 1
+    rg2  = rg * rg
 
-    def query_overlap(self, x: float, y: float, z: float, rcl: float,
-                      cl_x: np.ndarray, cl_y: np.ndarray, cl_z: np.ndarray,
-                      cl_r: np.ndarray, profiles_active: bool,
-                      min_sep2_uniform: float) -> bool:
-        ig, jg, kg = self.cell_idx(x, y, z)
-        for kg2 in range(max(0, kg - 1), min(self.rg, kg + 2)):
-            for jg2 in range(max(0, jg - 1), min(self.rg, jg + 2)):
-                for ig2 in range(max(0, ig - 1), min(self.rg, ig + 2)):
-                    lst = self.cells.get((ig2, jg2, kg2))
-                    if not lst:
-                        continue
-                    # vectorize the inner test over this bucket
-                    j = np.asarray(lst, dtype=np.int64)
-                    dx = x - cl_x[j];  dy = y - cl_y[j];  dz = z - cl_z[j]
-                    d2 = dx * dx + dy * dy + dz * dz
-                    if profiles_active:
-                        sep = rcl + cl_r[j]
-                        if (d2 < sep * sep).any():
-                            return True
-                    else:
-                        if (d2 < min_sep2_uniform).any():
-                            return True
-        return False
+    for k in range(n_batch):
+        if placed >= N_target:
+            return placed
+        if not ok_geom[k]:
+            continue
+        x = xb[k]; y = yb[k]; z = zb[k]; rcl = rcl_batch[k]
+
+        ig = int((x + sphere_R) * inv_cell)
+        if ig < 0: ig = 0
+        elif ig > rgm1: ig = rgm1
+        jg = int((y + sphere_R) * inv_cell)
+        if jg < 0: jg = 0
+        elif jg > rgm1: jg = rgm1
+        kg = int((z + sphere_R) * inv_cell)
+        if kg < 0: kg = 0
+        elif kg > rgm1: kg = rgm1
+
+        overlap = False
+        if not allow_overlap:
+            kg_lo = kg - 1 if kg > 0 else 0
+            kg_hi = kg + 2 if kg + 2 <= rg else rg
+            jg_lo = jg - 1 if jg > 0 else 0
+            jg_hi = jg + 2 if jg + 2 <= rg else rg
+            ig_lo = ig - 1 if ig > 0 else 0
+            ig_hi = ig + 2 if ig + 2 <= rg else rg
+            for kk in range(kg_lo, kg_hi):
+                for jj in range(jg_lo, jg_hi):
+                    for ii in range(ig_lo, ig_hi):
+                        cidx = kk * rg2 + jj * rg + ii
+                        idx = head[cidx]
+                        while idx >= 0:
+                            dx = x - cl_x[idx]
+                            dy = y - cl_y[idx]
+                            dz = z - cl_z[idx]
+                            d2 = dx * dx + dy * dy + dz * dz
+                            if profiles_active:
+                                sep = rcl + cl_r[idx]
+                                if d2 < sep * sep:
+                                    overlap = True
+                                    break
+                            else:
+                                if d2 < min_sep2_uniform:
+                                    overlap = True
+                                    break
+                            idx = nxt[idx]
+                        if overlap: break
+                    if overlap: break
+                if overlap: break
+
+        if overlap:
+            continue
+
+        cl_x[placed] = x
+        cl_y[placed] = y
+        cl_z[placed] = z
+        cl_r[placed] = rcl
+        cidx = kg * rg2 + jg * rg + ig
+        nxt[placed]  = head[cidx]
+        head[cidx]   = placed
+        placed += 1
+
+    return placed
 
 
 # ---------------------------------------------------------------------------
@@ -571,10 +630,15 @@ def generate_clumps(args, sphere_R: float, r_min_clump: float,
         r_max_center = sphere_R
         r_min_center = r_min_clump
 
-    grid = HashGrid(sphere_R, N, r_cl_max)
+    rg, rg_cell = _hash_grid_params(sphere_R, N, r_cl_max)
+    head = np.full(rg * rg * rg, -1, dtype=np.int64)
+    nxt  = np.full(N,             -1, dtype=np.int64)
     min_sep2_uniform = (2.0 * base_radius) ** 2
+    profiles_active = prof is not None
+    allow_overlap = bool(args.clump_allow_overlap)
 
-    print(f' RSA: grid {grid.rg}^3, placing {N} clumps...')
+    print(f' RSA: grid {rg}^3, placing {N} clumps...  '
+          f'(numba={"on" if _HAVE_NUMBA else "off (fallback)"})')
     print(f' RSA: clump_fully_inside = {args.clump_fully_inside}')
     if r_min_clump > 0:
         print(f' RSA: shell rmin/rmax    = {r_min_clump:.5f} {sphere_R:.5f}')
@@ -593,39 +657,40 @@ def generate_clumps(args, sphere_R: float, r_min_clump: float,
         if prof is None:
             xb, yb, zb, rb, ct, st = sample_positions_uniform(
                 batch, r_min_center, r_max_center, cos_cone, rng)
-            rcl_batch = np.full(batch, base_radius)
-            ok_geom = np.ones(batch, dtype=bool)
+            rcl_batch = np.full(batch, base_radius, dtype=np.float64)
+            ok_geom = np.ones(batch, dtype=np.bool_)
             if args.clump_fully_inside and cos_cone > 0:
                 ok_geom = cone_fully_inside_ok(rb, ct, st, rcl_batch, cos_cone)
         else:
             xb, yb, zb, rb, ct, st = sample_positions_profile(batch, prof, cos_cone, rng)
-            rcl_batch = prof.eval_radius(rb, base_radius)
-            ok_geom = np.ones(batch, dtype=bool)
+            rcl_batch = prof.eval_radius(rb, base_radius).astype(np.float64, copy=False)
+            ok_geom = np.ones(batch, dtype=np.bool_)
             if args.clump_fully_inside:
                 ok_geom &= (rb + rcl_batch <= sphere_R)
                 ok_geom &= (rb - rcl_batch >= r_min_clump)
                 if cos_cone > 0:
                     ok_geom &= cone_fully_inside_ok(rb, ct, st, rcl_batch, cos_cone)
 
-        for k in range(batch):
-            if placed >= N:
-                break
-            if not ok_geom[k]:
-                continue
-            x, y, z, rcl = xb[k], yb[k], zb[k], rcl_batch[k]
-            if not args.clump_allow_overlap:
-                if grid.query_overlap(x, y, z, rcl, cl_x, cl_y, cl_z, cl_r,
-                                      prof is not None, min_sep2_uniform):
-                    continue
-            cl_x[placed] = x;  cl_y[placed] = y;  cl_z[placed] = z
-            cl_r[placed] = rcl
-            grid.insert(x, y, z, placed)
-            placed += 1
-            if placed >= next_report:
-                dt = time.time() - t0
-                print(f'   placed {placed:>10d} / {N}   '
-                      f'(attempts={attempts}, {placed/dt:.1e} clumps/s)')
-                next_report += 100000
+        new_placed = _rsa_kernel(
+            N, xb, yb, zb, rcl_batch, ok_geom,
+            cl_x, cl_y, cl_z, cl_r,
+            head, nxt, rg, rg_cell, sphere_R,
+            placed, profiles_active, min_sep2_uniform, allow_overlap)
+
+        if new_placed >= next_report:
+            dt = time.time() - t0
+            print(f'   placed {new_placed:>10d} / {N}   '
+                  f'(attempts={attempts}, {new_placed/max(dt,1e-9):.1e} clumps/s)')
+            next_report = ((new_placed // 100000) + 1) * 100000
+
+        if new_placed == placed:
+            # No progress in this batch -- rare but possible if cone+overlap
+            # acceptance is extremely low. Continue; outer while loop will
+            # try another batch.
+            if attempts > 200 * max(N, 1):
+                sys.exit(f'ERROR: RSA stalled at {new_placed}/{N} after '
+                         f'{attempts} attempts; loosen geometry or N.')
+        placed = new_placed
 
     acc = N / max(attempts, 1) * 100.0
     if args.clump_allow_overlap:

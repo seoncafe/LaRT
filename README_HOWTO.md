@@ -445,7 +445,7 @@ Activated by `par%use_clump_medium = .true.`.
 | `clump_fully_inside` | `.true.` | All clumps fully inside the sphere |
 | `clump_allow_overlap` | `.false.` | Allow overlapping clumps (overlap-aware raytrace) |
 | `save_clump_info` | `.false.` | Write clump positions/velocities to output |
-| `clump_input_file` | `''` | Load clump positions from external file (`.h5`, `.fits.gz`, or `.dat`). Generate with `make make_clumps && ./make_clumps.x <in>` (Fortran) or `python python/make_clumps.py ... -o file.h5` (Python). |
+| `clump_input_file` | `''` | Load clump positions from external file (`.h5`, `.fits.gz`, or `.dat`). Generate with the standalone CLI driver `make make_clumps && ./make_clumps.x --rmax 1.0 --clump_radius 1e-3 --clump_f_cov 5 --clump_tau0 1e3 --line_id ly_alpha -o file.h5` (Fortran, no MPI / no namelist) or the Python equivalent `python python/make_clumps.py ... -o file.h5`. Run `./make_clumps.x --help` for the full flag list. |
 
 ### Spatially-Varying Clump Profiles
 

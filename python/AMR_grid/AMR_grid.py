@@ -1940,7 +1940,8 @@ class AMRGrid:
                    boundary_alpha=0.7,
                    show_leaf_centers=False,
                    center_color='k', center_marker='o',
-                   center_size=8, center_alpha=0.9, **kwargs):
+                   center_size=8, center_alpha=0.9,
+                   add_colorbar=None, **kwargs):
         """
         Quick 2-D slice plot of a physical quantity through the grid.
 
@@ -2025,8 +2026,15 @@ class AMRGrid:
         from matplotlib.collections import PolyCollection
         from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 
-        if ax is None:
+        _owns_fig = (ax is None)
+        if _owns_fig:
             _, ax = plt.subplots()
+        # Auto-resolve add_colorbar: only attach a colorbar by default when
+        # the caller did not pass their own axes (i.e. standalone usage).
+        # When ax is supplied, the caller is managing layout and should add
+        # the colorbar themselves; pass add_colorbar=True to force one.
+        if add_colorbar is None:
+            add_colorbar = _owns_fig
 
         if background_color is not None:
             ax.set_facecolor(background_color)
@@ -2156,5 +2164,6 @@ class AMRGrid:
         ax.set_ylabel(va)
         label = f'log10({quantity_label})' if log else quantity_label
 
-        ax.figure.colorbar(pc, ax=ax, label=label, fraction=0.046, pad=0.04)
+        if add_colorbar:
+            ax.figure.colorbar(pc, ax=ax, label=label, fraction=0.046, pad=0.04)
         return pc

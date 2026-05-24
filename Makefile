@@ -177,15 +177,6 @@ default: clean main
 main:$(OBJSB) $(MAIN).o
 	$(FC) $(MAIN).o $(OBJSB) $(LDFLAGS) -o $(exec)
 
-# Standalone clump generator. Same OBJSB list as LaRT.x; only the program
-# entry point differs (make_clumps.f90 instead of main.f90). Build via:
-#     make make_clumps
-make_clumps: clean make_clumps_link
-	/bin/rm -rf *.o *.mod
-
-make_clumps_link: $(OBJSB) make_clumps.o
-	$(FC) make_clumps.o $(OBJSB) $(LDFLAGS) -o make_clumps.x
-
 # Standalone sight-line optical-depth / column-density map calculator.
 # Reuses the same OBJSB list and the procedure-pointer make_sightline_tau
 # dispatch.  Build via:  make sightline_tau   ->  make_sightline_tau.x
@@ -219,6 +210,16 @@ make_amr_sphere:
 	$(FC) $(FFLAGS) -c iofile_mod.f90
 	$(FC) $(FFLAGS) -c make_amr_sphere_radial.f90
 	$(FC) $(FFLAGS) define.o fitsio_mod.o hdf5io_mod.o iofile_mod.o make_amr_sphere_radial.o -lcfitsio -L/usr/local/lib $(HDF5_LIBS) -o make_amr_sphere_radial.x
+
+# Standalone clump generator (no MPI, no namelist input -- CLI args only)
+make_clumps:
+	$(FC) $(FFLAGS) -c define.f90
+	$(FC) $(FFLAGS) -c fitsio_mod.f90
+	$(FC) $(FFLAGS) -c hdf5io_mod.f90
+	$(FC) $(FFLAGS) -c iofile_mod.f90
+	$(FC) $(FFLAGS) -c voigt_mod.f90
+	$(FC) $(FFLAGS) -c make_clumps.f90
+	$(FC) $(FFLAGS) define.o fitsio_mod.o hdf5io_mod.o iofile_mod.o voigt_mod.o make_clumps.o -lcfitsio -L/usr/local/lib $(HDF5_LIBS) -o make_clumps.x
 
 clean:
 	/bin/rm -f *.o *.mod
