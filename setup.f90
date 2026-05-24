@@ -37,7 +37,7 @@ contains
   read(unit,parameters)
   close(unit)
 
-  if (par%no_photons > 1) par%nphotons = par%no_photons
+  if (par%no_photons >= 1) par%nphotons = par%no_photons
   if (par%no_print   > 1) par%nprint   = par%no_print
   if (par%nprint >= par%nphotons) par%nprint = par%nphotons/10
   if (par%no_photons <= 10) par%nprint = 1

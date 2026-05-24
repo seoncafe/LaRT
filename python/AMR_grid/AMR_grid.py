@@ -1460,6 +1460,14 @@ class AMRGrid:
                 "HDF5 I/O requires h5py. Install h5py to read/write "
                 ".h5 or .hdf5 AMR files."
             )
+        _ver = tuple(int(x) for x in h5py.__version__.split('.')[:2])
+        if _ver < (2, 9):
+            raise RuntimeError(
+                f"h5py >= 2.9 is required for HDF5 I/O "
+                f"(found {h5py.__version__}). Older versions produce "
+                f"files unreadable by newer HDF5 libraries. "
+                f"Please use a newer Python environment (e.g. conda)."
+            )
 
     def _leaf_table_array(self):
         leaflist = self.leaves()
@@ -2148,14 +2156,5 @@ class AMRGrid:
         ax.set_ylabel(va)
         label = f'log10({quantity_label})' if log else quantity_label
 
-        cax = inset_axes(
-            ax,
-            width="4%",
-            height="100%",
-            loc='lower left',
-            bbox_to_anchor=(1.02, 0.0, 1.0, 1.0),
-            bbox_transform=ax.transAxes,
-            borderpad=0,
-        )
-        ax.figure.colorbar(pc, cax=cax, label=label)
+        ax.figure.colorbar(pc, ax=ax, label=label, fraction=0.046, pad=0.04)
         return pc
