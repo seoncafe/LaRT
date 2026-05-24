@@ -27,7 +27,7 @@ contains
 
   !---
   real(kind=wp) :: nopac, nadd
-  real(kind=wp) :: vtherm, rr, opacity1, opacity_sum, rpeak_dens
+  real(kind=wp) :: vtherm, rr, opacity1, opacity_sum, rpeak_dens, cos_cone
   real(kind=wp), allocatable :: Temp(:,:,:), tmp_arr(:,:,:)
   real(kind=wp), allocatable :: xx(:), yy(:), zz(:)
 
@@ -314,6 +314,24 @@ contains
            if (rr < density_rmin .or. rr > density_rmax) then
               grid%rhokap(i,j,k) = 0.0_wp
               if (par%DGR > 0.0_wp) grid%rhokapD(i,j,k) = 0.0_wp
+           endif
+        enddo
+        enddo
+        enddo
+     endif
+
+     !--- Biconical mask: zero density outside the cone (z-axis)
+     if (par%cone_opening > 0.0_wp .and. par%cone_opening < 90.0_wp) then
+        cos_cone = cos(par%cone_opening * deg2rad)
+        do k=1,grid%nz
+        do j=1,grid%ny
+        do i=1,grid%nx
+           rr = sqrt(xx(i)**2 + yy(j)**2 + zz(k)**2)
+           if (rr > 0.0_wp) then
+              if (abs(zz(k)) / rr < cos_cone) then
+                 grid%rhokap(i,j,k) = 0.0_wp
+                 if (par%DGR > 0.0_wp) grid%rhokapD(i,j,k) = 0.0_wp
+              endif
            endif
         enddo
         enddo

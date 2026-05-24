@@ -23,7 +23,7 @@ Velocity laws (--velocity):
   none           — zero velocity everywhere (default)
   hubble         — Hubble-like expansion: v_r = V_exp * r/rmax  (v ∝ r)
   constant_radial — constant radial outflow: v_r = V_exp  (uniform speed)
-  power_law      — power-law radial: v_r = V_exp * (r/rmax)^v_power
+  power_law      — power-law radial: v_r = V_exp * (r/rmax)^velocity_alpha
 
   For all laws, (vx,vy,vz) are the Cartesian projections of the radial
   velocity.  Negative V_exp gives inflow.  Velocities are zero outside rmax.
@@ -54,7 +54,7 @@ Usage
     python make_amr_sphere_radial.py --velocity constant_radial --vexp 100
 
     # Power-law v_r = 200*(r/rmax)^2
-    python make_amr_sphere_radial.py --velocity power_law --vexp 200 --v_power 2.0
+    python make_amr_sphere_radial.py --velocity power_law --vexp 200 --velocity_alpha 2.0
 
     # Solid-body rotation about z-axis (Garavito-Camargo+2014)
     python make_amr_sphere_radial.py --velocity rotating_solid_body --vrot 150
@@ -87,23 +87,39 @@ from AMR_grid import AMRGrid
 # ---------------------------------------------------------------------------
 
 def make_density_fn(profile, n0, rmax, sigma=None, r_scale=None,
-                    density_alpha=0.0, rmin=0.0):
+                    density_alpha=0.0, rmin=0.0, cone_opening=0.0):
+    # Precompute cone mask threshold
+    if 0.0 < cone_opening < 90.0:
+        cos_cone = np.cos(np.radians(cone_opening))
+    else:
+        cos_cone = None  # no cone mask
+
+    def _apply_cone(dens, x, y, z, r):
+        """Zero density outside the bicone (z-axis)."""
+        if cos_cone is None:
+            return dens
+        cos_theta = np.where(r > 0, np.abs(np.asarray(z)) / r, 1.0)
+        return np.where(cos_theta >= cos_cone, dens, 0.0)
+
     if profile == 'uniform':
         def fn(x, y, z):
             r = np.sqrt(np.asarray(x)**2 + np.asarray(y)**2 + np.asarray(z)**2)
-            return np.where((r <= rmax) & (r >= rmin), n0, 0.0)
+            d = np.where((r <= rmax) & (r >= rmin), n0, 0.0)
+            return _apply_cone(d, x, y, z, r)
     elif profile == 'gaussian':
         sig = sigma if sigma else rmax * 0.4
         def fn(x, y, z):
             r2 = np.asarray(x)**2 + np.asarray(y)**2 + np.asarray(z)**2
             r  = np.sqrt(r2)
-            return np.where((r <= rmax) & (r >= rmin),
-                            n0 * np.exp(-r2 / (2.0 * sig**2)), 0.0)
+            d = np.where((r <= rmax) & (r >= rmin),
+                         n0 * np.exp(-r2 / (2.0 * sig**2)), 0.0)
+            return _apply_cone(d, x, y, z, r)
     elif profile == 'exponential':
         rs = r_scale if r_scale else rmax * 0.3
         def fn(x, y, z):
             r = np.sqrt(np.asarray(x)**2 + np.asarray(y)**2 + np.asarray(z)**2)
-            return np.where((r <= rmax) & (r >= rmin), n0 * np.exp(-r / rs), 0.0)
+            d = np.where((r <= rmax) & (r >= rmin), n0 * np.exp(-r / rs), 0.0)
+            return _apply_cone(d, x, y, z, r)
     elif profile == 'power_law':
         # n(r) = n0 * (rmax/r)^density_alpha
         # Matches LaRT Cartesian convention in grid_mod_car.f90.
@@ -111,7 +127,8 @@ def make_density_fn(profile, n0, rmax, sigma=None, r_scale=None,
             r = np.sqrt(np.asarray(x)**2 + np.asarray(y)**2 + np.asarray(z)**2)
             safe_r = np.where(r > 0, r, 1.0)
             dens = n0 * (rmax / safe_r) ** density_alpha
-            return np.where((r <= rmax) & (r >= rmin) & (r > 0), dens, 0.0)
+            d = np.where((r <= rmax) & (r >= rmin) & (r > 0), dens, 0.0)
+            return _apply_cone(d, x, y, z, r)
     else:
         raise ValueError(f'Unknown density profile: {profile!r}')
     return fn
@@ -121,7 +138,7 @@ def make_density_fn(profile, n0, rmax, sigma=None, r_scale=None,
 # Velocity laws
 # ---------------------------------------------------------------------------
 
-def make_velocity_fn(law, rmax, v_exp=0.0, v_power=1.0, vrot=0.0, rinner=None,
+def make_velocity_fn(law, rmax, v_exp=0.0, velocity_alpha=1.0, vrot=0.0, rinner=None,
                      rmin=0.0):
     """
     Return a vectorised velocity function  fn(x, y, z) -> (vx, vy, vz) [km/s].
@@ -136,8 +153,8 @@ def make_velocity_fn(law, rmax, v_exp=0.0, v_power=1.0, vrot=0.0, rinner=None,
         Sphere radius (code units).
     v_exp : float
         Characteristic speed [km/s] for radial laws.  Negative = inflow.
-    v_power : float
-        Exponent for 'power_law'  (v_r = v_exp * (r/rmax)^v_power).
+    velocity_alpha : float
+        Exponent for 'power_law'  (v_r = v_exp * (r/rmax)^velocity_alpha).
     vrot : float
         Maximum rotation speed [km/s] for rotation laws.
     rinner : float or None
@@ -173,7 +190,7 @@ def make_velocity_fn(law, rmax, v_exp=0.0, v_power=1.0, vrot=0.0, rinner=None,
 
             else:  # power_law
                 vr    = np.where(inside & (r > 0.0),
-                                 v_exp * (safe_r / rmax) ** v_power, 0.0)
+                                 v_exp * (safe_r / rmax) ** velocity_alpha, 0.0)
                 scale = np.where(r > 0.0, vr / safe_r, 0.0)
                 return scale * x_, scale * y_, scale * z_
         return fn
@@ -231,8 +248,9 @@ def build_radial_grid(boxlen, rmax, level_min, level_max, spacing, ratio,
                       density_alpha=0.0, rmin=0.0,
                       custom_radii=None, refine_boundary=False,
                       boundary_level_max=None,
-                      velocity='none', v_exp=0.0, v_power=1.0,
-                      vrot=0.0, rinner=None):
+                      velocity='none', v_exp=0.0, velocity_alpha=1.0,
+                      vrot=0.0, rinner=None,
+                      cone_opening=0.0):
     """
     Build and return an AMRGrid with radial shell refinement.
 
@@ -243,9 +261,10 @@ def build_radial_grid(boxlen, rmax, level_min, level_max, spacing, ratio,
         Shell boundary radii used (outermost first).
     """
     dens_fn = make_density_fn(density, n0, rmax, sigma=sigma, r_scale=r_scale,
-                              density_alpha=density_alpha, rmin=rmin)
+                              density_alpha=density_alpha, rmin=rmin,
+                              cone_opening=cone_opening)
     vel_fn  = make_velocity_fn(velocity, rmax,
-                               v_exp=v_exp, v_power=v_power,
+                               v_exp=v_exp, velocity_alpha=velocity_alpha,
                                vrot=vrot, rinner=rinner, rmin=rmin)
 
     grid = AMRGrid(boxlen)
@@ -260,10 +279,39 @@ def build_radial_grid(boxlen, rmax, level_min, level_max, spacing, ratio,
         boundary_level_max = boundary_level_max,
     )
 
+    # Cone boundary refinement: refine cells that straddle the cone surface
+    if refine_boundary and 0.0 < cone_opening < 90.0:
+        cos_cone = np.cos(np.radians(cone_opening))
+        blmax = boundary_level_max if boundary_level_max is not None else level_max
+
+        def _cone_inside(c):
+            """All 8 corners inside the cone (|cos(theta)| >= cos_cone)."""
+            corners = c.corners()
+            r = np.sqrt(corners[:,0]**2 + corners[:,1]**2 + corners[:,2]**2)
+            r = np.where(r > 0, r, 1.0)
+            cos_th = np.abs(corners[:,2]) / r
+            return bool(np.all(cos_th >= cos_cone))
+
+        def _cone_intersects(c):
+            """At least one corner inside the cone."""
+            corners = c.corners()
+            r = np.sqrt(corners[:,0]**2 + corners[:,1]**2 + corners[:,2]**2)
+            r = np.where(r > 0, r, 1.0)
+            cos_th = np.abs(corners[:,2]) / r
+            return bool(np.any(cos_th >= cos_cone))
+
+        grid.refine_geometry(_cone_inside, _cone_intersects, blmax,
+                             criterion_inside=None)
+
     grid.set_density(dens_fn)
     grid.set_temperature(temperature)
     if vel_fn is not None:
         grid.set_velocity(vel_fn)
+
+    # Zero velocity where density is zero
+    for lf in grid.leaves():
+        if lf.dens == 0.0:
+            lf.vx = 0.0; lf.vy = 0.0; lf.vz = 0.0
 
     # Compute the shell radii actually used (for reporting)
     n_shells = level_max - level_min + 1
@@ -311,7 +359,7 @@ def _suffix_filename(path, suffix):
 # ---------------------------------------------------------------------------
 
 def print_lart_hint(outfile, boxlen, temperature, taumax=1e4, nphotons=1e6,
-                    velocity='none', v_exp=0.0, v_power=1.0,
+                    velocity='none', v_exp=0.0, velocity_alpha=1.0,
                     vrot=0.0, rinner=None):
     print()
     print('─' * 60)
@@ -337,7 +385,7 @@ def print_lart_hint(outfile, boxlen, temperature, taumax=1e4, nphotons=1e6,
         if velocity in ('hubble', 'constant_radial'):
             vel_info = f"V_exp={v_exp} km/s"
         elif velocity == 'power_law':
-            vel_info = f"V_exp={v_exp} km/s, power={v_power}"
+            vel_info = f"V_exp={v_exp} km/s, power={velocity_alpha}"
         elif velocity == 'rotating_solid_body':
             vel_info = f"Vrot={vrot} km/s"
         elif velocity == 'rotating_galaxy_halo':
@@ -560,15 +608,17 @@ def parse_args():
                     help='Velocity law (default: none)\n'
                          '  hubble               : v_r = V_exp * r/rmax\n'
                          '  constant_radial      : v_r = V_exp\n'
-                         '  power_law            : v_r = V_exp * (r/rmax)^v_power\n'
+                         '  power_law            : v_r = V_exp * (r/rmax)^velocity_alpha\n'
                          '  linear_decelerate    : v_r = V_exp * (rmax-r)/(rmax-rmin)\n'
                          '  rotating_solid_body  : solid-body rotation about z (Garavito-Camargo+2014)\n'
                          '  rotating_galaxy_halo : flat rotation above rinner (Kim et al.)')
     vg.add_argument('--vexp', type=float, default=0.0,
                     help='[hubble/constant_radial/power_law] '
                          'characteristic speed [km/s] (default: 0). Negative = inflow.')
-    vg.add_argument('--v_power', type=float, default=1.0,
+    vg.add_argument('--velocity_alpha', '--v_power', type=float, default=1.0,
                     help='[power_law] exponent (default: 1.0)')
+    vg.add_argument('--cone_opening', type=float, default=0.0,
+                    help='Bicone half-opening angle [deg]; 0 = full sphere (default: 0)')
     vg.add_argument('--vrot', type=float, default=0.0,
                     help='[rotating_*] maximum rotation speed [km/s] (default: 0)')
     vg.add_argument('--rinner', type=float, default=None,
@@ -612,9 +662,10 @@ def main():
         boundary_level_max = args.boundary_level_max,
         velocity           = args.velocity,
         v_exp              = args.vexp,
-        v_power            = args.v_power,
+        velocity_alpha            = args.velocity_alpha,
         vrot               = args.vrot,
         rinner             = args.rinner,
+        cone_opening       = args.cone_opening,
     )
 
     if args.compare:
@@ -664,7 +715,7 @@ def main():
             else:
                 vel_desc = f'{args.velocity}  V_exp={args.vexp} km/s'
                 if args.velocity == 'power_law':
-                    vel_desc += f'  power={args.v_power}'
+                    vel_desc += f'  power={args.velocity_alpha}'
             print(f'  velocity : {vel_desc}')
         blmax = args.boundary_level_max if args.boundary_level_max is not None else args.level_max
         print(f'  AMR      : level_min={args.level_min}  level_max={args.level_max}'
@@ -699,7 +750,7 @@ def main():
         print_lart_hint(args.output, args.boxlen, args.temperature,
                         taumax=args.taumax,
                         velocity=args.velocity, v_exp=args.vexp,
-                        v_power=args.v_power,
+                        velocity_alpha=args.velocity_alpha,
                         vrot=args.vrot, rinner=args.rinner)
 
 

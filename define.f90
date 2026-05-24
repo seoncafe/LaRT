@@ -270,6 +270,7 @@ public
      real(kind=wp) :: density_zscale = -999.9_wp
      real(kind=wp) :: density_alpha  = 0.0_wp   ! power-law index: n(r) = n0*(rmax/r)^density_alpha
      real(kind=wp) :: velocity_alpha = 1.0_wp   ! power-law index: v(r) = Vexp*(r/rmax)^velocity_alpha
+     real(kind=wp) :: cone_opening   = 0.0_wp   ! bicone half-opening angle [deg]; 0 = full sphere
      !--- location of a point source
      real(kind=wp) :: xs_point = 0.0_wp
      real(kind=wp) :: ys_point = 0.0_wp

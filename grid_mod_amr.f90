@@ -58,9 +58,9 @@ contains
 
     ! Working arrays
     real(wp), allocatable :: nHI_frac(:)   ! nHI/nH neutral fraction
-    integer  :: il
+    integer  :: il, icell
     real(wp) :: vtherm
-    real(wp) :: nH, opacity_sum, nopac, opac_norm, opac_length
+    real(wp) :: nH, opacity_sum, nopac, opac_norm, opac_length, cos_cone, rr
     real(wp) :: xscale, atau0, atau0_cell, xi, chi
     real(wp) :: taupole, N_HIpole, tauhomo, N_HIhomo, NHI_pole_raw
     real(wp) :: atau1
@@ -318,6 +318,22 @@ contains
     if (allocated(nion_arr))  deallocate(nion_arr)
     if (allocated(emiss_arr)) deallocate(emiss_arr)
     if (allocated(ndust_arr)) deallocate(ndust_arr)
+
+    !--- Step 4b: Biconical mask — zero opacity outside cone (z-axis) --
+    if (par%cone_opening > 0.0_wp .and. par%cone_opening < 90.0_wp) then
+      cos_cone = cos(par%cone_opening * deg2rad)
+      do il = 1, nleaf
+        icell = amr_grid%icell_of_leaf(il)
+        rr = sqrt(amr_grid%cx(icell)**2 + amr_grid%cy(icell)**2 + amr_grid%cz(icell)**2)
+        if (rr > 0.0_wp) then
+          if (abs(amr_grid%cz(icell)) / rr < cos_cone) then
+            amr_grid%rhokap(il) = 0.0_wp
+            if (par%DGR > 0.0_wp .and. associated(amr_grid%rhokapD)) &
+                amr_grid%rhokapD(il) = 0.0_wp
+          end if
+        end if
+      end do
+    end if
 
     !--- Step 5: Normalize to input optical depth / column density -----
     ! tau_pole: traverse from box center in +z direction to compute actual

@@ -854,6 +854,7 @@ contains
   real(kind=wp)  :: r_trial, rcl_trial, cos_theta, sin_theta, phi_az
   real(kind=wp)  :: temp_loc, vth_loc, Df_loc, va_loc, kap_loc, dens_factor
   real(kind=wp)  :: r_min_center, r_max_center, r_min_center2, r_max_center2
+  real(kind=wp)  :: cos_cone_opening, r_trial2, cos_theta_cone, cos_theta_min
   integer        :: ig, jg, kg, ig2, jg2, kg2, icell_rsa, jnb
   integer        :: ierr
   integer(int64) :: icl, n_attempts
@@ -909,6 +910,13 @@ contains
   icl        = 0_int64
   rcl_trial  = base_radius_in   ! default for uniform path
 
+  !--- Precompute cone angle for biconical geometry
+  if (par%cone_opening > 0.0_wp .and. par%cone_opening < 90.0_wp) then
+     cos_cone_opening = cos(par%cone_opening * deg2rad)
+  else
+     cos_cone_opening = -1.0_wp   ! accept everything (full sphere)
+  end if
+
   do while (icl < N_clumps)
      n_attempts = n_attempts + 1_int64
 
@@ -919,17 +927,33 @@ contains
         !    is .false.
         r_trial    = sample_clump_radius()
         rcl_trial  = base_radius_in * shape_radius(r_trial)
-        cos_theta  = 2.0_wp * rand_number() - 1.0_wp
+        !--- Direct sampling of angle within the cone (or full sphere)
+        if (cos_cone_opening > 0.0_wp) then
+           cos_theta = cos_cone_opening + (1.0_wp - cos_cone_opening) * rand_number()
+           if (rand_number() < 0.5_wp) cos_theta = -cos_theta
+        else
+           cos_theta = 2.0_wp * rand_number() - 1.0_wp
+        end if
         sin_theta  = sqrt(max(0.0_wp, 1.0_wp - cos_theta*cos_theta))
         phi_az     = twopi * rand_number()
         xc = r_trial * sin_theta * cos(phi_az)
         yc = r_trial * sin_theta * sin(phi_az)
         zc = r_trial * cos_theta
         !--- "fully-inside" rejection: retry if the clump would protrude
-        !    past the outer sphere boundary or into the inner cavity.
+        !    past the outer sphere boundary, into the inner cavity,
+        !    or outside the cone boundary.
         if (par%clump_fully_inside) then
            if (r_trial + rcl_trial > sphere_R)  cycle
            if (r_trial - rcl_trial < r_min_clump) cycle
+           !--- Cone fully-inside: reject if the clump protrudes outside
+           !    the cone. The angular radius of the clump seen from the
+           !    origin is delta = asin(rcl/r). The minimum |cos(theta)|
+           !    over the clump sphere is cos(theta_c + delta).
+           if (cos_cone_opening > 0.0_wp .and. r_trial > rcl_trial) then
+              cos_theta_min = abs(cos_theta) * sqrt(1.0_wp - (rcl_trial/r_trial)**2) &
+                            - sin_theta * (rcl_trial / r_trial)
+              if (cos_theta_min < cos_cone_opening) cycle
+           end if
         end if
      else
         !--- uniform random point inside the placement shell (box-rejection
@@ -945,13 +969,35 @@ contains
         end if
         r_max_center2 = r_max_center * r_max_center
         r_min_center2 = r_min_center * r_min_center
-        do
-           xc = (2.0_wp * rand_number() - 1.0_wp) * r_max_center
-           yc = (2.0_wp * rand_number() - 1.0_wp) * r_max_center
-           zc = (2.0_wp * rand_number() - 1.0_wp) * r_max_center
-           d2 = xc*xc + yc*yc + zc*zc
-           if (d2 <= r_max_center2 .and. d2 >= r_min_center2) exit
-        end do
+        if (cos_cone_opening > 0.0_wp) then
+           !--- Direct sampling inside the bicone
+           do
+              r_trial   = (r_min_center**3 + (r_max_center**3 - r_min_center**3) * rand_number())**(1.0_wp/3.0_wp)
+              cos_theta = cos_cone_opening + (1.0_wp - cos_cone_opening) * rand_number()
+              if (rand_number() < 0.5_wp) cos_theta = -cos_theta
+              sin_theta = sqrt(max(0.0_wp, 1.0_wp - cos_theta*cos_theta))
+              !--- fully-inside cone check
+              if (par%clump_fully_inside .and. r_trial > base_radius_in) then
+                 cos_theta_min = abs(cos_theta) * sqrt(1.0_wp - (base_radius_in/r_trial)**2) &
+                               - sin_theta * (base_radius_in / r_trial)
+                 if (cos_theta_min < cos_cone_opening) cycle
+              end if
+              exit
+           end do
+           phi_az    = twopi * rand_number()
+           xc = r_trial * sin_theta * cos(phi_az)
+           yc = r_trial * sin_theta * sin(phi_az)
+           zc = r_trial * cos_theta
+        else
+           !--- Standard box-rejection for full sphere
+           do
+              xc = (2.0_wp * rand_number() - 1.0_wp) * r_max_center
+              yc = (2.0_wp * rand_number() - 1.0_wp) * r_max_center
+              zc = (2.0_wp * rand_number() - 1.0_wp) * r_max_center
+              d2 = xc*xc + yc*yc + zc*zc
+              if (d2 <= r_max_center2 .and. d2 >= r_min_center2) exit
+           end do
+        end if
      end if
 
      !--- cell in RSA grid (0-based)

@@ -1,0 +1,19 @@
+&parameters
+ par%no_photons = 1
+ par%geometry = 'sphere'
+ par%use_clump_medium = .true.
+ par%rmax = 1.0
+ par%clump_radius = 0.02
+ par%clump_f_cov = 2.0
+ par%clump_tau0 = 1.0e3
+ par%temperature = 1.0e4
+ par%velocity_type = 'hubble'
+ par%Vexp = 200.0
+ par%cone_opening = 45.0
+ par%rmin = 0.025
+ par%line_id = 'ly_alpha'
+ par%spectral_type = 'voigt'
+ par%nxfreq = 121
+ par%save_clump_info = .true.
+ par%nr = 101
+/

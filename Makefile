@@ -211,6 +211,15 @@ convert_ramses ramses2fits:
 	$(FC) $(FFLAGS) -c convert_ramses_to_generic.f90
 	$(FC) $(FFLAGS) define.o fitsio_mod.o hdf5io_mod.o iofile_mod.o physics_amr_mod.o read_ramses_amr.o convert_ramses_to_generic.o -lcfitsio -L/usr/local/lib $(HDF5_LIBS) -o convert_ramses_to_generic.x
 
+# Standalone AMR sphere generator (no MPI, no Python dependency)
+make_amr_sphere:
+	$(FC) $(FFLAGS) -c define.f90
+	$(FC) $(FFLAGS) -c fitsio_mod.f90
+	$(FC) $(FFLAGS) -c hdf5io_mod.f90
+	$(FC) $(FFLAGS) -c iofile_mod.f90
+	$(FC) $(FFLAGS) -c make_amr_sphere_radial.f90
+	$(FC) $(FFLAGS) define.o fitsio_mod.o hdf5io_mod.o iofile_mod.o make_amr_sphere_radial.o -lcfitsio -L/usr/local/lib $(HDF5_LIBS) -o make_amr_sphere_radial.x
+
 clean:
 	/bin/rm -f *.o *.mod
 

@@ -1,0 +1,25 @@
+&parameters
+ par%no_photons = 1e5
+ par%geometry = 'sphere'
+ par%use_amr_grid = .true.
+ par%amr_type = 'generic'
+ par%amr_file = 'bicone_amr.h5'
+ par%line_id = 'ly_alpha'
+ par%spectral_type = 'voigt'
+ par%N_gasmax = 1.0e19
+ par%temperature = 1.0e4
+ par%cone_opening = 45.0
+ par%nxfreq = 121
+ par%use_stokes = .true.
+ par%save_peeloff = .true.
+ par%nxim = 64
+ par%nyim = 64
+ par%distance = 1e4
+ par%nobs = 3
+ par%alpha(1) = 0.0
+ par%beta(1)  = 0.0
+ par%alpha(2) = 0.0
+ par%beta(2)  = 45.0
+ par%alpha(3) = 0.0
+ par%beta(3)  = 90.0
+/

@@ -71,11 +71,20 @@ def load_clumps(fname):
     radius_col = sec.col('R_CLUMP')
     if radius_col is None:
         radius_col = np.full(len(pos), float(sec.attr('CL_RAD', 0.01)))
+    # Velocity columns (optional)
+    vx = sec.col('VX')
+    vy = sec.col('VY')
+    vz = sec.col('VZ')
+    if vx is not None and vy is not None and vz is not None:
+        vmag = np.sqrt(vx**2 + vy**2 + vz**2)
+    else:
+        vmag = None
     out = {
         'pos':    pos,
         'radius': radius_col,
         'rhokap': sec.col('RHOKAP'),
         'temp':   sec.col('TEMP'),
+        'vx': vx, 'vy': vy, 'vz': vz, 'vmag': vmag,
         'sphere_R': float(sec.attr('SPHERE_R', sec.attr('RMAX', 1.0))),
         'n_clumps': int  (sec.attr('N_CLUMPS', len(pos))),
         'f_vol':         sec.attr('F_VOL',  None),
@@ -114,6 +123,8 @@ def make_color_array(clumps, idx, key, rcross):
         if clumps['rhokap'] is None:
             sys.exit("Error: RHOKAP column not found in clumps file")
         return clumps['rhokap'][idx], 'RHOKAP  [code]'
+    if key == 'velocity':
+        return clumps['vmag'][idx], r'$|\mathbf{v}|$  [km/s]'
     sys.exit(f"Unknown --colorby option: {key}")
 
 
@@ -127,7 +138,7 @@ def main():
     ap.add_argument('--value', type=float, default=0.0,
                     help="slice coordinate (default: 0.0, i.e. through origin)")
     ap.add_argument('--colorby',
-                    choices=('none', 'radius', 'rcross', 'temp', 'rhokap'),
+                    choices=('none', 'radius', 'rcross', 'temp', 'rhokap', 'velocity'),
                     default='none',
                     help='colour outlines by per-clump quantity (default: none)')
     ap.add_argument('--fill', action='store_true',

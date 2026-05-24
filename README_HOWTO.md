@@ -223,6 +223,7 @@ They can be used even when a realistic density is given.
 | `rmax` | -999 | Outer radius (density = 0 for r > rmax) |
 | `density_rscale` | -999 | Scale length for exponential density profile |
 | `density_alpha` | 0.0 | Power-law index: n(r) = n0 * (rmax/r)^density_alpha. 0 = uniform, 2 = isothermal. |
+| `cone_opening` | 0.0 | Biconical outflow half-opening angle [degrees] along z-axis. 0 = full sphere. When > 0, density is set to zero outside the cone (both hemispheres). Works with Cartesian, AMR, and clumpy-medium modes. |
 
 ### Velocity
 
@@ -444,7 +445,7 @@ Activated by `par%use_clump_medium = .true.`.
 | `clump_fully_inside` | `.true.` | All clumps fully inside the sphere |
 | `clump_allow_overlap` | `.false.` | Allow overlapping clumps (overlap-aware raytrace) |
 | `save_clump_info` | `.false.` | Write clump positions/velocities to output |
-| `clump_input_file` | `''` | Load clump positions from external file (`.h5`, `.fits.gz`, or `.dat`) |
+| `clump_input_file` | `''` | Load clump positions from external file (`.h5`, `.fits.gz`, or `.dat`). Generate with `make make_clumps && ./make_clumps.x <in>` (Fortran) or `python python/make_clumps.py ... -o file.h5` (Python). |
 
 ### Spatially-Varying Clump Profiles
 
