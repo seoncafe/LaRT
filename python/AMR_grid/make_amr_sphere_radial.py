@@ -615,7 +615,7 @@ def parse_args():
     vg.add_argument('--vexp', type=float, default=0.0,
                     help='[hubble/constant_radial/power_law] '
                          'characteristic speed [km/s] (default: 0). Negative = inflow.')
-    vg.add_argument('--velocity_alpha', '--v_power', type=float, default=1.0,
+    vg.add_argument('--velocity_alpha', type=float, default=1.0,
                     help='[power_law] exponent (default: 1.0)')
     vg.add_argument('--cone_opening', type=float, default=0.0,
                     help='Bicone half-opening angle [deg]; 0 = full sphere (default: 0)')

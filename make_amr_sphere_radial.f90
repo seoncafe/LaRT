@@ -31,7 +31,7 @@
 !   --velocity none         Velocity law: none|hubble|constant_radial|
 !                           power_law|linear_decelerate
 !   --v_exp   0.0           Expansion speed [km/s]
-!   --v_power 1.0           Power-law velocity exponent
+!   --velocity_alpha 1.0           Power-law velocity exponent
 !   --refine_boundary       Refine cells at sphere surface
 !   --boundary_level_max -1 Boundary level (default = level_max)
 !   -o output.h5            Output file (.h5, .fits.gz, or .dat)
@@ -58,7 +58,7 @@ program make_amr_sphere_radial
   real(wp) :: temperature  = 1.0e4_wp
   character(len=32) :: velocity_law = 'none'
   real(wp) :: v_exp        = 0.0_wp
-  real(wp) :: v_power      = 1.0_wp
+  real(wp) :: velocity_alpha      = 1.0_wp
   real(wp) :: cone_opening  = 0.0_wp    ! bicone half-opening angle [deg]; 0 = full sphere
   logical  :: refine_boundary = .false.
   integer  :: boundary_level_max_in = -1   ! -1 -> use level_max
@@ -370,7 +370,7 @@ contains
       scale = v_exp / r
       vxo = scale * x; vyo = scale * y; vzo = scale * z
     case ('power_law')
-      vr = v_exp * (r / rmax) ** v_power
+      vr = v_exp * (r / rmax) ** velocity_alpha
       scale = vr / r
       vxo = scale * x; vyo = scale * y; vzo = scale * z
     case ('linear_decelerate')
@@ -509,8 +509,8 @@ contains
         call get_next_arg(i, val); velocity_law = trim(val)
       case ('--v_exp')
         call get_next_arg(i, val); read(val, *) v_exp
-      case ('--v_power')
-        call get_next_arg(i, val); read(val, *) v_power
+      case ('--velocity_alpha')
+        call get_next_arg(i, val); read(val, *) velocity_alpha
       case ('--refine_boundary')
         refine_boundary = .true.
       case ('--boundary_level_max')
@@ -560,7 +560,7 @@ contains
     write(*,'(a)') '  --velocity TYPE       none|hubble|constant_radial|'
     write(*,'(a)') '                        power_law|linear_decelerate'
     write(*,'(a)') '  --v_exp VAL           Expansion speed [km/s] (default: 0)'
-    write(*,'(a)') '  --v_power VAL         Velocity power-law exponent (default: 1)'
+    write(*,'(a)') '  --velocity_alpha VAL         Velocity power-law exponent (default: 1)'
     write(*,'(a)') '  --refine_boundary     Refine cells at sphere surface'
     write(*,'(a)') '  --boundary_level_max N  Surface refinement level'
     write(*,'(a)') '  --cone_opening VAL    Bicone half-opening angle [deg] (0=sphere)'
