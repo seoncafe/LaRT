@@ -612,11 +612,10 @@ contains
      intensity_bin_unit = grid%dxfreq
   end if
 
-  ! Normalize by the unit-sphere surface area times distance2cm^2.
-  ! For dimensionless runs (distance2cm=1, taumax-only), this equals 4*pi
-  ! regardless of L_box — making Jout independent of the arbitrary box size,
-  ! matching the Cartesian convention with rmax=1 and distance2cm=1.
-  area = fourpi * par%distance2cm**2
+  ! Normalize consistently with the Cartesian convention:
+  !   area = 4*pi * rmax^2 * distance2cm^2  (sphere)
+  ! where rmax = L_box/2 is set by grid_mod_amr during AMR setup.
+  area = fourpi * par%rmax**2 * par%distance2cm**2
 
   grid%Jout(:) = grid%Jout(:) / (par%nphotons * intensity_bin_unit * twopi * area)
   if (associated(grid%Jin)) &

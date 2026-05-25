@@ -407,7 +407,7 @@ contains
      intensity_bin_unit = grid%dxfreq
   endif
 
-  area = fourpi * par%distance2cm**2
+  area = fourpi * par%rmax**2 * par%distance2cm**2
 
   grid%Jout(:) = grid%Jout(:) / (par%nphotons * intensity_bin_unit * twopi * area)
   if (associated(grid%Jin)) &
