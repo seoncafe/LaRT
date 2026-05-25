@@ -51,6 +51,11 @@ contains
   if (any(is_finite(par%inclination_angle))) par%beta  = -par%inclination_angle
   if (any(is_finite(par%position_angle)))    par%gamma = -par%position_angle
 
+  !--- Fill missing alpha/beta with 0 when the other is specified.
+  !--- This allows, e.g., inclination_angle alone to define multiple observers.
+  where (is_finite(par%beta)  .and. .not. is_finite(par%alpha)) par%alpha = 0.0_wp
+  where (is_finite(par%alpha) .and. .not. is_finite(par%beta))  par%beta  = 0.0_wp
+
   !--- Default setting: when nothing is given, only a single observer located at a coordinate (0,0,100)*box size.
   if (.not.  (is_finite(par%alpha(1)) .and. is_finite(par%beta(1))) .and. &
       .not.  (is_finite(par%obsx(1))  .and. is_finite(par%obsy(1)) .and. is_finite(par%obsz(1)))   ) then

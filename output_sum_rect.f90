@@ -600,7 +600,7 @@ contains
   implicit none
   type(grid_type), intent(inout) :: grid
   real(wp) :: area, scale_factor, intensity_bin_unit
-  integer  :: k
+  integer  :: k, ierr
 
   par%nscatt_dust = par%nscatt_dust / par%nphotons
   par%nscatt_gas  = par%nscatt_gas  / par%nphotons
@@ -625,6 +625,26 @@ contains
       grid%Jabs(:) = grid%Jabs(:) / (par%nphotons * intensity_bin_unit * twopi * area)
   if (associated(grid%Jmu)) &
       grid%Jmu(:,:) = grid%Jmu(:,:) * par%nmu / (par%nphotons * intensity_bin_unit * twopi * area)
+
+  ! Continuum normalization (same logic as output_normalize_outside)
+  if ((trim(par%spectral_type) == 'continuum' .or. &
+       trim(par%spectral_type) == 'continuum+gaussian') .and. par%continuum_normalize) then
+     if (.not. associated(grid%Jin)) then
+        if (mpar%p_rank == 0) write(*,*) &
+           'ERROR: continuum_normalize=T requires save_Jin=T'
+        call MPI_ABORT(MPI_COMM_WORLD, 1, ierr)
+     endif
+     if (par%f_line > 0.0_wp .and. par%f_line < 1.0_wp) then
+        scale_factor = sum(grid%Jin)/size(grid%Jin) * (1.0_wp - par%f_line)
+     else
+        scale_factor = sum(grid%Jin)/size(grid%Jin)
+     endif
+     grid%Jout(:) = grid%Jout(:)/scale_factor
+     grid%Jin(:)  = grid%Jin(:) /scale_factor
+     if (associated(grid%Jabs))  grid%Jabs(:)  = grid%Jabs(:) /scale_factor
+     if (associated(grid%Jabs2)) grid%Jabs2(:) = grid%Jabs2(:)/scale_factor
+     if (associated(grid%Jmu))   grid%Jmu(:,:) = grid%Jmu(:,:)/scale_factor
+  endif
 
   ! Peel-off observer array normalizations
   if (par%save_peeloff_2D) then
