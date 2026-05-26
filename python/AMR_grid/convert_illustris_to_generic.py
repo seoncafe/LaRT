@@ -791,13 +791,8 @@ Suggested LaRT input snippet:
   par%amr_file        = '{outpath.name}'
   {dist_str}
   par%no_photons      = 1e+06
-  par%taumax          = 1.0e+04
-  par%temperature     = {np.median(data.T):.1f}
   par%spectral_type   = 'voigt'
   par%source_geometry = 'diffuse_emissivity'
-  par%xs_point        = 0.0
-  par%ys_point        = 0.0
-  par%zs_point        = 0.0
   par%nxfreq  = 121
   par%nxim    = 100
   par%nyim    = 100
