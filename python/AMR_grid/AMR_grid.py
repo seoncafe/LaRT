@@ -802,7 +802,8 @@ class AMRGrid:
                              spacing='linear', ratio=0.5,
                              custom_radii=None,
                              refine_boundary=False,
-                             boundary_level_max=None):
+                             boundary_level_max=None,
+                             region_check=None):
         """
         Refine a sphere with refinement level increasing toward the center.
 
@@ -848,6 +849,13 @@ class AMRGrid:
             ``refine_boundary=True``.  Defaults to ``level_max`` when None.
             Set to a value smaller than ``level_max`` to resolve the surface
             at a coarser level than the sphere interior.
+        region_check : callable or None, optional (default None)
+            ``region_check(cell) -> bool``.  When provided, only cells for
+            which this returns True are refined by the radial shells.
+            Cells that fail the check are left at their current level.
+            Use this to restrict radial refinement to a sub-region of the
+            sphere (e.g. a bicone), avoiding wasted cells in density=0
+            regions.
 
         Example
         -------
@@ -917,6 +925,8 @@ class AMRGrid:
                     _recurse(child)
                 return
             if cell.level >= level_max:
+                return
+            if region_check is not None and not region_check(cell):
                 return
             t_cen = _target(cell.dist(cx, cy, cz))
             dx = max(cell.xmin - cx, 0.0, cx - cell.xmax)

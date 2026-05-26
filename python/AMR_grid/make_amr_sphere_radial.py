@@ -267,6 +267,24 @@ def build_radial_grid(boxlen, rmax, level_min, level_max, spacing, ratio,
                                v_exp=v_exp, velocity_alpha=velocity_alpha,
                                vrot=vrot, rinner=rinner, rmin=rmin)
 
+    has_cone = 0.0 < cone_opening < 90.0
+
+    # Build cone region check for restricting radial refinement to the bicone.
+    # The bicone interior is |z|/r >= cos(cone_opening), equivalently
+    # z^2 * sin^2 >= cos^2 * (x^2 + y^2).  A cell intersects the bicone iff
+    # max(|z|)^2 * sin^2 >= cos^2 * min(x^2+y^2) over the cell.
+    cone_check = None
+    if has_cone:
+        cos_cone = np.cos(np.radians(cone_opening))
+        sin2 = 1.0 - cos_cone**2
+        cos2 = cos_cone**2
+        def cone_check(c):
+            """True if cell intersects the bicone (exact box-cone test)."""
+            z_max = max(abs(c.zmin), abs(c.zmax))
+            xm2 = 0.0 if c.xmin <= 0 <= c.xmax else min(c.xmin**2, c.xmax**2)
+            ym2 = 0.0 if c.ymin <= 0 <= c.ymax else min(c.ymin**2, c.ymax**2)
+            return z_max * z_max * sin2 >= cos2 * (xm2 + ym2)
+
     grid = AMRGrid(boxlen)
     grid.refine_sphere_radial(
         0.0, 0.0, 0.0, rmax,
@@ -275,32 +293,50 @@ def build_radial_grid(boxlen, rmax, level_min, level_max, spacing, ratio,
         spacing            = spacing,
         ratio              = ratio,
         custom_radii       = custom_radii,
-        refine_boundary    = refine_boundary,
+        refine_boundary    = refine_boundary and not has_cone,
         boundary_level_max = boundary_level_max,
+        region_check       = cone_check,
     )
 
-    # Cone boundary refinement: refine cells that straddle the cone surface
-    if refine_boundary and 0.0 < cone_opening < 90.0:
+    # Bicone geometry: combined boundary refinement for the density region
+    # (sphere ∩ bicone).  This replaces separate sphere-surface and
+    # cone-surface passes, avoiding wasted refinement in density=0 regions
+    # outside the bicone.
+    if refine_boundary and has_cone:
         cos_cone = np.cos(np.radians(cone_opening))
         blmax = boundary_level_max if boundary_level_max is not None else level_max
+        r2 = rmax * rmax
 
-        def _cone_inside(c):
-            """All 8 corners inside the cone (|cos(theta)| >= cos_cone)."""
+        def _region_inside(c):
+            """All 8 corners inside sphere AND inside bicone."""
             corners = c.corners()
-            r = np.sqrt(corners[:,0]**2 + corners[:,1]**2 + corners[:,2]**2)
+            d2 = corners[:,0]**2 + corners[:,1]**2 + corners[:,2]**2
+            if not bool(np.all(d2 <= r2)):
+                return False
+            r = np.sqrt(d2)
             r = np.where(r > 0, r, 1.0)
             cos_th = np.abs(corners[:,2]) / r
             return bool(np.all(cos_th >= cos_cone))
 
-        def _cone_intersects(c):
-            """At least one corner inside the cone."""
+        def _region_intersects(c):
+            """Cell overlaps the density region (sphere ∩ bicone)."""
+            # Quick reject: must overlap sphere (exact sphere-box test)
+            dx = max(c.xmin, 0.0, -c.xmax)
+            dy = max(c.ymin, 0.0, -c.ymax)
+            dz = max(c.zmin, 0.0, -c.zmax)
+            if dx*dx + dy*dy + dz*dz > r2:
+                return False
+            # At least one corner must be in the density region
             corners = c.corners()
-            r = np.sqrt(corners[:,0]**2 + corners[:,1]**2 + corners[:,2]**2)
-            r = np.where(r > 0, r, 1.0)
-            cos_th = np.abs(corners[:,2]) / r
-            return bool(np.any(cos_th >= cos_cone))
+            d2 = corners[:,0]**2 + corners[:,1]**2 + corners[:,2]**2
+            in_sphere = d2 <= r2
+            r = np.sqrt(d2)
+            r_safe = np.where(r > 0, r, 1.0)
+            cos_th = np.abs(corners[:,2]) / r_safe
+            in_cone = cos_th >= cos_cone
+            return bool(np.any(in_sphere & in_cone))
 
-        grid.refine_geometry(_cone_inside, _cone_intersects, blmax,
+        grid.refine_geometry(_region_inside, _region_intersects, blmax,
                              criterion_inside=None)
 
     grid.set_density(dens_fn)
