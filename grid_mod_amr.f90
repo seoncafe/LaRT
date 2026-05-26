@@ -300,6 +300,17 @@ contains
       amr_grid%vfz(il) = vz_kms(il) / vtherm
     end do
 
+    !--- Placeholder leaves (filled by amr_build_tree to cover gaps in the
+    !    octree) get safe defaults: zero opacity (already zero-initialized
+    !    by create_shared_mem) and a non-zero Dfreq/voigt_a to avoid NaNs
+    !    in any divide-by-Dfreq path.
+    if (amr_grid%nleaf > nleaf) then
+      do il = nleaf + 1, amr_grid%nleaf
+        amr_grid%Dfreq(il)   = amr_grid%Dfreq_ref
+        amr_grid%voigt_a(il) = amr_grid%voigt_amean
+      end do
+    end if
+
     !--- Optional override: apply analytic velocity_type model on top of the
     !    generic AMR data velocities.  This lets the user reuse the same
     !    octree structure (density, temperature, refinement) while testing
@@ -311,12 +322,15 @@ contains
     end if
     call MPI_BARRIER(mpar%hostcomm, ierr)
 
-    deallocate(nHI_frac)
+    ! Keep nHI_frac and emiss_arr alive if needed by amr_setup_emissivity.
+    if (trim(par%source_geometry) /= 'diffuse_emissivity') then
+      deallocate(nHI_frac)
+      if (allocated(emiss_arr)) deallocate(emiss_arr)
+    end if
     if (allocated(Z_arr))     deallocate(Z_arr)
     if (allocated(xHI_arr))   deallocate(xHI_arr)
     if (allocated(ne_arr))    deallocate(ne_arr)
     if (allocated(nion_arr))  deallocate(nion_arr)
-    if (allocated(emiss_arr)) deallocate(emiss_arr)
     if (allocated(ndust_arr)) deallocate(ndust_arr)
 
     !--- Step 4b: Biconical mask — zero opacity outside cone (z-axis) --
@@ -485,7 +499,9 @@ contains
     grid%zrange = amr_grid%zrange
     ! par%rmax/xmax/ymax/zmax already set by geometry block in Step 2.
 
-    call amr_setup_emissivity(grid)
+    call amr_setup_emissivity(grid, nH_cgs, T_cgs, nHI_frac, emiss_arr)
+    if (allocated(emiss_arr))  deallocate(emiss_arr)
+    if (allocated(nHI_frac))   deallocate(nHI_frac)
 
     !--- Step 8: Set up frequency grid --------------------------------
     call amr_setup_freq_grid(atau0, boxlen_code * par%distance2cm)
@@ -609,54 +625,105 @@ contains
   ! returns immediately so that par%emiss_file (which may double as a
   ! mode keyword like 'density1') has no side effects when not requested.
   !=========================================================================
-  subroutine amr_setup_emissivity(grid)
+  subroutine amr_setup_emissivity(grid, nH_cgs, T_cgs, nHI_frac, emiss_arr)
     use define
+    use physics_amr_mod, only: electron_density_from_xHI, caseB_lya_emissivity
     use mpi
     implicit none
     type(grid_type), intent(in) :: grid
+    real(wp),              intent(in) :: nH_cgs(:), T_cgs(:), nHI_frac(:)
+    real(wp), allocatable, intent(in) :: emiss_arr(:)
 
     integer  :: il, ierr
     real(wp) :: cell_volume, total_positive_volume, norm
     real(wp) :: f_comp, f_comp1
+    real(wp) :: ne_il
+    logical  :: have_emiss
     logical  :: did_setup
 
     ! Nothing to do if the source is not diffuse_emissivity.
     if (trim(par%source_geometry) /= 'diffuse_emissivity') return
 
-    if (len_trim(par%emiss_file) <= 0) then
-      write(6,'(a)') 'ERROR: source_geometry=diffuse_emissivity but par%emiss_file is empty.'
-      write(6,'(a)') '       Set par%emiss_file to a profile file (.txt/.dat) or to'
-      write(6,'(a)') '       the keyword density1/density2 for per-cell sampling.'
-      stop 'amr_setup_emissivity: missing emissivity configuration'
-    end if
+    have_emiss = allocated(emiss_arr)
+    did_setup  = .false.
 
-    did_setup = .false.
-    select case(trim(get_extension(par%emiss_file)))
-    case ('txt', 'dat')
-      if (trim(par%geometry) == 'plane_atmosphere') then
-        call setup_plane_emissivity(trim(par%emiss_file), emiss_prof, grid, &
-                                    par%sampling_method, par%f_composite)
-      else
-        call setup_spherical_emissivity(trim(par%emiss_file), emiss_prof, grid, &
-                                        par%sampling_method, par%f_composite)
+    ! --- Emissivity model dispatch ------------------------------------
+    ! Priority order:
+    !   1) explicit par%emissivity_model parameter
+    !   2) par%emiss_file (filename or keyword)
+    !   3) auto-detect emissivity column in the grid file
+    select case (trim(par%emissivity_model))
+    case ('caseB')
+      ! Case B recombination + collisional excitation from nH, T, xHI.
+      call create_shared_mem(amr_grid%Pem, [amr_grid%nleaf])
+      if (mpar%h_rank == 0) then
+        do il = 1, amr_grid%nleaf
+          ne_il = electron_density_from_xHI(nH_cgs(il), nHI_frac(il))
+          amr_grid%Pem(il) = caseB_lya_emissivity(nH_cgs(il), T_cgs(il), &
+                                                   nHI_frac(il), ne_il)
+        end do
       end if
-      return   ! 1D profile path: emiss_prof is populated, skip cell alias setup.
-    case ('density1')
-      call create_shared_mem(amr_grid%Pem, [amr_grid%nleaf])
-      if (mpar%h_rank == 0) amr_grid%Pem(:) = amr_grid%rhokap(:)
       did_setup = .true.
-    case ('density2')
+    case ('from_file')
+      if (.not. have_emiss) then
+        write(6,'(a)') 'ERROR: emissivity_model=from_file but the generic AMR file'
+        write(6,'(a)') '       does not contain an emissivity column.'
+        stop 'amr_setup_emissivity: emissivity_model=from_file requires emissivity column'
+      end if
       call create_shared_mem(amr_grid%Pem, [amr_grid%nleaf])
-      if (mpar%h_rank == 0) amr_grid%Pem(:) = amr_grid%rhokap(:)**2
+      if (mpar%h_rank == 0) amr_grid%Pem(:) = emiss_arr(:)
       did_setup = .true.
+    case ('', 'none')
+      ! Fall through to emiss_file-based logic, or auto-detect emissivity column.
+      if (len_trim(par%emiss_file) <= 0) then
+        if (have_emiss) then
+          ! Auto-use emissivity column from the grid file.
+          if (mpar%p_rank == 0) &
+            write(6,'(a)') 'AMR emissivity: using emissivity column from grid file'
+          call create_shared_mem(amr_grid%Pem, [amr_grid%nleaf])
+          if (mpar%h_rank == 0) amr_grid%Pem(:) = emiss_arr(:)
+          did_setup = .true.
+        else
+          write(6,'(a)') 'ERROR: source_geometry=diffuse_emissivity but no emissivity source.'
+          write(6,'(a)') '       Set par%emissivity_model to caseB/from_file, or set'
+          write(6,'(a)') '       par%emiss_file, or include an emissivity column in'
+          write(6,'(a)') '       the AMR grid file.'
+          stop 'amr_setup_emissivity: missing emissivity configuration'
+        end if
+      end if
+
+      if (.not. did_setup) then
+        select case(trim(get_extension(par%emiss_file)))
+        case ('txt', 'dat')
+          if (trim(par%geometry) == 'plane_atmosphere') then
+            call setup_plane_emissivity(trim(par%emiss_file), emiss_prof, grid, &
+                                        par%sampling_method, par%f_composite)
+          else
+            call setup_spherical_emissivity(trim(par%emiss_file), emiss_prof, grid, &
+                                            par%sampling_method, par%f_composite)
+          end if
+          return   ! 1D profile path: emiss_prof is populated, skip cell alias setup.
+        case ('density1')
+          call create_shared_mem(amr_grid%Pem, [amr_grid%nleaf])
+          if (mpar%h_rank == 0) amr_grid%Pem(:) = amr_grid%rhokap(:)
+          did_setup = .true.
+        case ('density2')
+          call create_shared_mem(amr_grid%Pem, [amr_grid%nleaf])
+          if (mpar%h_rank == 0) amr_grid%Pem(:) = amr_grid%rhokap(:)**2
+          did_setup = .true.
+        case default
+          write(6,'(a)') 'AMR diffuse emissivity supports: caseB, from_file,'
+          write(6,'(a)') 'txt/dat profile, density1, density2, or grid-file column.'
+          stop 'amr_setup_emissivity: unsupported emissivity input for AMR mode'
+        end select
+      end if
     case default
-      write(6,'(a)') 'AMR diffuse emissivity currently supports txt/dat, density1, and density2.'
-      stop 'amr_setup_emissivity: unsupported emissivity input for AMR mode'
+      write(6,'(a,a)') 'ERROR: unknown par%emissivity_model = ', trim(par%emissivity_model)
+      stop 'amr_setup_emissivity: unsupported emissivity_model'
     end select
+
     call MPI_BARRIER(mpar%hostcomm, ierr)
-
     if (.not. did_setup) return
-
     select case(par%sampling_method)
     case (0)
       call create_shared_mem(amr_grid%alias, [amr_grid%nleaf])

@@ -36,6 +36,12 @@ contains
         numsent = numsent + par%num_send_at_once
         call MPI_SEND(numsent,1,MPI_INTEGER8,irank,tag,MPI_COMM_WORLD,ierr)
      enddo
+     !--- Send immediate termination to workers that received no initial batch
+     !    (prevents deadlock when nphotons < nproc-1).
+     do irank = int(min(par%nphotons,int(mpar%nproc-1,int64))) + 1, mpar%nproc - 1
+        tag = 0
+        call MPI_SEND(MPI_BOTTOM,0,MPI_INTEGER8,irank,tag,MPI_COMM_WORLD,ierr)
+     enddo
      numdone = 0_int64
      do ip = 1, par%nphotons, par%num_send_at_once
         call MPI_RECV(ans,1,MPI_INTEGER,MPI_ANY_SOURCE,MPI_ANY_TAG,MPI_COMM_WORLD,status,ierr)

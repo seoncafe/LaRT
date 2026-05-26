@@ -1934,6 +1934,7 @@ class AMRGrid:
 
     def slice_plot(self, axis='z', value=None, quantity='dens',
                    ax=None, log=False, cmap='viridis',
+                   vmin=None, vmax=None,
                    background_color='white',
                    show_leaf_boundaries=False,
                    boundary_color='k', boundary_lw=0.3,
@@ -1981,6 +1982,10 @@ class AMRGrid:
         log : bool
             Plot log10 of the quantity if True.
         cmap : str
+        vmin, vmax : float or None, optional
+            Colour-scale limits.  When ``log=True`` these refer to the
+            log10 values (e.g. ``vmin=-5, vmax=1`` for densities
+            $10^{-5}$--$10^1$\,cm$^{-3}$).  ``None`` = auto.
         background_color : str or None, optional (default 'white')
             Colour of the axes background — the region outside (or between)
             the cell polygons.  Any matplotlib colour string is accepted
@@ -2137,6 +2142,8 @@ class AMRGrid:
             **kwargs,
         )
         pc.set_array(values)
+        if vmin is not None or vmax is not None:
+            pc.set_clim(vmin=vmin, vmax=vmax)
         ax.add_collection(pc)
 
         if show_leaf_boundaries:
