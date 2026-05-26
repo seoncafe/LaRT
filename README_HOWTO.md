@@ -498,6 +498,71 @@ python extract_amr_subset.py sim.h5 \
 mpirun -np N LaRT.x input.in   # par%amr_file = 'sim_subset.h5'
 ```
 
+### Illustris/TNG Converter (`python/AMR_grid/`)
+
+| Tool | Description |
+|------|-------------|
+| `convert_illustris_to_generic.py` | Illustris/IllustrisTNG Voronoi data to generic AMR octree. Builds adaptive octree via KD-tree nearest-neighbor from Voronoi cells. |
+
+The converter reads HDF5 snapshots or API cutouts from Illustris/TNG,
+converts comoving+h code units to physical (kpc, cm^-3, K, km/s),
+resamples the Voronoi mesh onto an adaptive octree, and writes the
+standard generic AMR format.
+
+**Key features:**
+
+- Direct HDF5 reading with `h5py` (no `illustris_python` dependency)
+- Adaptive octree refinement by density/velocity gradient + optional resolution matching
+- ISM treatment for star-forming cells (`--sfr-treatment cap-temperature`)
+- Optional physics: TNG-native or CIE ionization, Laursen+09 dust, Case B emissivity
+- Optional TNG API cutout download (`--api-key`)
+
+**Example workflow:**
+
+```bash
+# 1) Convert a local TNG cutout
+python convert_illustris_to_generic.py cutout.hdf5 \
+       -o galaxy.h5 --output-unit kpc \
+       --level-max 8 --compute-physics \
+       --ionization from_illustris --boxsize 200
+
+# Or download + convert via API:
+python convert_illustris_to_generic.py \
+       --api-key YOUR_KEY --simulation TNG50-1 --snap 99 \
+       --subhalo-id 0 -o galaxy.h5 --compute-physics
+
+# 2) Run LaRT
+mpirun -np N LaRT.x input.in   # par%amr_file = 'galaxy.h5'
+```
+
+**CLI options:**
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `input_file` | (positional) | Input HDF5 file |
+| `-o, --output` | (required) | Output file (.h5, .fits.gz, or .dat) |
+| `--output-unit` | `kpc` | Unit of output coordinates |
+| `--level-max` | 8 | Maximum AMR level |
+| `--level-min` | 3 | Minimum uniform refinement level |
+| `--dens-threshold` | 0.3 | Density gradient threshold |
+| `--vel-threshold` | 0.3 | Velocity gradient threshold |
+| `--match-resolution` | off | Refine to match local Voronoi cell size |
+| `--compute-physics` | off | Compute xHI, n_e, emissivity, ndust |
+| `--ionization` | `from_illustris` | `from_illustris`, `cie`, `full_neutral`, `none` |
+| `--sfr-treatment` | `cap-temperature` | `cap-temperature`, `exclude`, `as-is` |
+| `--sfr-cap-temp` | 2e4 | Temperature cap [K] for SFR > 0 cells |
+| `--center X Y Z` | auto | Galaxy center [physical kpc] |
+| `--boxsize` | auto | Box side length [kpc] |
+| `--api-key` | --- | TNG API key for cutout download |
+| `--simulation` | `TNG50-1` | Simulation name |
+| `--snap` | 99 | Snapshot number |
+| `--subhalo-id` | 0 | Subhalo ID |
+| `--plot` | off | Generate diagnostic slice plot |
+
+See `docs/Illustris_data_structure.pdf` for detailed documentation of
+the Illustris data format, unit conversions, and the Voronoi-to-octree
+conversion algorithm.
+
 ### Python Analysis Tools (`python/`)
 
 | Tool | Description |
