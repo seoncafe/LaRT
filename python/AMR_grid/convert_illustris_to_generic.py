@@ -511,6 +511,141 @@ def write_generic_fits(
 
 
 # ---------------------------------------------------------------------------
+# Cartesian grid output writers (uniform 3D arrays)
+# ---------------------------------------------------------------------------
+def _cart_dtype(arr: np.ndarray):
+    """Choose float32 or float64 based on dynamic range."""
+    return np.float32 if _auto_bitpix(arr) == -32 else np.float64
+
+
+def write_cartesian_hdf5(
+    filename: Path,
+    nH_3d: np.ndarray, T_3d: np.ndarray,
+    vx_3d: np.ndarray, vy_3d: np.ndarray, vz_3d: np.ndarray,
+    boxlen: float,
+    unit_l_cgs: float,
+    xHI_3d: Optional[np.ndarray] = None,
+    n_e_3d: Optional[np.ndarray] = None,
+    emissivity_3d: Optional[np.ndarray] = None,
+    ndust_3d: Optional[np.ndarray] = None,
+    metallicity_3d: Optional[np.ndarray] = None,
+) -> None:
+    """Write uniform Cartesian grid HDF5 matching LaRT iofile_mod convention.
+
+    Layout (one HDF5 group per quantity, each containing a 'data' dataset):
+      /gasDen/data [nz, ny, nx]   (Fortran column-major → stored as [nz,ny,nx] in C order)
+      /T/data      [nz, ny, nx]
+      /vx/data     [nz, ny, nx]
+      /vy/data     [nz, ny, nx]
+      /vz/data     [nz, ny, nx]
+      ... optional groups ...
+
+    Header attributes are on the first group (/gasDen/).
+    """
+    import h5py
+
+    nx, ny, nz = nH_3d.shape  # Python: (nx, ny, nz) but stored (nz, ny, nx) for Fortran
+    p = Path(filename)
+    if p.exists():
+        p.unlink()
+
+    mandatory = [
+        ("gasDen", nH_3d), ("T", T_3d),
+        ("vx", vx_3d), ("vy", vy_3d), ("vz", vz_3d),
+    ]
+    optional = []
+    for name, arr in [("xHI", xHI_3d), ("n_e", n_e_3d),
+                      ("emissivity", emissivity_3d), ("ndust", ndust_3d),
+                      ("metallicity", metallicity_3d)]:
+        if arr is not None:
+            optional.append((name, arr))
+
+    with h5py.File(p, "w", libver="latest", track_order=True) as f:
+        first_group = True
+        for name, arr in mandatory + optional:
+            darr = arr.astype(_cart_dtype(arr))
+            # Transpose to Fortran order: Python (nx,ny,nz) → stored (nz,ny,nx)
+            darr_f = np.asfortranarray(darr).T
+            g = f.create_group(name)
+            kw = {}
+            if darr_f.size > 4096:
+                chunk_z = min(darr_f.shape[0], 64)
+                chunk_y = min(darr_f.shape[1], 64)
+                chunk_x = min(darr_f.shape[2], 64)
+                kw["chunks"] = (chunk_z, chunk_y, chunk_x)
+                kw["compression"] = "gzip"
+                kw["compression_opts"] = 4
+            g.create_dataset("data", data=darr_f, **kw)
+            # EXTNAME = group name (LaRT reads this)
+            g.attrs["EXTNAME"] = np.bytes_(name)
+
+            # Header attributes on the first group only
+            if first_group:
+                g.attrs["CREATOR"]  = np.bytes_("convert_illustris_to_generic.py")
+                g.attrs["DATE"]     = np.bytes_(datetime.now().strftime("%Y-%m-%dT%H:%M"))
+                g.attrs["NX"]       = np.int32(nx)
+                g.attrs["NY"]       = np.int32(ny)
+                g.attrs["NZ"]       = np.int32(nz)
+                g.attrs["BOXLEN"]   = np.float64(boxlen)
+                g.attrs["UNITLCGS"] = np.float64(unit_l_cgs)
+                g.attrs["ORIGINX"]  = np.float64(-0.5 * boxlen)
+                g.attrs["ORIGINY"]  = np.float64(-0.5 * boxlen)
+                g.attrs["ORIGINZ"]  = np.float64(-0.5 * boxlen)
+                first_group = False
+
+
+def write_cartesian_fits(
+    filename: Path,
+    nH_3d: np.ndarray, T_3d: np.ndarray,
+    vx_3d: np.ndarray, vy_3d: np.ndarray, vz_3d: np.ndarray,
+    boxlen: float,
+    unit_l_cgs: float,
+    xHI_3d: Optional[np.ndarray] = None,
+    n_e_3d: Optional[np.ndarray] = None,
+    emissivity_3d: Optional[np.ndarray] = None,
+    ndust_3d: Optional[np.ndarray] = None,
+    metallicity_3d: Optional[np.ndarray] = None,
+) -> None:
+    """Write uniform Cartesian grid as multi-extension FITS (one ImageHDU per quantity)."""
+    from astropy.io import fits as pyfits
+
+    nx, ny, nz = nH_3d.shape
+
+    primary = pyfits.PrimaryHDU()
+    primary.header["CREATOR"] = "convert_illustris_to_generic.py"
+    primary.header["DATE"]    = datetime.now().strftime("%Y-%m-%dT%H:%M")
+    primary.header["NX"]      = nx
+    primary.header["NY"]      = ny
+    primary.header["NZ"]      = nz
+    primary.header["BOXLEN"]  = float(boxlen)
+    primary.header["UNITLCGS"] = float(unit_l_cgs)
+    primary.header["ORIGINX"] = -0.5 * float(boxlen)
+    primary.header["ORIGINY"] = -0.5 * float(boxlen)
+    primary.header["ORIGINZ"] = -0.5 * float(boxlen)
+
+    hdus = [primary]
+    all_arrays = [
+        ("gasDen", nH_3d), ("T", T_3d),
+        ("vx", vx_3d), ("vy", vy_3d), ("vz", vz_3d),
+    ]
+    for name, arr in [("xHI", xHI_3d), ("n_e", n_e_3d),
+                      ("emissivity", emissivity_3d), ("ndust", ndust_3d),
+                      ("metallicity", metallicity_3d)]:
+        if arr is not None:
+            all_arrays.append((name, arr))
+
+    for name, arr in all_arrays:
+        darr = arr.astype(_cart_dtype(arr))
+        hdu = pyfits.ImageHDU(data=darr, name=name)
+        hdu.header["BOXLEN"]  = float(boxlen)
+        hdu.header["UNITLCGS"] = float(unit_l_cgs)
+        hdus.append(hdu)
+
+    p = Path(filename)
+    pyfits.HDUList(hdus).writeto(p, overwrite=True)
+
+
+# ---------------------------------------------------------------------------
 # Converter pipeline
 # ---------------------------------------------------------------------------
 def apply_sfr_treatment(data: IllustrisData, mode: str, cap_temp: float) -> IllustrisData:
@@ -642,7 +777,103 @@ def convert(args):
     interp = VoronoiInterpolator(positions, data)
     print(f"  KD-tree built with {ncells:,} points")
 
-    # ---- 6. Build octree ----
+    # ---- 6–9. Build grid, assign properties, compute physics, write output ----
+    outpath = Path(args.output)
+    unit_l_cgs = KPC_CM  # default: kpc
+    if args.output_unit.lower() == "pc":
+        unit_l_cgs = PC_CM
+    elif args.output_unit.lower() == "cm":
+        unit_l_cgs = 1.0
+
+    if args.grid_type == "cartesian":
+        _convert_cartesian(args, data, interp, boxlen, outpath, unit_l_cgs)
+    else:
+        _convert_amr(args, data, interp, boxlen, outpath, unit_l_cgs)
+
+    # ---- 11. Optional plot ----
+    if args.plot:
+        make_diagnostic_plot(data, None, None, None, None, None,
+                             boxlen, outpath)
+
+
+# ---------------------------------------------------------------------------
+# Shared physics computation
+# ---------------------------------------------------------------------------
+def _compute_physics(args, data, interp, nH_arr, T_arr, cx_arr, cy_arr, cz_arr):
+    """Compute optional physics columns (xHI, n_e, emissivity, ndust, metallicity).
+
+    Returns (xHI_arr, ne_arr, emiss_arr, ndust_arr, Z_arr), any of which may be None.
+    """
+    xHI_arr = None
+    ne_arr  = None
+    emiss_arr = None
+    ndust_arr = None
+    Z_arr   = None
+
+    if not (args.compute_physics or args.ionization != "none"):
+        return xHI_arr, ne_arr, emiss_arr, ndust_arr, Z_arr
+
+    idx_leaf = interp.query(cx_arr, cy_arr, cz_arr)
+
+    # Metallicity
+    if data.metallicity is not None:
+        Z_arr = data.metallicity[idx_leaf]
+
+    # Ionization
+    if args.ionization == "from_illustris" and data.xHI is not None:
+        xHI_arr = data.xHI[idx_leaf]
+        print("  xHI: from Illustris NeutralHydrogenAbundance")
+    elif args.ionization == "cie":
+        xHI_arr = cie_neutral_fraction(T_arr)
+        print("  xHI: CIE neutral fraction (simple formula)")
+    elif args.ionization == "full_neutral":
+        xHI_arr = np.ones_like(T_arr)
+        print("  xHI: full neutral (xHI = 1)")
+
+    # Electron density
+    if xHI_arr is not None:
+        if args.ionization == "from_illustris" and data.electron_abundance is not None:
+            ne_arr = nH_arr * data.electron_abundance[idx_leaf]
+            print("  n_e: from Illustris ElectronAbundance")
+        else:
+            ne_arr = electron_density(nH_arr, xHI_arr)
+            print("  n_e: from xHI")
+
+    # Emissivity and dust
+    if args.compute_physics and xHI_arr is not None and ne_arr is not None:
+        eline = getattr(args, 'emissivity_line', 'lya')
+        if eline == 'civ':
+            if Z_arr is None:
+                print("  WARNING: --emissivity-line civ requires metallicity; skipping")
+            else:
+                emiss_arr = cie_civ_emissivity(nH_arr, T_arr, ne_arr, Z_arr)
+                print(f"  emissivity: CIE C IV 1548+1550, "
+                      f"max = {emiss_arr.max():.3e} cm^-3 s^-1")
+        elif eline == 'ovi':
+            if Z_arr is None:
+                print("  WARNING: --emissivity-line ovi requires metallicity; skipping")
+            else:
+                emiss_arr = cie_ovi_emissivity(nH_arr, T_arr, ne_arr, Z_arr)
+                print(f"  emissivity: CIE O VI 1032+1038, "
+                      f"max = {emiss_arr.max():.3e} cm^-3 s^-1")
+        else:
+            emiss_arr = caseB_lya_emissivity(nH_arr, T_arr, xHI_arr, ne_arr)
+            print(f"  emissivity: Case B Lya, "
+                  f"max = {emiss_arr.max():.3e} cm^-3 s^-1")
+
+        if Z_arr is not None:
+            ndust_arr = laursen09_ndust(nH_arr, xHI_arr, Z_arr)
+            print(f"  ndust: Laursen+09, max = {ndust_arr.max():.3e} cm^-3")
+
+    return xHI_arr, ne_arr, emiss_arr, ndust_arr, Z_arr
+
+
+# ---------------------------------------------------------------------------
+# AMR grid conversion (existing path, refactored)
+# ---------------------------------------------------------------------------
+def _convert_amr(args, data, interp, boxlen, outpath, unit_l_cgs):
+    """Build adaptive octree and write generic AMR format."""
+
     print(f"\nBuilding octree (level_min={args.level_min}, level_max={args.level_max}) ...")
 
     # Import AMRGrid
@@ -662,7 +893,6 @@ def convert(args):
             idx = interp.query(cell.cx, cell.cy, cell.cz)
             return cell.h > factor * r_eff[idx]
 
-        # First apply physics refinement
         grid.refine_by_physics(
             dens_fn=interp.density_fn,
             vel_fn=interp.velocity_fn,
@@ -672,7 +902,6 @@ def convert(args):
             level_min=args.level_min,
             nprobe=2,
         )
-        # Then add resolution-matching refinement
         grid.refine(resolution_criterion, args.level_max)
     else:
         grid.refine_by_physics(
@@ -690,12 +919,11 @@ def convert(args):
     print(f"  Octree: {nleaf:,} leaf cells")
     print(f"  {grid.info()}")
 
-    # ---- 7. Assign leaf-cell properties ----
+    # Assign leaf-cell properties
     print("\nAssigning leaf-cell properties via nearest-neighbor ...")
     grid.set_properties(interp.properties_fn)
 
-    # ---- 8. Optional physics ----
-    # Extract leaf arrays for physics computation
+    # Extract leaf arrays
     cx_arr = np.array([lf.cx for lf in leaflist])
     cy_arr = np.array([lf.cy for lf in leaflist])
     cz_arr = np.array([lf.cz for lf in leaflist])
@@ -706,75 +934,11 @@ def convert(args):
     vy_arr = np.array([lf.vy for lf in leaflist])
     vz_arr = np.array([lf.vz for lf in leaflist])
 
-    xHI_arr = None
-    ne_arr  = None
-    emiss_arr = None
-    ndust_arr = None
-    Z_arr   = None
+    # Physics
+    xHI_arr, ne_arr, emiss_arr, ndust_arr, Z_arr = \
+        _compute_physics(args, data, interp, nH_arr, T_arr, cx_arr, cy_arr, cz_arr)
 
-    if args.compute_physics or args.ionization != "none":
-        idx_leaf = interp.query(cx_arr, cy_arr, cz_arr)
-
-        # Metallicity
-        if data.metallicity is not None:
-            Z_arr = data.metallicity[idx_leaf]
-
-        # Ionization
-        if args.ionization == "from_illustris" and data.xHI is not None:
-            xHI_arr = data.xHI[idx_leaf]
-            print("  xHI: from Illustris NeutralHydrogenAbundance")
-        elif args.ionization == "cie":
-            xHI_arr = cie_neutral_fraction(T_arr)
-            print("  xHI: CIE neutral fraction (simple formula)")
-        elif args.ionization == "full_neutral":
-            xHI_arr = np.ones_like(T_arr)
-            print("  xHI: full neutral (xHI = 1)")
-
-        # Electron density
-        if xHI_arr is not None:
-            if args.ionization == "from_illustris" and data.electron_abundance is not None:
-                ne_arr = nH_arr * data.electron_abundance[idx_leaf]
-                print("  n_e: from Illustris ElectronAbundance")
-            else:
-                ne_arr = electron_density(nH_arr, xHI_arr)
-                print("  n_e: from xHI")
-
-        # Emissivity and dust
-        if args.compute_physics and xHI_arr is not None and ne_arr is not None:
-            eline = getattr(args, 'emissivity_line', 'lya')
-            if eline == 'civ':
-                if Z_arr is None:
-                    print("  WARNING: --emissivity-line civ requires metallicity; skipping")
-                    emiss_arr = None
-                else:
-                    emiss_arr = cie_civ_emissivity(nH_arr, T_arr, ne_arr, Z_arr)
-                    print(f"  emissivity: CIE C IV 1548+1550, "
-                          f"max = {emiss_arr.max():.3e} cm^-3 s^-1")
-            elif eline == 'ovi':
-                if Z_arr is None:
-                    print("  WARNING: --emissivity-line ovi requires metallicity; skipping")
-                    emiss_arr = None
-                else:
-                    emiss_arr = cie_ovi_emissivity(nH_arr, T_arr, ne_arr, Z_arr)
-                    print(f"  emissivity: CIE O VI 1032+1038, "
-                          f"max = {emiss_arr.max():.3e} cm^-3 s^-1")
-            else:
-                emiss_arr = caseB_lya_emissivity(nH_arr, T_arr, xHI_arr, ne_arr)
-                print(f"  emissivity: Case B Lya, "
-                      f"max = {emiss_arr.max():.3e} cm^-3 s^-1")
-
-            if Z_arr is not None:
-                ndust_arr = laursen09_ndust(nH_arr, xHI_arr, Z_arr)
-                print(f"  ndust: Laursen+09, max = {ndust_arr.max():.3e} cm^-3")
-
-    # ---- 9. Write output ----
-    outpath = Path(args.output)
-    unit_l_cgs = KPC_CM  # default: kpc
-    if args.output_unit.lower() == "pc":
-        unit_l_cgs = PC_CM
-    elif args.output_unit.lower() == "cm":
-        unit_l_cgs = 1.0
-
+    # Write output
     print(f"\nWriting {outpath} ({nleaf:,} leaf cells) ...")
     name_lower = outpath.name.lower()
     if name_lower.endswith(".h5") or name_lower.endswith(".hdf5"):
@@ -790,25 +954,14 @@ def convert(args):
                            xHI=xHI_arr, n_e=ne_arr, emissivity=emiss_arr,
                            ndust=ndust_arr, metallicity=Z_arr)
     else:
-        # Text format
         header = f"{nleaf}  {boxlen:.10e}\n"
         header += "# x  y  z  level  gasDen  T  vx  vy  vz"
         extra_cols = []
-        if Z_arr is not None:
-            header += "  metallicity"
-            extra_cols.append(Z_arr)
-        if xHI_arr is not None:
-            header += "  xHI"
-            extra_cols.append(xHI_arr)
-        if ne_arr is not None:
-            header += "  n_e"
-            extra_cols.append(ne_arr)
-        if emiss_arr is not None:
-            header += "  emissivity"
-            extra_cols.append(emiss_arr)
-        if ndust_arr is not None:
-            header += "  ndust"
-            extra_cols.append(ndust_arr)
+        for nm, ar in [("metallicity", Z_arr), ("xHI", xHI_arr), ("n_e", ne_arr),
+                       ("emissivity", emiss_arr), ("ndust", ndust_arr)]:
+            if ar is not None:
+                header += f"  {nm}"
+                extra_cols.append(ar)
         data_cols = np.column_stack(
             [cx_arr, cy_arr, cz_arr, level_arr, nH_arr, T_arr,
              vx_arr, vy_arr, vz_arr] + extra_cols
@@ -818,7 +971,7 @@ def convert(args):
 
     print(f"  Done: {outpath}")
 
-    # ---- 10. Suggested LaRT input ----
+    # Suggested LaRT input
     dist_str = f"par%distance_unit = '{args.output_unit}'"
     if args.output_unit.lower() == "cm":
         dist_str = "par%distance2cm = 1.0"
@@ -840,9 +993,118 @@ Suggested LaRT input snippet:
  /
 {'─' * 60}""")
 
-    # ---- 11. Optional plot ----
     if args.plot:
         make_diagnostic_plot(data, cx_arr, cy_arr, cz_arr, nH_arr, T_arr,
+                             boxlen, outpath)
+
+
+# ---------------------------------------------------------------------------
+# Cartesian grid conversion (new path)
+# ---------------------------------------------------------------------------
+def _convert_cartesian(args, data, interp, boxlen, outpath, unit_l_cgs):
+    """Build uniform N^3 grid and write Cartesian grid format."""
+
+    N = args.ngrid
+    print(f"\nBuilding uniform Cartesian grid ({N} x {N} x {N}) ...")
+
+    half = boxlen / 2.0
+    dx = boxlen / N
+
+    # Cell centers: centered convention [-half+dx/2, half-dx/2]
+    edges = np.linspace(-half, half, N + 1)
+    centers = 0.5 * (edges[:-1] + edges[1:])
+
+    # 3D meshgrid
+    cx_1d, cy_1d, cz_1d = centers, centers, centers
+    CX, CY, CZ = np.meshgrid(cx_1d, cy_1d, cz_1d, indexing='ij')
+    # Flatten for KD-tree query
+    cx_flat = CX.ravel()
+    cy_flat = CY.ravel()
+    cz_flat = CZ.ravel()
+
+    ntotal = N * N * N
+    print(f"  {ntotal:,} cells, dx = {dx:.4f} kpc")
+
+    # Assign properties via nearest-neighbor
+    print("  Querying KD-tree ...")
+    idx = interp.query(cx_flat, cy_flat, cz_flat)
+    nH_flat = data.nH[idx]
+    T_flat  = data.T[idx]
+    vx_flat = data.vx[idx]
+    vy_flat = data.vy[idx]
+    vz_flat = data.vz[idx]
+
+    # Reshape to 3D (nx, ny, nz)
+    nH_3d = nH_flat.reshape((N, N, N))
+    T_3d  = T_flat.reshape((N, N, N))
+    vx_3d = vx_flat.reshape((N, N, N))
+    vy_3d = vy_flat.reshape((N, N, N))
+    vz_3d = vz_flat.reshape((N, N, N))
+
+    print(f"  nH:  min={nH_3d.min():.3e}  max={nH_3d.max():.3e}")
+    print(f"  T:   min={T_3d.min():.3e}  max={T_3d.max():.3e}")
+
+    # Physics
+    xHI_arr, ne_arr, emiss_arr, ndust_arr, Z_arr = \
+        _compute_physics(args, data, interp, nH_flat, T_flat, cx_flat, cy_flat, cz_flat)
+
+    # Reshape optional arrays to 3D
+    xHI_3d   = xHI_arr.reshape((N, N, N)) if xHI_arr is not None else None
+    ne_3d    = ne_arr.reshape((N, N, N)) if ne_arr is not None else None
+    emiss_3d = emiss_arr.reshape((N, N, N)) if emiss_arr is not None else None
+    ndust_3d = ndust_arr.reshape((N, N, N)) if ndust_arr is not None else None
+    Z_3d     = Z_arr.reshape((N, N, N)) if Z_arr is not None else None
+
+    # Write output
+    print(f"\nWriting {outpath} ({ntotal:,} cells, {N}^3 Cartesian grid) ...")
+    name_lower = outpath.name.lower()
+    if name_lower.endswith(".h5") or name_lower.endswith(".hdf5"):
+        write_cartesian_hdf5(outpath, nH_3d, T_3d, vx_3d, vy_3d, vz_3d,
+                             boxlen, unit_l_cgs,
+                             xHI_3d=xHI_3d, n_e_3d=ne_3d,
+                             emissivity_3d=emiss_3d, ndust_3d=ndust_3d,
+                             metallicity_3d=Z_3d)
+    elif name_lower.endswith(".fits") or name_lower.endswith(".fits.gz"):
+        write_cartesian_fits(outpath, nH_3d, T_3d, vx_3d, vy_3d, vz_3d,
+                             boxlen, unit_l_cgs,
+                             xHI_3d=xHI_3d, n_e_3d=ne_3d,
+                             emissivity_3d=emiss_3d, ndust_3d=ndust_3d,
+                             metallicity_3d=Z_3d)
+    else:
+        print("  ERROR: Cartesian grid only supports .h5 or .fits/.fits.gz output",
+              file=sys.stderr)
+        sys.exit(1)
+
+    print(f"  Done: {outpath}")
+
+    # Suggested LaRT input
+    dist_str = f"par%distance_unit = '{args.output_unit}'"
+    if args.output_unit.lower() == "cm":
+        dist_str = "par%distance2cm = 1.0"
+    src_str = "par%source_geometry = 'diffuse_emissivity'"
+    emiss_str = f"  par%emiss_file      = '{outpath.name}'"
+    if emiss_3d is None:
+        src_str = "par%source_geometry = 'point'"
+        emiss_str = ""
+    print(f"""
+{'─' * 60}
+Suggested LaRT input snippet:
+{'─' * 60}
+ &parameters
+  par%cart_file       = '{outpath.name}'
+  {dist_str}
+  {src_str}
+{emiss_str}
+  par%no_photons      = 1e+06
+  par%spectral_type   = 'voigt'
+  par%nxfreq  = 121
+  par%nxim    = 100
+  par%nyim    = 100
+ /
+{'─' * 60}""")
+
+    if args.plot:
+        make_diagnostic_plot(data, cx_flat, cy_flat, cz_flat, nH_flat, T_flat,
                              boxlen, outpath)
 
 
@@ -962,6 +1224,13 @@ Examples:
                         help="Output file (.h5, .fits.gz, or .dat)")
     parser.add_argument("--output-unit", default="kpc",
                         help="Unit of output coordinates (default: kpc)")
+
+    # Grid type
+    parser.add_argument("--grid-type", default="amr", choices=["amr", "cartesian"],
+                        help="Output grid type: amr (adaptive octree, default) or "
+                             "cartesian (uniform N^3 grid)")
+    parser.add_argument("--ngrid", type=int, default=128,
+                        help="Grid cells per side for --grid-type cartesian (default: 128)")
 
     # Octree
     parser.add_argument("--level-max", type=int, default=8,

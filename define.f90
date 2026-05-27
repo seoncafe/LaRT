@@ -446,6 +446,7 @@ public
      character(len=128) :: temp_file  = ''
      character(len=128) :: velo_file  = ''
      character(len=128) :: emiss_file = ''
+     character(len=128) :: cart_file  = ''  ! all-in-one Cartesian grid file (HDF5/FITS)
      character(len=128) :: star_file  = ''
      integer            :: reduce_factor = 1
      integer            :: centering     = 0

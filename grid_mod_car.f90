@@ -2,6 +2,7 @@ module grid_mod
   use memory_mod
   use read_grid_data
   use read_text_data
+  use read_cartesian_grid_mod
   use iofile_mod
   use utility
   implicit none
@@ -35,6 +36,39 @@ contains
   integer :: ierr
   type(io_file_type) :: iofh
   integer :: status
+
+  ! Cart file (all-in-one Cartesian grid file) variables
+  logical :: use_cart_file, cart_has_emiss
+  real(kind=wp), allocatable :: cart_nH(:,:,:), cart_T(:,:,:)
+  real(kind=wp), allocatable :: cart_vx_arr(:,:,:), cart_vy_arr(:,:,:), cart_vz_arr(:,:,:)
+  real(kind=wp), allocatable :: cart_xHI(:,:,:), cart_ne(:,:,:)
+  real(kind=wp), allocatable :: cart_emiss(:,:,:), cart_ndust(:,:,:), cart_Z(:,:,:)
+  integer :: cart_nx, cart_ny, cart_nz
+  real(kind=wp) :: cart_boxlen, cart_ulcgs
+
+  ! --- Cart file: read header and override par values ---
+  use_cart_file = (len_trim(par%cart_file) > 0)
+  if (use_cart_file) then
+     call cartesian_grid_read_header(trim(par%cart_file), &
+          cart_nx, cart_ny, cart_nz, cart_boxlen, cart_ulcgs)
+     par%nx   = cart_nx
+     par%ny   = cart_ny
+     par%nz   = cart_nz
+     par%xmax = cart_boxlen / 2.0_wp
+     par%ymax = cart_boxlen / 2.0_wp
+     par%zmax = cart_boxlen / 2.0_wp
+     par%rmax = cart_boxlen / 2.0_wp
+     if (cart_ulcgs > 0.0_wp .and. par%distance2cm <= 1.0_wp) then
+        par%distance2cm = cart_ulcgs
+     endif
+     if (mpar%p_rank == 0) then
+        write(6,'(a)')       '============================================'
+        write(6,'(a,a)')     '  Cartesian grid file: ', trim(par%cart_file)
+        write(6,'(a,3i6)')   '  Grid dimensions:    ', par%nx, par%ny, par%nz
+        write(6,'(a,es12.4)') '  BOXLEN:             ', cart_boxlen
+        write(6,'(a)')       '============================================'
+     endif
+  endif
 
   !--- grid's cell faces.
   grid%nx   = par%nx
@@ -169,11 +203,25 @@ contains
   call create_shared_mem(grid%rhokap,      [grid%nx,grid%ny,grid%nz])
 
   !--- rhokapD = dust density x dust kappa (dust extinction coefficient, per length)
-  if (par%DGR > 0.0_wp) then
+  !    Also allocate when cart_file may provide ndust.
+  if (par%DGR > 0.0_wp .or. use_cart_file) then
      call create_shared_mem(grid%rhokapD, [grid%nx,grid%ny,grid%nz])
   endif
 
   if (mpar%h_rank == 0) then
+
+     ! --- Cart file: read all data arrays upfront ---
+     if (use_cart_file) then
+        call cartesian_grid_read(trim(par%cart_file), &
+             cart_nx, cart_ny, cart_nz, cart_boxlen, cart_ulcgs, &
+             cart_nH, cart_T, cart_vx_arr, cart_vy_arr, cart_vz_arr, &
+             cart_xHI, cart_ne, cart_emiss, cart_ndust, cart_Z)
+        if (allocated(cart_xHI)) &
+           write(6,'(a,2es12.4)') '  xHI range:          ', minval(cart_xHI), maxval(cart_xHI)
+        if (allocated(cart_emiss)) &
+           write(6,'(a,es12.4)')  '  emissivity max:     ', maxval(cart_emiss)
+     endif
+
      if (.not. allocated(Temp)) allocate(Temp(grid%nx,grid%ny,grid%nz))
      !Temp(:,:,:) = 0.0_wp
 
@@ -205,7 +253,10 @@ contains
   !--- (1) setup temperature, Doppler-frequency, Voigt-a parameter.
   !---
   if (mpar%h_rank == 0) then
-     if (len_trim(par%temp_file) > 0) then
+     if (use_cart_file) then
+        Temp(:,:,:) = cart_T(:,:,:)
+        deallocate(cart_T)
+     else if (len_trim(par%temp_file) > 0) then
         if (get_extension(par%temp_file) == 'fits' .or. get_extension(par%temp_file) == 'h5' .or. get_extension(par%temp_file) == 'hdf5') then
            call read_3D(trim(par%temp_file),Temp,reduce_factor=par%reduce_factor)
         else if (get_extension(par%temp_file) == 'txt' .or. get_extension(par%temp_file) == 'dat') then
@@ -237,7 +288,30 @@ contains
   !--- (2) setup density
   !---
   if (mpar%h_rank == 0) then
-     if (len_trim(par%dens_file) > 0) then
+     if (use_cart_file) then
+        ! nH from file; apply xHI (neutral fraction) if present
+        do k=1,grid%nz
+        do j=1,grid%ny
+        do i=1,grid%nx
+           if (allocated(cart_xHI)) then
+              grid%rhokap(i,j,k) = cart_nH(i,j,k) * cart_xHI(i,j,k) * par%distance2cm
+           else
+              grid%rhokap(i,j,k) = cart_nH(i,j,k) * par%distance2cm
+           endif
+           if (allocated(cart_ndust)) then
+              grid%rhokapD(i,j,k) = cart_ndust(i,j,k) * par%cext_dust * par%distance2cm
+           else if (par%DGR > 0.0_wp) then
+              grid%rhokapD(i,j,k) = grid%rhokap(i,j,k) * par%cext_dust * par%DGR
+           endif
+        enddo
+        enddo
+        enddo
+        deallocate(cart_nH)
+        if (allocated(cart_xHI))   deallocate(cart_xHI)
+        if (allocated(cart_ndust)) deallocate(cart_ndust)
+        if (allocated(cart_ne))    deallocate(cart_ne)
+        if (allocated(cart_Z))     deallocate(cart_Z)
+     else if (len_trim(par%dens_file) > 0) then
         if (get_extension(par%dens_file) == 'fits' .or. get_extension(par%dens_file) == 'h5' .or. get_extension(par%dens_file) == 'hdf5') then
            call read_3D(trim(par%dens_file),grid%rhokap,reduce_factor=par%reduce_factor,centering=par%centering)
         else if (get_extension(par%dens_file) == 'txt' .or. get_extension(par%dens_file) == 'dat') then
@@ -677,7 +751,19 @@ contains
   !--- (3) setup velocity field
   !---
   if (mpar%h_rank == 0) then
-     if (len_trim(par%velo_file) > 0) then
+     if (use_cart_file) then
+        do k=1,grid%nz
+        do j=1,grid%ny
+        do i=1,grid%nx
+           vtherm          = line%vtherm1*sqrt(Temp(i,j,k))
+           grid%vfx(i,j,k) = cart_vx_arr(i,j,k)/vtherm
+           grid%vfy(i,j,k) = cart_vy_arr(i,j,k)/vtherm
+           grid%vfz(i,j,k) = cart_vz_arr(i,j,k)/vtherm
+        enddo
+        enddo
+        enddo
+        deallocate(cart_vx_arr, cart_vy_arr, cart_vz_arr)
+     else if (len_trim(par%velo_file) > 0) then
         if (get_extension(par%velo_file) == 'fits' .or. get_extension(par%velo_file) == 'h5' .or. get_extension(par%velo_file) == 'hdf5') then
            call read_velocity(trim(par%velo_file),grid%vfx,grid%vfy,grid%vfz,reduce_factor=par%reduce_factor)
         else if (get_extension(par%velo_file) == 'txt' .or. get_extension(par%velo_file) == 'dat') then
@@ -863,7 +949,23 @@ contains
   !---
   !--- (4) Emissivity
   !---
-  if (len_trim(par%emiss_file) > 0) then
+  ! cart_emiss is only allocated on h_rank 0; broadcast the flag before
+  ! the collective create_shared_mem call.
+  cart_has_emiss = .false.
+  if (use_cart_file) then
+     if (mpar%h_rank == 0) cart_has_emiss = allocated(cart_emiss)
+     call MPI_BCAST(cart_has_emiss, 1, MPI_LOGICAL, 0, mpar%hostcomm, ierr)
+  endif
+
+  if (use_cart_file .and. cart_has_emiss) then
+     diffuse_emissivity_3D = .true.
+     call create_shared_mem(grid%Pem, [grid%nx,grid%ny,grid%nz])
+     if (mpar%h_rank == 0) then
+        grid%Pem(:,:,:) = cart_emiss(:,:,:)
+        deallocate(cart_emiss)
+     endif
+     call MPI_BARRIER(mpar%hostcomm, ierr)
+  else if (len_trim(par%emiss_file) > 0) then
      select case(trim(get_extension(par%emiss_file)))
      case ('txt', 'dat')
         diffuse_emissivity_3D = .false.

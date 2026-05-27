@@ -140,6 +140,7 @@ OBJSB	= \
 	voigt_mod.o \
 	observer_rect.o \
 	observer_heal.o \
+	read_cartesian_grid.o \
 	grid_mod_car.o \
 	line_mod.o \
 	raytrace_car.o \

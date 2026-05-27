@@ -377,6 +377,12 @@ Activated by `par%grid_type = 'amr'` or `par%use_amr_grid = .true.`.
 | `amr_file` | `''` | Path to generic AMR file (`.h5`, `.hdf5`, `.fits.gz`, or `.dat`) |
 | `distance_unit` | `''` | Unit of position columns: `'kpc'`, `'pc'`, `'Mpc'`, `'au'`, or `''` (dimensionless code units; density determined by `taumax`, `tauhomo`, `N_HImax`, or `N_HIhomo`) |
 
+## Cartesian Grid from File
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `cart_file` | `''` | Path to an all-in-one Cartesian grid file produced by `convert_illustris_to_generic.py --grid-type cartesian`. Stores `nH`, `T`, `vx/vy/vz` plus optional physics (`xHI`, `n_e`, `emissivity`, `ndust`, `metallicity`) as 3D image sections. Read by `read_cartesian_grid.f90` using order-independent `EXTNAME` scanning. When `xHI` is present it scales HI opacity; when `emissivity` is present it populates the diffuse source; when `ndust` is present it sets dust opacity. Use with `par%grid_type = 'car'` (standard Cartesian raytrace, no AMR overhead). |
+
 ### Generic AMR File Format
 
 **Mandatory columns (9):**
@@ -558,6 +564,8 @@ mpirun -np N LaRT.x input.in   # par%amr_file = 'galaxy.h5'
 | `--simulation` | `TNG50-1` | Simulation name |
 | `--snap` | 99 | Snapshot number |
 | `--subhalo-id` | 0 | Subhalo ID |
+| `--grid-type` | `amr` | Output grid type: `amr` (generic AMR octree) or `cartesian` (uniform Cartesian grid) |
+| `--ngrid` | 128 | Cells per side when `--grid-type cartesian` |
 | `--plot` | off | Generate diagnostic slice plot |
 
 See `docs/Illustris_data_structure.pdf` for detailed documentation of
