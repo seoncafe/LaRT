@@ -1082,10 +1082,8 @@ def _convert_cartesian(args, data, interp, boxlen, outpath, unit_l_cgs):
     if args.output_unit.lower() == "cm":
         dist_str = "par%distance2cm = 1.0"
     src_str = "par%source_geometry = 'diffuse_emissivity'"
-    emiss_str = f"  par%emiss_file      = '{outpath.name}'"
     if emiss_3d is None:
         src_str = "par%source_geometry = 'point'"
-        emiss_str = ""
     print(f"""
 {'─' * 60}
 Suggested LaRT input snippet:
@@ -1094,7 +1092,6 @@ Suggested LaRT input snippet:
   par%cart_file       = '{outpath.name}'
   {dist_str}
   {src_str}
-{emiss_str}
   par%no_photons      = 1e+06
   par%spectral_type   = 'voigt'
   par%nxfreq  = 121
