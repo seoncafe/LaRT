@@ -142,6 +142,87 @@ def caseB_lya_emissivity(nH, T, xHI, ne):
     return emiss_recomb + emiss_coll
 
 
+# ---------------------------------------------------------------------------
+# CIE metal-line emissivity (collisional excitation)
+# ---------------------------------------------------------------------------
+# Solar abundances n_X/n_H (Asplund+09)
+_A_C = 2.692e-4   # 12 + log(C/H) = 8.43
+_A_O = 4.898e-4   # 12 + log(O/H) = 8.69
+
+# CIE ion fraction Gaussian fits in log10(T) (Gnat & Sternberg 2007)
+_CIV_FIT = dict(logT_peak=5.05, f_peak=0.29, sigma=0.20)   # C^3+
+_OVI_FIT = dict(logT_peak=5.45, f_peak=0.20, sigma=0.18)    # O^5+
+
+# Effective collision strengths Upsilon (combined doublet K+H components).
+# C IV: Aggarwal & Keenan (2004, A&A 427, 763), median over 10^4.5--10^5.5 K.
+# O VI: Aggarwal & Keenan (2004, A&A 417, 1107), median over 10^5.0--10^6.0 K.
+_CIV_OMEGA = 7.5
+_OVI_OMEGA = 3.8
+
+# Excitation energies [eV] (average of doublet components)
+_CIV_DE_EV = 8.00    # 1548.19 + 1550.77 Angstrom
+_OVI_DE_EV = 11.98   # 1031.91 + 1037.61 Angstrom
+
+_K_BOLTZMANN_EV = 8.6173e-5   # eV/K
+
+
+def _cie_ion_frac_gaussian(T, logT_peak, f_peak, sigma):
+    """CIE ion fraction from Gaussian fit in log10(T) (GS07)."""
+    logT = np.log10(np.maximum(T, 10.0))
+    dlogT = logT - logT_peak
+    return np.clip(f_peak * np.exp(-0.5 * (dlogT / sigma)**2), 0.0, 1.0)
+
+
+def cie_metal_line_emissivity(nH, T, ne, Z, Z_ref, A_X, fit, Omega, DE_eV):
+    """CIE collisional excitation emissivity for a metal resonance doublet.
+
+    Parameters
+    ----------
+    nH : array_like
+        Hydrogen number density [cm^-3].
+    T : array_like
+        Gas temperature [K].
+    ne : array_like
+        Electron number density [cm^-3].
+    Z : array_like
+        Gas metallicity (mass fraction).
+    Z_ref : float
+        Reference solar metallicity (mass fraction).
+    A_X : float
+        Solar number abundance n_X/n_H.
+    fit : dict
+        CIE ion fraction Gaussian fit parameters (logT_peak, f_peak, sigma).
+    Omega : float
+        Effective collision strength (combined doublet).
+    DE_eV : float
+        Excitation energy [eV].
+
+    Returns
+    -------
+    emissivity : ndarray
+        Volume emissivity [photons cm^-3 s^-1].
+    """
+    T = np.maximum(np.asarray(T, dtype=float), 10.0)
+    f_ion = _cie_ion_frac_gaussian(T, **fit)
+    n_ion = nH * (Z / np.maximum(Z_ref, 1e-30)) * A_X * f_ion
+    # q = 8.629e-6 / (g_lower * sqrt(T)) * Omega * exp(-DE/kT)  [cm^3/s]
+    # g_lower = 2 for Li-like 2s S_{1/2}
+    q = (8.629e-6 / (2.0 * np.sqrt(T))) * Omega * np.exp(-DE_eV / (_K_BOLTZMANN_EV * T))
+    return n_ion * ne * q
+
+
+def cie_civ_emissivity(nH, T, ne, Z, Z_ref=0.0134):
+    """CIE C IV 1548+1550 emissivity [photons cm^-3 s^-1]."""
+    return cie_metal_line_emissivity(nH, T, ne, Z, Z_ref,
+                                     _A_C, _CIV_FIT, _CIV_OMEGA, _CIV_DE_EV)
+
+
+def cie_ovi_emissivity(nH, T, ne, Z, Z_ref=0.0134):
+    """CIE O VI 1032+1038 emissivity [photons cm^-3 s^-1]."""
+    return cie_metal_line_emissivity(nH, T, ne, Z, Z_ref,
+                                     _A_O, _OVI_FIT, _OVI_OMEGA, _OVI_DE_EV)
+
+
 @dataclass
 class RamsesInfo:
     repository: Path

@@ -514,7 +514,7 @@ standard generic AMR format.
 - Direct HDF5 reading with `h5py` (no `illustris_python` dependency)
 - Adaptive octree refinement by density/velocity gradient + optional resolution matching
 - ISM treatment for star-forming cells (`--sfr-treatment cap-temperature`)
-- Optional physics: TNG-native or CIE ionization, Laursen+09 dust, Case B emissivity
+- Optional physics: TNG-native or CIE ionization, Laursen+09 dust, multi-line emissivity (Lya/CIV/OVI)
 - Optional TNG API cutout download (`--api-key`)
 
 **Example workflow:**
@@ -549,6 +549,7 @@ mpirun -np N LaRT.x input.in   # par%amr_file = 'galaxy.h5'
 | `--match-resolution` | off | Refine to match local Voronoi cell size |
 | `--compute-physics` | off | Compute xHI, n_e, emissivity, ndust |
 | `--ionization` | `from_illustris` | `from_illustris`, `cie`, `full_neutral`, `none` |
+| `--emissivity-line` | `lya` | Emission line for emissivity: `lya` (Case B), `civ` (CIE C IV 1548+1550), `ovi` (CIE O VI 1032+1038) |
 | `--sfr-treatment` | `cap-temperature` | `cap-temperature`, `exclude`, `as-is` |
 | `--sfr-cap-temp` | 2e4 | Temperature cap [K] for SFR > 0 cells |
 | `--center X Y Z` | auto | Galaxy center [physical kpc] |

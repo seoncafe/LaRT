@@ -76,6 +76,8 @@ try:
         electron_density,
         laursen09_ndust,
         caseB_lya_emissivity,
+        cie_civ_emissivity,
+        cie_ovi_emissivity,
     )
 except ImportError:
     def cie_neutral_fraction(T):
@@ -109,6 +111,26 @@ except ImportError:
         qc = (6.58e-18 / T**0.185) * np.exp(-4.86e4 / T**0.895)
         e_col = nHI * ne * qc
         return e_rec + e_col
+
+    # CIE metal-line emissivity (fallback)
+    _K_BOLTZMANN_EV = 8.6173e-5
+    def _cie_metal_emiss(nH, T, ne, Z, Z_ref, A_X, fit, Omega, DE_eV):
+        T = np.maximum(np.asarray(T, dtype=float), 10.0)
+        logT = np.log10(T)
+        f_ion = np.clip(fit['f_peak'] * np.exp(
+            -0.5 * ((logT - fit['logT_peak']) / fit['sigma'])**2), 0, 1)
+        n_ion = nH * (Z / np.maximum(Z_ref, 1e-30)) * A_X * f_ion
+        q = (8.629e-6 / (2.0 * np.sqrt(T))) * Omega * np.exp(
+            -DE_eV / (_K_BOLTZMANN_EV * T))
+        return n_ion * ne * q
+
+    def cie_civ_emissivity(nH, T, ne, Z, Z_ref=0.0134):
+        return _cie_metal_emiss(nH, T, ne, Z, Z_ref, 2.692e-4,
+            dict(logT_peak=5.05, f_peak=0.29, sigma=0.20), 7.5, 8.00)
+
+    def cie_ovi_emissivity(nH, T, ne, Z, Z_ref=0.0134):
+        return _cie_metal_emiss(nH, T, ne, Z, Z_ref, 4.898e-4,
+            dict(logT_peak=5.45, f_peak=0.20, sigma=0.18), 3.8, 11.98)
 
 
 # ---------------------------------------------------------------------------
@@ -719,8 +741,27 @@ def convert(args):
 
         # Emissivity and dust
         if args.compute_physics and xHI_arr is not None and ne_arr is not None:
-            emiss_arr = caseB_lya_emissivity(nH_arr, T_arr, xHI_arr, ne_arr)
-            print(f"  emissivity: Case B Lya, max = {emiss_arr.max():.3e} cm^-3 s^-1")
+            eline = getattr(args, 'emissivity_line', 'lya')
+            if eline == 'civ':
+                if Z_arr is None:
+                    print("  WARNING: --emissivity-line civ requires metallicity; skipping")
+                    emiss_arr = None
+                else:
+                    emiss_arr = cie_civ_emissivity(nH_arr, T_arr, ne_arr, Z_arr)
+                    print(f"  emissivity: CIE C IV 1548+1550, "
+                          f"max = {emiss_arr.max():.3e} cm^-3 s^-1")
+            elif eline == 'ovi':
+                if Z_arr is None:
+                    print("  WARNING: --emissivity-line ovi requires metallicity; skipping")
+                    emiss_arr = None
+                else:
+                    emiss_arr = cie_ovi_emissivity(nH_arr, T_arr, ne_arr, Z_arr)
+                    print(f"  emissivity: CIE O VI 1032+1038, "
+                          f"max = {emiss_arr.max():.3e} cm^-3 s^-1")
+            else:
+                emiss_arr = caseB_lya_emissivity(nH_arr, T_arr, xHI_arr, ne_arr)
+                print(f"  emissivity: Case B Lya, "
+                      f"max = {emiss_arr.max():.3e} cm^-3 s^-1")
 
             if Z_arr is not None:
                 ndust_arr = laursen09_ndust(nH_arr, xHI_arr, Z_arr)
@@ -942,6 +983,12 @@ Examples:
     parser.add_argument("--ionization", default="from_illustris",
                         choices=["from_illustris", "cie", "full_neutral", "none"],
                         help="Ionization source (default: from_illustris)")
+    parser.add_argument("--emissivity-line", default="lya",
+                        choices=["lya", "civ", "ovi"],
+                        help="Emission line for emissivity column: "
+                             "lya (Case B Lyman-alpha), "
+                             "civ (CIE C IV 1548+1550), "
+                             "ovi (CIE O VI 1032+1038). Default: lya")
 
     # ISM
     parser.add_argument("--sfr-treatment", default="cap-temperature",
