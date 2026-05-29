@@ -26,7 +26,7 @@ def make_uniform_sphere(level_min=3, level_max=6):
     boxlen   = 2.0
     cx0 = cy0 = cz0 = 0.0
     r_sphere = 1.0
-    dens0    = 1.0     # arbitrary; LaRT renormalises by par%taumax
+    dens0    = 1.0     # arbitrary; LaRT renormalizes by par%taumax
 
     grid = AMRGrid(boxlen)
 

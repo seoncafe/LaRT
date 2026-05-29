@@ -9,8 +9,8 @@ Output file format (amr_type = 'generic')
     x  y  z  level  dens[cm^-3]  T[K]  vx[km/s]  vy[km/s]  vz[km/s]
     ...
 
-  - x, y, z   : leaf-cell centre coordinates in the same unit as boxlen
-                 (origin at box centre, range [-boxlen/2, boxlen/2])
+  - x, y, z   : leaf-cell center coordinates in the same unit as boxlen
+                 (origin at box center, range [-boxlen/2, boxlen/2])
   - level      : AMR refinement level (root = 0; minimum leaf level = 1)
   - dens       : total gas number density (including hydrogen) [cm^-3]
                  (neutral fraction applied in LaRT via par%use_cie_condition)
@@ -32,7 +32,7 @@ Quick start
     boxlen = 2.0                            # code unit
     grid   = AMRGrid(boxlen)
 
-    # Refine cells inside a sphere of radius 1.0 code unit centred on the box
+    # Refine cells inside a sphere of radius 1.0 code unit centered on the box
     grid.refine(lambda c: c.dist(0, 0, 0) < 1.0, level_max=3)
 
     # Assign physical properties
@@ -84,7 +84,7 @@ The following optimizations have been applied to handle large grids
 4. _make_dens_criterion / _make_vel_criterion
    (vectorised probe-point evaluation)
    Each candidate leaf during refinement is probed at 8 (nprobe=2) or
-   nprobe³ sub-cell centres.  Previously these were evaluated with a
+   nprobe³ sub-cell centers.  Previously these were evaluated with a
    Python zip-loop (N_probe individual fn calls per leaf).  Now the
    function is probed once at closure creation to detect array support;
    if supported, all probe points are evaluated with a single fn(xx, yy,
@@ -143,7 +143,7 @@ When ``refine_boundary=True``:
     step that lies exactly between two coarse cells, or a smooth field
     whose gradient falls below the threshold near the boundary).
 
-    This was the only available behaviour before the ``refine_boundary``
+    This was the only available behavior before the ``refine_boundary``
     parameter was introduced.
 
 Example usage::
@@ -179,9 +179,9 @@ it entirely).
 
     level_min=2  →  8² = 64 cells before the gradient scan starts
     level_min=3  →  8³ = 512 cells before the gradient scan starts
-    level_min=0  →  no pre-refinement (original behaviour)
+    level_min=0  →  no pre-refinement (original behavior)
 
-Set ``level_min=0`` to restore the old behaviour and let the gradient
+Set ``level_min=0`` to restore the old behavior and let the gradient
 criterion drive all splitting from the root.
 
 The ``refine_uniform(level)`` method is also exposed as a public API and
@@ -224,7 +224,7 @@ class Cell:
     Parameters
     ----------
     cx, cy, cz : float
-        Cell centre coordinates (same unit as boxlen).
+        Cell center coordinates (same unit as boxlen).
     h : float
         Cell half-width (cell spans [c-h, c+h] along each axis).
     level : int
@@ -270,7 +270,7 @@ class Cell:
         return self.children is None
 
     def dist(self, x0, y0, z0):
-        """Distance from cell centre to point (x0, y0, z0)."""
+        """Distance from cell center to point (x0, y0, z0)."""
         return np.sqrt((self.cx - x0)**2 +
                        (self.cy - y0)**2 +
                        (self.cz - z0)**2)
@@ -335,7 +335,7 @@ class AMRGrid:
         Default is 2.0.
     origin : tuple of float, optional
         Box corner coordinates.  Default is (-boxlen/2, -boxlen/2, -boxlen/2),
-        placing the root cell centre at (0, 0, 0) and the domain in
+        placing the root cell center at (0, 0, 0) and the domain in
         [-boxlen/2, boxlen/2] along each axis.
 
     Examples
@@ -395,21 +395,21 @@ class AMRGrid:
 
     def refine_sphere(self, cx, cy, cz, radius, level_max):
         """
-        Refine all cells whose centres lie within ``radius`` of
+        Refine all cells whose centers lie within ``radius`` of
         (``cx``, ``cy``, ``cz``).
         """
         self.refine(lambda c: c.dist(cx, cy, cz) < radius, level_max)
 
     def refine_slab(self, axis, lo, hi, level_max):
         """
-        Refine all cells whose centre along ``axis`` ('x', 'y', or 'z')
+        Refine all cells whose center along ``axis`` ('x', 'y', or 'z')
         falls in the interval [``lo``, ``hi``].
         """
         attr = {'x': 'cx', 'y': 'cy', 'z': 'cz'}[axis.lower()]
         self.refine(lambda c: lo <= getattr(c, attr) <= hi, level_max)
 
     def refine_box(self, xlo, xhi, ylo, yhi, zlo, zhi, level_max):
-        """Refine all cells whose centre lies inside the given rectangular box."""
+        """Refine all cells whose center lies inside the given rectangular box."""
         self.refine(
             lambda c: (xlo <= c.cx <= xhi and
                        ylo <= c.cy <= yhi and
@@ -496,7 +496,7 @@ class AMRGrid:
         Parameters
         ----------
         cx, cy, cz : float
-            Centre of the sphere.
+            Center of the sphere.
         radius : float
             Sphere radius (same unit as boxlen).
         level_max : int
@@ -618,7 +618,7 @@ class AMRGrid:
             delta = (dens_max - dens_min) / (dens_max + dens_min + floor)
 
         The density is sampled at a uniform ``nprobe × nprobe × nprobe``
-        sub-grid inside the cell plus the cell centre.  ``nprobe=2``
+        sub-grid inside the cell plus the cell center.  ``nprobe=2``
         samples the 8 cell corners (fast); ``nprobe=4`` (64 points) gives
         a more thorough probe.  With ``nprobe > 2`` the function also tries
         ``nprobe=2`` first and returns early if the gradient already exceeds
@@ -760,7 +760,7 @@ class AMRGrid:
         Parameters
         ----------
         cx, cy, cz : float
-            Centre of the sphere.
+            Center of the sphere.
         radius : float
             Sphere radius (same unit as boxlen).
         dens_fn : callable
@@ -814,7 +814,7 @@ class AMRGrid:
         Parameters
         ----------
         cx, cy, cz : float
-            Centre of the sphere.
+            Center of the sphere.
         radius : float
             Outer sphere radius (same unit as boxlen).
         level_min : int
@@ -828,7 +828,7 @@ class AMRGrid:
                 r_i = radius * (n - i) / n,  i = 0 … n-1
 
             ``'log'`` — geometrically shrinking shells (finer sampling near
-                the centre):
+                the center):
                 r_i = radius * ratio^i,  i = 0 … n-1
 
         ratio : float
@@ -866,7 +866,7 @@ class AMRGrid:
                                       spacing='linear')
 
         Resulting shell structure (radius, level):
-            r < 12.5  →  level 4   (finest, near centre)
+            r < 12.5  →  level 4   (finest, near center)
             12.5–25   →  level 3
             25–37.5   →  level 2
             37.5–50   →  level 1   (coarsest inside sphere)
@@ -899,16 +899,16 @@ class AMRGrid:
         # Recursive single-pass traversal.
         #
         # Each leaf is assigned a target level from two distances:
-        #   t_center — from the cell centre (determines which shell the cell "lives in")
-        #   t_close  — from the closest point in the cell to the sphere centre
+        #   t_center — from the cell center (determines which shell the cell "lives in")
+        #   t_close  — from the closest point in the cell to the sphere center
         #              (detects overlap with finer inner shells)
         # target = max(t_center, t_close): cells that straddle a shell boundary
         # are refined to the finer shell's level so the boundary is resolved.
         # Refinement stops at level_max.
         #
-        # This avoids the "shared-vertex" failure of the additive centre-only
-        # approach (all level-1 octants share the box centre as a vertex and
-        # therefore always intersect any sphere centred there).
+        # This avoids the "shared-vertex" failure of the additive center-only
+        # approach (all level-1 octants share the box center as a vertex and
+        # therefore always intersect any sphere centered there).
 
         def _target(d):
             # Keep updating: radii are ordered outer→inner, so the last
@@ -1055,7 +1055,7 @@ class AMRGrid:
     @staticmethod
     def _subcell_centers(c, np_):
         """
-        Return arrays (xx, yy, zz) of ``np_^3`` sub-cell centres inside
+        Return arrays (xx, yy, zz) of ``np_^3`` sub-cell centers inside
         cell ``c`` at sub-grid density ``np_`` per axis.
         """
         dh = 2.0 * c.h / np_
@@ -1070,7 +1070,7 @@ class AMRGrid:
         """
         Return a cell criterion function for density gradient refinement.
 
-        Probes at np=2 first (8 sub-cell centres); if no refinement found and
+        Probes at np=2 first (8 sub-cell centers); if no refinement found and
         nprobe > 2, also probes at np=nprobe (nprobe^3 sub-cells).
         Accumulates running (rhomin, rhomax) across all probe levels,
         matching the RASCAS multi-scale approach.
@@ -1929,7 +1929,7 @@ class AMRGrid:
                                     opt_columns=opt_columns or None)
 
     # ------------------------------------------------------------------ #
-    # Visualisation helpers
+    # Visualization helpers
     # ------------------------------------------------------------------ #
 
     def _collect_slice_leaves(self, cell, na, value, result):
@@ -1965,9 +1965,9 @@ class AMRGrid:
         axis : {'x', 'y', 'z'}
             Normal axis of the slice plane.
         value : float, optional
-            Position of the slice along ``axis``.  Defaults to box centre.
+            Position of the slice along ``axis``.  Defaults to box center.
         quantity : str or callable
-            What to colour each leaf-cell polygon by.
+            What to color each leaf-cell polygon by.
 
             String options:
 
@@ -1983,7 +1983,7 @@ class AMRGrid:
             Cells where the requested optional column is ``None`` (i.e.
             the column was not present in the data file) are filled with
             NaN; with ``log=True`` they are excluded from the polygon
-            collection and show the axis background colour.
+            collection and show the axis background color.
 
             Callable form: ``quantity(lf)`` is invoked for every slice
             leaf ``lf`` and must return a float, allowing arbitrary
@@ -1993,12 +1993,12 @@ class AMRGrid:
             Plot log10 of the quantity if True.
         cmap : str
         vmin, vmax : float or None, optional
-            Colour-scale limits.  When ``log=True`` these refer to the
+            Color-scale limits.  When ``log=True`` these refer to the
             log10 values (e.g. ``vmin=-5, vmax=1`` for densities
             $10^{-5}$--$10^1$\,cm$^{-3}$).  ``None`` = auto.
         background_color : str or None, optional (default 'white')
-            Colour of the axes background — the region outside (or between)
-            the cell polygons.  Any matplotlib colour string is accepted
+            Color of the axes background — the region outside (or between)
+            the cell polygons.  Any matplotlib color string is accepted
             (e.g. ``'white'``, ``'black'``, ``'lightgray'``, ``'#eeeeee'``).
             Pass ``None`` to leave the axes background unchanged (inherits
             from the current matplotlib style).
@@ -2006,29 +2006,29 @@ class AMRGrid:
             Cells whose value is zero (linear scale) or non-positive (log
             scale) are *excluded* from the filled PolyCollection entirely, so
             empty regions (e.g. the vacuum outside a sphere) show the axis
-            background colour rather than the colourmap minimum colour.  Pass
-            ``background_color=None`` to disable this filtering and colour
-            every leaf cell (including zero-density cells) with the colourmap.
+            background color rather than the colormap minimum color.  Pass
+            ``background_color=None`` to disable this filtering and color
+            every leaf cell (including zero-density cells) with the colormap.
         show_leaf_boundaries : bool
             If True, overlay boundaries of the leaf cells that intersect
             the slice plane.
         boundary_color : str
-            Edge colour for the leaf-cell boundary overlay.
+            Edge color for the leaf-cell boundary overlay.
         boundary_lw : float
             Line width for the leaf-cell boundary overlay.
         boundary_alpha : float
             Transparency for the leaf-cell boundary overlay.
         show_leaf_centers : bool
-            If True, overlay markers at the centres of leaf cells that
+            If True, overlay markers at the centers of leaf cells that
             intersect the slice plane.
         center_color : str
-            Marker colour for the leaf-cell centre overlay.
+            Marker color for the leaf-cell center overlay.
         center_marker : str
-            Matplotlib marker style for the leaf-cell centre overlay.
+            Matplotlib marker style for the leaf-cell center overlay.
         center_size : float
-            Marker size for the leaf-cell centre overlay.
+            Marker size for the leaf-cell center overlay.
         center_alpha : float
-            Transparency for the leaf-cell centre overlay.
+            Transparency for the leaf-cell center overlay.
         **kwargs
             Passed to ``matplotlib.collections.PolyCollection`` for the filled
             cells.
@@ -2104,12 +2104,12 @@ class AMRGrid:
                     val = np.nan
             v_arr[i]  = val
 
-        # Exclude cells that should show as background instead of colourmap.
+        # Exclude cells that should show as background instead of colormap.
         # For log scale: non-positive values have no valid log → background.
-        # For linear scale with a background colour set: zero-value cells
+        # For linear scale with a background color set: zero-value cells
         # (e.g. vacuum outside a sphere) are left unpainted so the axis
-        # background colour shows through rather than being covered by the
-        # colourmap minimum (dark purple in 'viridis').
+        # background color shows through rather than being covered by the
+        # colormap minimum (dark purple in 'viridis').
         if log:
             keep = v_arr > 0
         elif background_color is not None:

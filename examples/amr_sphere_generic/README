@@ -16,7 +16,7 @@ Header (1 line):
 One line per leaf cell:
   x[kpc]  y[kpc]  z[kpc]  level  nH[cm^-3]  T[K]  vx[km/s]  vy[km/s]  vz[km/s]
 
-  x, y, z   : leaf-cell centre in kpc (origin at box corner, i.e., 0 .. boxlen_kpc)
+  x, y, z   : leaf-cell center in kpc (origin at box corner, i.e., 0 .. boxlen_kpc)
   level      : AMR refinement level (1 = root)
   nH         : total hydrogen number density [cm^-3]
   T          : gas temperature [K]
@@ -34,7 +34,7 @@ Key AMR parameters
 
 Grid structure in this example
 ------------------------------
-  Level 2 cells (25 kpc) fill the outer volume (r > 30 kpc from box centre).
+  Level 2 cells (25 kpc) fill the outer volume (r > 30 kpc from box center).
   Level 3 cells (12.5 kpc) fill the inner sphere (r < 30 kpc).
   Density profile: nH(r) = nH0 * exp(-r^2 / 2*(30 kpc)^2)
   Temperature: uniform 10^4 K, static gas (v=0).

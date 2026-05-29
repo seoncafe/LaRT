@@ -4,7 +4,7 @@ extract_amr_region.py
 =====================
 
 Filter a generic AMR file to a spatial region while **preserving the
-original BOXLEN**.  Cells whose centre is inside the requested box are
+original BOXLEN**.  Cells whose center is inside the requested box are
 kept at their original coordinates; cells outside are dropped.
 
 Why preserve BOXLEN?

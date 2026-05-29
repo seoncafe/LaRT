@@ -233,7 +233,7 @@ class ClumpsOutput:
     # ------------------------------------------------------------------
     @property
     def pos(self) -> np.ndarray:
-        """(N, 3) array of clump centres in code units."""
+        """(N, 3) array of clump centers in code units."""
         return np.column_stack([self.x, self.y, self.z])
 
     @property
@@ -303,7 +303,7 @@ class ClumpsOutput:
         return None
 
     def compute_f_vol(self) -> Optional[float]:
-        """Recompute the realised volume filling factor from the loaded
+        """Recompute the realized volume filling factor from the loaded
         clump radii.  Mirrors LaRT's ``write_clumps_info`` from-file branch:
 
         .. math::  f_{\\rm vol} = \\frac{\\sum r_i^3}{R^3 - r_{\\rm min}^3}
@@ -320,7 +320,7 @@ class ClumpsOutput:
         return float(np.sum(radii**3) / denom)
 
     def compute_f_cov(self) -> Optional[float]:
-        r"""Recompute the realised line-of-sight covering factor.  Mirrors
+        r"""Recompute the realized line-of-sight covering factor.  Mirrors
         LaRT's ``write_clumps_info`` from-file branch:
 
         .. math::  f_{\rm cov} = \frac{3}{4}
@@ -710,7 +710,7 @@ class LaRTOutput:
         xmin, xmax, ymin, ymax : float, optional
             Per-bound shorthand; merged with xlim/ylim.
         colors : dict, optional
-            Mapping from component name to matplotlib colour.
+            Mapping from component name to matplotlib color.
         title, show, savefig : convenience options.
         **plot_kwargs
             Forwarded to ``ax.plot`` for every component.
@@ -863,7 +863,7 @@ class LaRTOutput:
             new_jmu /= counts[:, None]
             Jmu_y  = new_jmu
             mu_arr = keys
-            # rebuild mu_edges (uniform spacing from folded centres)
+            # rebuild mu_edges (uniform spacing from folded centers)
             if len(mu_arr) >= 2:
                 dmu_new = float(mu_arr[1] - mu_arr[0])
             else:
@@ -1002,7 +1002,7 @@ class LaRTOutput:
            peel-off cube are already normalized per-bin_unit by the
            Fortran code (see ``output_sum_rect.f90``).
         2. Jmu spectrum at the corresponding ``mu = cos(beta)``, linearly
-           interpolated between the closest mu bin centres.
+           interpolated between the closest mu bin centers.
 
         The conversion is geometric and exact -- there is no fitted scale.
 
@@ -1876,7 +1876,7 @@ class LaRTOutput:
         peel-off map :math:`\int I\,dv`.
 
         For each peel-off observer the cube is integrated over the velocity
-        axis to produce a 2D map; pixel distances from the image centre
+        axis to produce a 2D map; pixel distances from the image center
         are then binned and the mean intensity within each annulus is
         computed.
 
@@ -1937,7 +1937,7 @@ class LaRTOutput:
                                             vel_range=vel_range_eff)
             if peel.kind == 'heal':
                 # HEALPix inside observer: bin pixels by angular distance from
-                # the line-of-sight to the box centre (observer-to-source).
+                # the line-of-sight to the box center (observer-to-source).
                 # Falls back to the +z axis when the observer sits at the
                 # origin and that direction is undefined.
                 hp = _import_healpy("angular-distance radial profile")
@@ -2187,7 +2187,7 @@ def _resolve_vel_range_for_peeling(out: 'LaRTOutput',
 
 
 def _peel_pixel_coords_code(p: 'PeelObservation'):
-    """Pixel-centre coordinates of a peel-off image in **code units**.
+    """Pixel-center coordinates of a peel-off image in **code units**.
 
     The peel-off cube's FITS WCS stores ``CD2_2`` / ``CD3_3`` in
     degrees/pixel and the observer distance in code units (``DISTANCE``
@@ -2198,8 +2198,8 @@ def _peel_pixel_coords_code(p: 'PeelObservation'):
 
     Returns
     -------
-    xs : (nxim,) ndarray of pixel-centre x in code units
-    ys : (nyim,) ndarray of pixel-centre y in code units
+    xs : (nxim,) ndarray of pixel-center x in code units
+    ys : (nyim,) ndarray of pixel-center y in code units
     dx, dy : float
         Pixel pitch along x / y in code units.
     """
@@ -2401,7 +2401,7 @@ def fits_path_for(infile: str) -> str:
     """Determine the output file path for a given LaRT input file.
 
     Accepts either format the simulation may have produced (HDF5 or FITS).
-    Honours par%out_file if set in the namelist; otherwise falls back to
+    Honors par%out_file if set in the namelist; otherwise falls back to
     ``<basename>.{h5,hdf5,fits.gz,fits}`` in the same directory as the
     input file, with HDF5 preferred (the LaRT v2 default).  The name is
     kept for backwards compatibility — it returns whatever exists,
@@ -2415,7 +2415,7 @@ def fits_path_for(infile: str) -> str:
         if not os.path.isabs(out_file):
             out_file = os.path.join(indir, out_file)
         # If the namelist's value points at an existing file, return it
-        # as-is.  Otherwise try sibling files with the LaRT-recognised
+        # as-is.  Otherwise try sibling files with the LaRT-recognized
         # extensions: the simulation may have run with a different
         # par%file_format than the namelist string suggests.
         if os.path.exists(out_file):
@@ -2451,7 +2451,7 @@ def _peel_file_list(main_file: str) -> List[str]:
     (3-digit zero-padded suffix written by Fortran ``write(...,'(a,i3.3)')``).
     Both FITS and HDF5 extensions are searched.
     """
-    # strip the recognised output extensions
+    # strip the recognized output extensions
     base = main_file
     for ext in ('.fits.gz', '.hdf5', '.fits', '.h5'):
         if base.lower().endswith(ext):

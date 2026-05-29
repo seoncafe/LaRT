@@ -1,5 +1,5 @@
 !------------------------------------------------------------------------
-! Cartesian uniform sphere — INSIDE observer at sphere centre.
+! Cartesian uniform sphere — INSIDE observer at sphere center.
 ! Produces a HEALPix all-sky tau cube (tau_gas[nxfreq, npix]) and
 ! N_gas[npix].  Observer position defaults to (0,0,0) when nside > 0.
 !

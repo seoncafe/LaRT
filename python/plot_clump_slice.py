@@ -9,7 +9,7 @@ exact 2D cross-section of the spherical clump:
 
     boundary radius  r_cross = sqrt(R_CLUMP^2 - (slice - center)^2)
 
-Clumps whose centre lies farther from the slice than their R_CLUMP do not
+Clumps whose center lies farther from the slice than their R_CLUMP do not
 appear (they don't cross the plane).
 
 Usage
@@ -17,11 +17,11 @@ Usage
   # default: z = 0 slice, no fill, white background
   python plot_clump_slice.py clump_powerlaw_density_clumps.fits.gz
 
-  # x = 0.2, colour outline by full clump radius
+  # x = 0.2, color outline by full clump radius
   python plot_clump_slice.py file_clumps.fits.gz --axis x --value 0.2 \
       --colorby radius
 
-  # y = 0, fill the cross-section disks (alpha=0.4) coloured by temperature
+  # y = 0, fill the cross-section disks (alpha=0.4) colored by temperature
   python plot_clump_slice.py file_clumps.fits.gz --axis y --value 0 \
       --colorby temp --fill
 
@@ -29,9 +29,9 @@ Usage
   python plot_clump_slice.py file_clumps.fits.gz -o slice.png
 
 Color-by options:
-  none     -- single colour outline (default tab:blue)
-  radius   -- colour by full 3D R_CLUMP (uniform per clump)
-  rcross   -- colour by 2D intersection radius (depends on slice)
+  none     -- single color outline (default tab:blue)
+  radius   -- color by full 3D R_CLUMP (uniform per clump)
+  rcross   -- color by 2D intersection radius (depends on slice)
   temp     -- per-clump temperature
   rhokap   -- per-clump rhokap
 
@@ -98,7 +98,7 @@ def slice_clumps(pos, radius, axis, value):
 
     a, b -- coordinates in the 2D plot plane
     rcross -- 2D circle radius at the cut
-    idx -- indices into the original arrays (for colour-by-property)
+    idx -- indices into the original arrays (for color-by-property)
     """
     ia, ib, ic, _, _ = AXIS_TRIPLE[axis]
     delta = value - pos[:, ic]
@@ -108,7 +108,7 @@ def slice_clumps(pos, radius, axis, value):
 
 
 def make_color_array(clumps, idx, key, rcross):
-    """Return a 1D array of values to colour clumps by, plus a label."""
+    """Return a 1D array of values to color clumps by, plus a label."""
     if key == 'none':
         return None, None
     if key == 'radius':
@@ -140,7 +140,7 @@ def main():
     ap.add_argument('--colorby',
                     choices=('none', 'radius', 'rcross', 'temp', 'rhokap', 'velocity'),
                     default='none',
-                    help='colour outlines by per-clump quantity (default: none)')
+                    help='color outlines by per-clump quantity (default: none)')
     ap.add_argument('--fill', action='store_true',
                     help='fill cross-section disks (alpha=0.4) instead of outline only')
     ap.add_argument('--cmap', default='viridis',

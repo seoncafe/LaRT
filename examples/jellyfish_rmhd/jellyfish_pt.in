@@ -10,7 +10,7 @@
 
  par%ionization_model = 'from_file'
 
- !----- Point source at the galaxy centre (box centre = (0,0,0) in the
+ !----- Point source at the galaxy center (box center = (0,0,0) in the
  !      centered convention).  Per-cell RASCAS core-skipping
  !      (par%core_skip = .true., par%core_skip_global = .false.) makes
  !      the dense-core placement tractable: xcrit is recomputed at

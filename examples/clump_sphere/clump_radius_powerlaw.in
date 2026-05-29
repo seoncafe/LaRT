@@ -1,5 +1,5 @@
 !------------------------------------------------------------------------
-! Demonstration: clump radius grows linearly with distance from the centre.
+! Demonstration: clump radius grows linearly with distance from the center.
 !   - Number density of clumps: uniform
 !   - Per-clump opacity:        constant
 !   - Per-clump radius:         r_cl(r) = par%clump_radius * (r/r0)^(-alpha)
@@ -8,10 +8,10 @@
 !
 ! NOTE: when the radius profile is non-constant the closed-form
 ! f_cov <-> N relation does not hold (it assumes uniform r_cl).  In that
-! case the profile-aware quadrature back-solves the normalisation so that
+! case the profile-aware quadrature back-solves the normalization so that
 ! the LOS-integrated covering factor equals par%clump_f_cov; N_clumps is
 ! then derived from the integral and is generally non-trivial.  Below we
-! ask for f_cov = 1, and the code reports the realised N_clumps.
+! ask for f_cov = 1, and the code reports the realized N_clumps.
 !------------------------------------------------------------------------
 &parameters
  par%use_clump_medium     = .true.

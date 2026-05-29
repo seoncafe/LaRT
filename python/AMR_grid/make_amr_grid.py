@@ -5,7 +5,7 @@ make_amr_grid.py
 Generate a LaRT v2.00 generic AMR data file for a spherical medium
 with radial density profiles and various velocity fields.
 
-Supported density profiles (radial, centred at origin):
+Supported density profiles (radial, centered at origin):
   uniform       dens = n0                          (constant inside sphere)
   gaussian      dens = n0 * exp(-r^2 / (2*sigma^2))
   exponential   dens = n0 * exp(-r / r_scale)
@@ -289,10 +289,10 @@ def print_lart_hint(args, rmax, outfile):
     print(f'  par%amr_file        = \'{outfile}\'')
     if bu:
         print(f'  par%distance_unit   = \'{bu}\'')
-    print(f'  par%taumax          = 1.0e4    ! tau: box centre -> +z edge')
+    print(f'  par%taumax          = 1.0e4    ! tau: box center -> +z edge')
     print(f'  par%temperature     = {args.temperature:.4e}')
     print(f'  par%source_geometry = \'point\'')
-    print(f'  par%xs_point        = 0.0      ! box centre')
+    print(f'  par%xs_point        = 0.0      ! box center')
     print(f'  par%ys_point        = 0.0')
     print(f'  par%zs_point        = 0.0')
     if args.velocity != 'none':

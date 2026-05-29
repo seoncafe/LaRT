@@ -364,7 +364,7 @@ def build_radial_grid(boxlen, rmax, level_min, level_max, spacing, ratio,
 def print_shell_table(radii, level_min, level_max):
     n = len(radii)
     print()
-    print('  Shell structure (outermost → centre):')
+    print('  Shell structure (outermost → center):')
     print(f'  {"Outer radius":>14}  {"Inner radius":>14}  {"Level":>5}')
     print('  ' + '-' * 38)
     for i, (r_out, lv) in enumerate(zip(radii, range(level_min, level_max + 1))):
@@ -378,7 +378,7 @@ def print_shell_table(radii, level_min, level_max):
 # ---------------------------------------------------------------------------
 
 def _suffix_filename(path, suffix):
-    """Insert ``suffix`` before the recognised AMR-file extension.
+    """Insert ``suffix`` before the recognized AMR-file extension.
 
     ``foo.h5`` + ``_bar`` → ``foo_bar.h5``; same for ``.hdf5``, ``.fits.gz``,
     ``.fits``, ``.dat``, ``.txt``.  Unknown extensions: append after the path.
@@ -482,7 +482,7 @@ def _add_quiver(ax, vdata, grid, color='white', alpha=0.55, arrow_frac=0.06):
 
 def _plot_vmag_panel(ax, vdata, grid, slice_val):
     """
-    Draw a velocity-magnitude panel: PolyCollection coloured by |v| [km/s]
+    Draw a velocity-magnitude panel: PolyCollection colored by |v| [km/s]
     plus quiver arrows showing in-plane direction.
     """
     from matplotlib.collections import PolyCollection
@@ -499,7 +499,7 @@ def _plot_vmag_panel(ax, vdata, grid, slice_val):
         np.column_stack([cx - h, cy + h]),
     ], axis=1)
 
-    # Only colour cells with v > 0; background shows vacuum / zero-v region
+    # Only color cells with v > 0; background shows vacuum / zero-v region
     ax.set_facecolor('0.15')
     keep = vmag > 0
     if keep.any():
@@ -619,7 +619,7 @@ def parse_args():
     p.add_argument('--level_min', type=int, default=1,
                    help='Outermost shell refinement level (default: 1)')
     p.add_argument('--level_max', type=int, default=5,
-                   help='Innermost (centre) refinement level (default: 5)')
+                   help='Innermost (center) refinement level (default: 5)')
     p.add_argument('--spacing', choices=['linear', 'log'], default='linear',
                    help='Shell spacing mode (default: linear)')
     p.add_argument('--ratio', type=float, default=0.5,

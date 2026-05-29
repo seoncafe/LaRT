@@ -2147,7 +2147,7 @@ contains
 
      !--- Column-name interpretation for the opacity field.  If the file
      !    used DENSITY or DENS rather than RHOKAP, the values are number
-     !    densities [cm^-3] and need to be converted to line-centre opacity
+     !    densities [cm^-3] and need to be converted to line-center opacity
      !    per code unit via
      !        rhokap_i = n_HI_i * line%cross0 / cl_Dfreq(i) * par%distance2cm.
      !    The conversion only needs a meaningful distance2cm, so the check

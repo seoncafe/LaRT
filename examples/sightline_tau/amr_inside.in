@@ -1,7 +1,7 @@
 !------------------------------------------------------------------------
-! AMR uniform sphere — INSIDE observer at sphere centre.
+! AMR uniform sphere — INSIDE observer at sphere center.
 ! Same uniform-sphere setup as amr_sightline.in but the observer sits at
-! the sphere centre and emits HEALPix all-sky tau / column-density maps.
+! the sphere center and emits HEALPix all-sky tau / column-density maps.
 !
 ! Generate the AMR data file once with:
 !     python make_amr_sphere_data.py

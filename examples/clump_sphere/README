@@ -3,8 +3,8 @@ Clumpy-sphere examples for LaRT_v2.00
 
 Physical setup
 --------------
-A point source at the centre of a sphere of radius rmax emits Lyman-alpha
-photons (or another resonance line) at line centre.  The sphere contains N
+A point source at the center of a sphere of radius rmax emits Lyman-alpha
+photons (or another resonance line) at line center.  The sphere contains N
 non-overlapping spherical clumps of radius clump_radius, placed by
 Random Sequential Adsorption (RSA).  Each clump has uniform opacity,
 temperature par%temperature, and optionally a bulk velocity set by
@@ -12,8 +12,8 @@ clump_sigma_v or velocity_type.  Outside the clumps the medium is vacuum.
 
 The per-clump opacity is set by exactly one of three mutually exclusive
 parameters (priority order: first positive value wins):
-  clump_tau0  -- line-centre tau from clump centre to surface (dimensionless)
-  clump_NHI   -- per-clump HI column density [cm^-2] from centre to surface
+  clump_tau0  -- line-center tau from clump center to surface (dimensionless)
+  clump_NHI   -- per-clump HI column density [cm^-2] from center to surface
                  (do NOT confuse with N_HImax, the system-level column density)
   clump_nH    -- clump hydrogen number density [cm^-3] (requires distance_unit)
 
@@ -40,7 +40,7 @@ Input files
   clump_NHI18_fcov20.in       NHI=7.5e17 cm-2, f_cov=20, per-clump column density (tau0~4.4e4)
 
   The NHI cases use clump_radius=0.001 (10x smaller than the tau0 cases) and
-  spectral_type='monochromatic' (photons injected at line centre).
+  spectral_type='monochromatic' (photons injected at line center).
 
 How to run
 ----------
@@ -76,7 +76,7 @@ Key parameters (namelist)
   par%clump_f_cov      = 5.0      ! line-of-sight covering factor  \
   par%clump_f_vol      = ...      !  or volume filling factor        >  specify one
   par%clump_N_clumps   = ...      !  or number of clumps            /
-  par%clump_tau0       = 1.0e3    ! per-clump line-centre tau (centre -> surface)  \
+  par%clump_tau0       = 1.0e3    ! per-clump line-center tau (center -> surface)  \
   par%clump_NHI        = ...      !  or per-clump HI column density [cm^-2]         >  specify one
   par%clump_nH         = ...      !  or HI number density [cm^-3] (needs distance_unit) /
   par%clump_temperature = -1.0    ! clump T [K]; -1 uses par%temperature
@@ -90,11 +90,11 @@ Notes
   clump_f_vol in that regime.
 * f_cov = (3/4) * N_clumps * (clump_radius/rmax)^2; the effective optical
   depth through the sphere is approximately f_cov * tau0.
-* clump_NHI is the column density of ONE individual clump (centre to surface).
+* clump_NHI is the column density of ONE individual clump (center to surface).
   It is NOT the same as N_HImax, which is the system-level average column
   density along a sightline through the entire sphere.
   The equivalent tau0 is: tau0 = clump_NHI * sigma0 * phi(0, a_V),
-  where sigma0 = line%cross0 / Dfreq [cm^2] is the line-centre cross-section.
+  where sigma0 = line%cross0 / Dfreq [cm^2] is the line-center cross-section.
   For T=1e4 K and clump_NHI=7.5e17 cm^-2: tau0 ~ 4.4e4.
 * Opacity priority (first positive value wins): clump_tau0 > clump_NHI > clump_nH.
   clump_NHI does not require distance_unit; clump_nH does.

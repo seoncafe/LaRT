@@ -91,7 +91,7 @@ for idx in arr:
    Icen  = np.median(Iim[np.where(Iim > 0.0)])
    Imax  = Icen*5.0
    levels= np.arange(17)*0.01 * Imax
-   imgc  = ax[0].contour(Iim,  levels, extent=[-1,1,-1,1],colors='grey', origin='lower', vmin=Imin, vmax=Imax, linewidths=0.1)
+   imgc  = ax[0].contour(Iim,  levels, extent=[-1,1,-1,1],colors='gray', origin='lower', vmin=Imin, vmax=Imax, linewidths=0.1)
    img0  = ax[0].contourf(Iim, levels, extent=[-1,1,-1,1],cmap=cmap0,    origin='lower', vmin=Imin, vmax=Imax)
 
    cax0  = inset_axes(ax[0], width="5%", height="100%", loc="lower left",
@@ -99,7 +99,7 @@ for idx in arr:
    cbar0 = fig.colorbar(img0, cax=cax0, ticks=levels)
    cbar0.ax.set_yticklabels(['0.00','','','','','0.05','','','','','0.10','','','','','0.15',''])
    cbar0.ax.minorticks_off()
-   cbar0.ax.tick_params(labelsize=12, color='grey', length=7.5, width=0.1)
+   cbar0.ax.tick_params(labelsize=12, color='gray', length=7.5, width=0.1)
 
    #cbar0 = fig.colorbar(img0, cax=cax0, ticks=np.arange(5)*0.05)
    #cbar0.ax.minorticks_on()

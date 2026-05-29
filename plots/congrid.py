@@ -13,7 +13,7 @@ def congrid(a, newdims, method='linear', center=False, minusone=False):
     routine of the same name.
 
     method:
-    neighbour - closest value from original data
+    neighbor - closest value from original data
     nearest and linear - uses n x 1-D interpolations using
                          scipy.interpolate.interp1d
     (see Numerical Recipes for validity of use of n 1-D interpolations)
@@ -44,7 +44,7 @@ def congrid(a, newdims, method='linear', center=False, minusone=False):
     newdims = n.asarray( newdims, dtype=float )
     dimlist = []
 
-    if method == 'neighbour':
+    if method == 'neighbor':
         for i in range( ndims ):
             base = n.indices(newdims)[i]
             dimlist.append( (old[i] - m1) / (newdims[i] - m1) \
@@ -103,6 +103,6 @@ def congrid(a, newdims, method='linear', center=False, minusone=False):
         return newa
     else:
         print "Congrid error: Unrecognized interpolation type.\n", \
-              "Currently only \'neighbour\', \'nearest\',\'linear\',", \
+              "Currently only \'neighbor\', \'nearest\',\'linear\',", \
               "and \'spline\' are supported."
         return None

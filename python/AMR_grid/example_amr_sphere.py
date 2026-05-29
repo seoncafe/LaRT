@@ -51,7 +51,7 @@ def make_sphere(boxlen=2.0,
     boxlen : float
         Box side length [code unit].  Box occupies [-boxlen/2, boxlen/2]^3.
     r_refine : float
-        Refinement sphere radius [code unit] from box centre.
+        Refinement sphere radius [code unit] from box center.
         Cells not fully contained in the sphere are always refined to
         ``level_fine``. Cells fully contained in the sphere are refined
         toward ``level_fine`` only when the physics criterion is satisfied.

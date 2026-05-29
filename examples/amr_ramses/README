@@ -35,12 +35,12 @@ Hydro variable layout assumed
 Neutral fraction
 ----------------
   par%use_cie_condition = .true.   (recommended for cosmological runs)
-      nHI/nH estimated from nH and T using collisional-ionisation equilibrium.
+      nHI/nH estimated from nH and T using collisional-ionization equilibrium.
 
   par%use_cie_condition = .false.  (default)
       All hydrogen assumed neutral.  Only appropriate for cold ISM runs.
 
-Opacity normalisation
+Opacity normalization
 ---------------------
   par%taumax  > 0   : rescale so that tau_pole = par%taumax
   par%N_HImax > 0   : rescale to target column density [cm^-2]

@@ -4,7 +4,7 @@
 !   - Per-clump opacity:        constant
 !   - Per-clump radius:         constant
 ! Compared with `clump_tau3_fcov5.in`, this run lets f_cov=5 be achieved
-! with fewer clumps because they are concentrated near the centre.
+! with fewer clumps because they are concentrated near the center.
 !------------------------------------------------------------------------
 &parameters
  par%use_clump_medium     = .true.

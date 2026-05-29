@@ -21,14 +21,14 @@
  par%amr_file       = '/path/to/ramses_run'   ! <-- change this
  par%amr_snapnum    = 10                       ! <-- change this
 
- ! Opacity normalisation:
+ ! Opacity normalization:
  !   set par%taumax > 0  to rescale opacity so tau_pole = par%taumax, OR
  !   set par%N_HImax > 0 to target a column density [cm^-2], OR
  !   leave both <= 0 to use the raw physical densities from the RAMSES output.
  par%taumax  = -1.0   ! use raw densities (no rescaling)
  par%N_HImax = -1.0
 
- ! Use collisional-ionisation equilibrium (CIE) to estimate neutral fraction
+ ! Use collisional-ionization equilibrium (CIE) to estimate neutral fraction
  par%use_cie_condition = .true.
 
  par%DGR  = 0.0         ! dust-to-gas ratio (0 = no dust)

@@ -1,7 +1,7 @@
 &parameters
 !----------------------------------------------------------------------
 ! AMR + HEALPix inside-observer smoke test.
-! Uses uniform sphere AMR grid; observer placed off-centre.
+! Uses uniform sphere AMR grid; observer placed off-center.
 !----------------------------------------------------------------------
  par%use_amr_grid  = .true.
  par%amr_type      = 'generic'

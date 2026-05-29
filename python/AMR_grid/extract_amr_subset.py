@@ -15,7 +15,7 @@ center of the extracted volume.
 Behavior
 --------
 
-* Selection is by cell center (any cell whose centre falls inside the
+* Selection is by cell center (any cell whose center falls inside the
   requested cube is kept).
 * All optional columns present in the input (xHI, n_e, emissivity, etc.)
   are carried through unchanged.
@@ -121,7 +121,7 @@ def extract_subset(
     output_path: str,
     bounds: Tuple[float, float, float, float, float, float],
 ) -> dict:
-    """Read ``input_path``, keep cells whose centre is inside ``bounds``,
+    """Read ``input_path``, keep cells whose center is inside ``bounds``,
     shift to a centered box, and write ``output_path``.  Returns a dict
     with summary statistics.
     """

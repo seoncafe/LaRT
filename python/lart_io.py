@@ -83,7 +83,7 @@ def glob_lart(pattern_stem: str, suffix: str = '') -> List[str]:
 
     ``pattern_stem`` is a glob pattern *without* the extension, e.g.
     ``'*'``, ``'foo*'``.  Returns a sorted list of matching files across
-    all recognised LaRT extensions.  Use ``suffix='_obs'`` etc. to match
+    all recognized LaRT extensions.  Use ``suffix='_obs'`` etc. to match
     peel-off / sight-line derived files.
     """
     import glob
