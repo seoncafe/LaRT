@@ -242,7 +242,7 @@ contains
   call MPI_BARRIER(MPI_COMM_WORLD, ierr)
 
   !--- reference temperature and Doppler frequencey.
-  grid%Dfreq_ref      = line%vtherm1*sqrt(par%temperature)/(line%wavelength0*um2km)
+  grid%Dfreq_ref      = vtherm_total(par%temperature)/(line%wavelength0*um2km)
 
   !--- To mask locations where Lya photons will be completely destroyed.
   if (trim(par%geometry) == 'spherical_atmosphere') then
@@ -276,7 +276,7 @@ contains
         !--- Temp should have positive values everywhere in the cells. (Do not remove this.)
         !--- Dfreq should have non-zero values even in zero-density cells.
         if (Temp(i,j,k) <= 0.0_wp) Temp(i,j,k) = par%temperature
-        vtherm                  = line%vtherm1*sqrt(Temp(i,j,k))
+        vtherm                  = vtherm_total(Temp(i,j,k))
         grid%Dfreq(i,j,k)       = vtherm/(line%wavelength0*um2km)
         grid%voigt_a(i,j,k)     = (line%damping/fourpi)/grid%Dfreq(i,j,k)
      enddo
@@ -755,7 +755,7 @@ contains
         do k=1,grid%nz
         do j=1,grid%ny
         do i=1,grid%nx
-           vtherm          = line%vtherm1*sqrt(Temp(i,j,k))
+           vtherm          = vtherm_total(Temp(i,j,k))
            grid%vfx(i,j,k) = cart_vx_arr(i,j,k)/vtherm
            grid%vfy(i,j,k) = cart_vy_arr(i,j,k)/vtherm
            grid%vfz(i,j,k) = cart_vz_arr(i,j,k)/vtherm
@@ -776,7 +776,7 @@ contains
         do k=1,grid%nz
         do j=1,grid%ny
         do i=1,grid%nx
-           vtherm          = line%vtherm1*sqrt(Temp(i,j,k))
+           vtherm          = vtherm_total(Temp(i,j,k))
            grid%vfx(i,j,k) = grid%vfx(i,j,k)/vtherm
            grid%vfy(i,j,k) = grid%vfy(i,j,k)/vtherm
            grid%vfz(i,j,k) = grid%vfz(i,j,k)/vtherm
@@ -793,7 +793,7 @@ contains
         do j=1,grid%ny
         do i=1,grid%nx
            if (grid%rhokap(i,j,k) > 0.0_wp) then
-              vtherm          = line%vtherm1*sqrt(Temp(i,j,k))
+              vtherm          = vtherm_total(Temp(i,j,k))
               grid%vfx(i,j,k) = (par%Vexp/vtherm) * xx(i) / par%rpeak
               grid%vfy(i,j,k) = (par%Vexp/vtherm) * yy(j) / par%rpeak
               grid%vfz(i,j,k) = (par%Vexp/vtherm) * zz(k) / par%rpeak
@@ -806,7 +806,7 @@ contains
         do j=1,grid%ny
         do i=1,grid%nx
            if (grid%rhokap(i,j,k) > 0.0_wp) then
-              vtherm          = line%vtherm1*sqrt(Temp(i,j,k))
+              vtherm          = vtherm_total(Temp(i,j,k))
               grid%vfx(i,j,k) = par%Vx/vtherm
               grid%vfy(i,j,k) = par%Vy/vtherm
               grid%vfz(i,j,k) = par%Vz/vtherm
@@ -821,7 +821,7 @@ contains
         do i=1,grid%nx
            if (grid%rhokap(i,j,k) > 0.0_wp) then
               rr     = sqrt(xx(i)**2 + yy(j)**2 + zz(k)**2)
-              vtherm = line%vtherm1*sqrt(Temp(i,j,k))
+              vtherm = vtherm_total(Temp(i,j,k))
               if (rr < par%rpeak) then
                  Vscale          = par%Vpeak / par%rpeak
                  grid%vfx(i,j,k) = Vscale/vtherm * xx(i)
@@ -855,7 +855,7 @@ contains
            !---
            rr = sqrt(xx(i)**2 + yy(j)**2 + zz(k)**2)
            if (rr > grid%dz/10.0_wp .and. grid%rhokap(i,j,k) > 0.0_wp) then
-              vtherm          = line%vtherm1*sqrt(Temp(i,j,k))
+              vtherm          = vtherm_total(Temp(i,j,k))
               grid%vfx(i,j,k) = par%Vexp/vtherm * xx(i) / rr
               grid%vfy(i,j,k) = par%Vexp/vtherm * yy(j) / rr
               grid%vfz(i,j,k) = par%Vexp/vtherm * zz(k) / rr
@@ -877,7 +877,7 @@ contains
         do i=1,grid%nx
            rr = sqrt(xx(i)**2 + yy(j)**2 + zz(k)**2)
            if (rr > grid%dz/10.0_wp .and. grid%rhokap(i,j,k) > 0.0_wp) then
-              vtherm = line%vtherm1*sqrt(Temp(i,j,k))
+              vtherm = vtherm_total(Temp(i,j,k))
               Vscale = par%Vexp * (rr / par%rpeak)**par%velocity_alpha
               grid%vfx(i,j,k) = Vscale/vtherm * xx(i)/rr
               grid%vfy(i,j,k) = Vscale/vtherm * yy(j)/rr
@@ -900,7 +900,7 @@ contains
         do i=1,grid%nx
            rr = sqrt(xx(i)**2 + yy(j)**2 + zz(k)**2)
            if (rr > grid%dz/10.0_wp .and. grid%rhokap(i,j,k) > 0.0_wp) then
-              vtherm = line%vtherm1*sqrt(Temp(i,j,k))
+              vtherm = vtherm_total(Temp(i,j,k))
               Vscale = par%Vexp * max(0.0_wp, (par%rpeak - rr) / (par%rpeak - max(par%rmin, 0.0_wp)))
               grid%vfx(i,j,k) = Vscale/vtherm * xx(i)/rr
               grid%vfy(i,j,k) = Vscale/vtherm * yy(j)/rr
@@ -916,7 +916,7 @@ contains
         do j=1,grid%ny
         do i=1,grid%nx
            if (grid%rhokap(i,j,k) > 0.0_wp) then
-              vtherm = 0.12843374_wp*sqrt(Temp(i,j,k))
+              vtherm = vtherm_total(Temp(i,j,k))
               grid%vfx(i,j,k) = -par%Vrot/vtherm * yy(j)/par%rmax
               grid%vfy(i,j,k) =  par%Vrot/vtherm * xx(i)/par%rmax
            endif
@@ -931,7 +931,7 @@ contains
         do i=1,grid%nx
            if (grid%rhokap(i,j,k) > 0.0_wp) then
               rr     = sqrt(xx(i)**2 + yy(j)**2)
-              vtherm = 0.12843374_wp*sqrt(Temp(i,j,k))
+              vtherm = vtherm_total(Temp(i,j,k))
               if (rr < par%rinner) then
                  grid%vfx(i,j,k) = -par%Vrot/vtherm * yy(j)/par%rinner
                  grid%vfy(i,j,k) =  par%Vrot/vtherm * xx(i)/par%rinner
@@ -1085,17 +1085,17 @@ contains
        call io_close(iofh,status)
 
        !-- velocity
-       tmp_arr = 0.12843374_wp*sqrt(Temp) * grid%vfx
+       tmp_arr = vtherm_total(Temp) * grid%vfx
        call io_open_new(iofh,trim(par%base_name)//'_vfx'//trim(ext),status)
        call io_append_image(iofh,tmp_arr,status,bitpix=-32)
        call io_close(iofh,status)
 
-       tmp_arr = 0.12843374_wp*sqrt(Temp) * grid%vfy
+       tmp_arr = vtherm_total(Temp) * grid%vfy
        call io_open_new(iofh,trim(par%base_name)//'_vfy'//trim(ext),status)
        call io_append_image(iofh,tmp_arr,status,bitpix=-32)
        call io_close(iofh,status)
 
-       tmp_arr = 0.12843374_wp*sqrt(Temp) * grid%vfz
+       tmp_arr = vtherm_total(Temp) * grid%vfz
        call io_open_new(iofh,trim(par%base_name)//'_vfz'//trim(ext),status)
        call io_append_image(iofh,tmp_arr,status,bitpix=-32)
        call io_close(iofh,status)
@@ -1431,7 +1431,7 @@ contains
   atau3     = (grid%voigt_amean * par%tauhomo)**(1.0_wp/3.0_wp)
   par%atau3 = atau3
 
-  vtherm = line%vtherm1*sqrt(par%temperature)
+  vtherm = vtherm_total(par%temperature)
 
   ! Translate wavelength/velocity range inputs to x-frequency range
   if (is_finite(par%wavelength_min) .and. is_finite(par%wavelength_max)) then
@@ -1484,8 +1484,8 @@ contains
   grid%xfreq_min = par%xfreq_min
   if (mpar%h_rank == 0) then
      grid%xfreq(:)      = [ ((i-0.5_wp)*grid%dxfreq + grid%xfreq_min, i=1, grid%nxfreq) ]
-     grid%velocity(:)   = -line%vtherm1*sqrt(par%temperature) * grid%xfreq(:)
-     grid%dwave         =  line%vtherm1*sqrt(par%temperature) / speedc * (line%wavelength0 * 1e4_wp) * grid%dxfreq
+     grid%velocity(:)   = -vtherm_total(par%temperature) * grid%xfreq(:)
+     grid%dwave         =  vtherm_total(par%temperature) / speedc * (line%wavelength0 * 1e4_wp) * grid%dxfreq
      grid%wavelength(:) = (grid%velocity(:)/speedc + 1.0_wp) * (line%wavelength0 * 1e4_wp)
   endif
   call MPI_BARRIER(mpar%hostcomm, ierr)
@@ -1496,7 +1496,7 @@ contains
         real(kind=wp) :: EW_vel, dv_range
         real(kind=wp), parameter :: speedc_kms = 2.99792458e5_wp
         EW_vel   = par%EW_line / (line%wavelength0 * 1.0e4_wp) * speedc_kms
-        dv_range = (grid%xfreq_max - grid%xfreq_min) * line%vtherm1 * sqrt(par%temperature)
+        dv_range = (grid%xfreq_max - grid%xfreq_min) * vtherm_total(par%temperature)
         par%f_line = EW_vel / (EW_vel + dv_range)
         if (mpar%p_rank == 0) then
            write(*,'(a,f8.4)') ' continuum+gaussian: f_line = ', par%f_line

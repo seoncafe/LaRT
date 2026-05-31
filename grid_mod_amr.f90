@@ -200,7 +200,7 @@ contains
     end select
 
     !--- Step 3: Set reference Doppler frequency ----------------------
-    amr_grid%Dfreq_ref  = line%vtherm1 * sqrt(par%temperature) / (line%wavelength0 * um2km)
+    amr_grid%Dfreq_ref  = vtherm_total(par%temperature) / (line%wavelength0 * um2km)
     amr_grid%voigt_amean = (line%damping / fourpi) / amr_grid%Dfreq_ref
     amr_grid%Dfreq_mean  = amr_grid%Dfreq_ref
 
@@ -218,7 +218,7 @@ contains
     if (mpar%h_rank == 0) then
     do il = 1, nleaf
       T_cgs(il) = max(T_cgs(il), 10.0_wp)
-      vtherm    = line%vtherm1 * sqrt(T_cgs(il))
+      vtherm    = vtherm_total(T_cgs(il))
       amr_grid%Dfreq(il)   = vtherm / (line%wavelength0 * um2km)
       amr_grid%voigt_a(il) = (line%damping / fourpi) / amr_grid%Dfreq(il)
 
@@ -534,7 +534,7 @@ contains
     real(wp) :: vtherm, xscale, atau1, atau0_arg
     integer  :: i, ierr
 
-    vtherm = line%vtherm1 * sqrt(par%temperature)
+    vtherm = vtherm_total(par%temperature)
 
     ! Translate wavelength/velocity range inputs to x-frequency range (mirrors grid_mod_car)
     if (is_finite(par%wavelength_min) .and. is_finite(par%wavelength_max)) then
@@ -603,7 +603,7 @@ contains
           real(kind=wp) :: EW_vel, dv_range
           real(kind=wp), parameter :: speedc_kms = 2.99792458e5_wp
           EW_vel   = par%EW_line / (line%wavelength0 * 1.0e4_wp) * speedc_kms
-          dv_range = (amr_grid%xfreq_max - amr_grid%xfreq_min) * line%vtherm1 * sqrt(par%temperature)
+          dv_range = (amr_grid%xfreq_max - amr_grid%xfreq_min) * vtherm_total(par%temperature)
           par%f_line = EW_vel / (EW_vel + dv_range)
           if (mpar%p_rank == 0) then
              write(*,'(a,f8.4)') ' continuum+gaussian: f_line = ', par%f_line
@@ -895,7 +895,7 @@ contains
     case ('hubble')
        do il = 1, amr_grid%nleaf
           icell  = amr_grid%icell_of_leaf(il)
-          vtherm = line%vtherm1 * sqrt(T_cgs(il))
+          vtherm = vtherm_total(T_cgs(il))
           amr_grid%vfx(il) = (par%Vexp / vtherm) * amr_grid%cx(icell) / rmax_eff
           amr_grid%vfy(il) = (par%Vexp / vtherm) * amr_grid%cy(icell) / rmax_eff
           amr_grid%vfz(il) = (par%Vexp / vtherm) * amr_grid%cz(icell) / rmax_eff
@@ -907,7 +907,7 @@ contains
           xc = amr_grid%cx(icell);  yc = amr_grid%cy(icell);  zc = amr_grid%cz(icell)
           rr = sqrt(xc*xc + yc*yc + zc*zc)
           if (rr > amr_grid%ch(icell) * 0.1_wp) then
-             vtherm = line%vtherm1 * sqrt(T_cgs(il))
+             vtherm = vtherm_total(T_cgs(il))
              amr_grid%vfx(il) = (par%Vexp / vtherm) * xc / rr
              amr_grid%vfy(il) = (par%Vexp / vtherm) * yc / rr
              amr_grid%vfz(il) = (par%Vexp / vtherm) * zc / rr
@@ -920,7 +920,7 @@ contains
 
     case ('parallel_velocity')
        do il = 1, amr_grid%nleaf
-          vtherm = line%vtherm1 * sqrt(T_cgs(il))
+          vtherm = vtherm_total(T_cgs(il))
           amr_grid%vfx(il) = par%Vx / vtherm
           amr_grid%vfy(il) = par%Vy / vtherm
           amr_grid%vfz(il) = par%Vz / vtherm
@@ -931,7 +931,7 @@ contains
           icell  = amr_grid%icell_of_leaf(il)
           xc = amr_grid%cx(icell);  yc = amr_grid%cy(icell);  zc = amr_grid%cz(icell)
           rr = sqrt(xc*xc + yc*yc + zc*zc)
-          vtherm = line%vtherm1 * sqrt(T_cgs(il))
+          vtherm = vtherm_total(T_cgs(il))
           if (rr < par%rpeak) then
              Vscale = par%Vpeak / par%rpeak
              amr_grid%vfx(il) = (Vscale / vtherm) * xc
@@ -952,7 +952,7 @@ contains
     case ('rotating_solid_body')
        do il = 1, amr_grid%nleaf
           icell  = amr_grid%icell_of_leaf(il)
-          vtherm = line%vtherm1 * sqrt(T_cgs(il))
+          vtherm = vtherm_total(T_cgs(il))
           amr_grid%vfx(il) = -(par%Vrot / vtherm) * amr_grid%cy(icell) / rmax_eff
           amr_grid%vfy(il) =  (par%Vrot / vtherm) * amr_grid%cx(icell) / rmax_eff
           amr_grid%vfz(il) = 0.0_wp
@@ -963,7 +963,7 @@ contains
           icell  = amr_grid%icell_of_leaf(il)
           xc = amr_grid%cx(icell);  yc = amr_grid%cy(icell)
           rr_cyl = sqrt(xc*xc + yc*yc)
-          vtherm = line%vtherm1 * sqrt(T_cgs(il))
+          vtherm = vtherm_total(T_cgs(il))
           if (rr_cyl < par%rinner) then
              amr_grid%vfx(il) = -(par%Vrot / vtherm) * yc / par%rinner
              amr_grid%vfy(il) =  (par%Vrot / vtherm) * xc / par%rinner

@@ -836,4 +836,22 @@ public
   end interface
 
   !------------------------------------------------------------
+contains
+  !----------------------------------------------------------------------
+  ! Total Doppler velocity [km/s] at gas temperature T: the thermal width
+  ! combined in quadrature with the turbulent b-parameter par%bturb,
+  !     b_tot = sqrt( (line%vtherm1*sqrt(T))^2 + par%bturb^2 ).
+  ! par%bturb is the TRUE turbulent velocity (km/s); when it is unset (<= 0)
+  ! the result is the pure thermal width.  Every Doppler width, Voigt
+  ! parameter and velocity-in-thermal-units scaling must go through this so
+  ! the Cartesian, AMR and clump grids treat turbulence identically (and so
+  ! per-cell temperature variations are preserved on top of the turbulence).
+  !----------------------------------------------------------------------
+  elemental function vtherm_total(T) result(vt)
+    real(kind=wp), intent(in) :: T
+    real(kind=wp)             :: vt
+    vt = line%vtherm1 * sqrt(T)
+    if (par%bturb > 0.0_wp) vt = sqrt(vt*vt + par%bturb*par%bturb)
+  end function vtherm_total
+  !------------------------------------------------------------
 end module define

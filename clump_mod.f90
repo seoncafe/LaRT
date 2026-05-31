@@ -685,7 +685,7 @@ contains
   !--- clump temperature → Doppler frequency and Voigt parameter (peak / reference)
   temp_cl = par%clump_temperature
   if (temp_cl < 0.0_wp) temp_cl = par%temperature
-  vtherm             = line%vtherm1 * sqrt(temp_cl)
+  vtherm             = vtherm_total(temp_cl)
   cl_Dfreq_ref       = vtherm / (line%wavelength0 * um2km)
   cl_vtherm_ref      = vtherm                          ! km/s
   cl_temperature_ref = temp_cl                         ! [K]
@@ -1085,7 +1085,7 @@ contains
            temp_loc = cl_temperature_ref
         end if
         cl_temperature(icl) = temp_loc
-        vth_loc = line%vtherm1 * sqrt(temp_loc)
+        vth_loc = vtherm_total(temp_loc)
         cl_vtherm(icl)      = vth_loc
         Df_loc  = vth_loc / (line%wavelength0 * um2km)
         cl_Dfreq(icl)       = Df_loc
@@ -2175,7 +2175,7 @@ contains
      !    from the per-clump temperature so that the line-data choice (par%line_id)
      !    used in the LaRT run can differ from the one that generated the file.
      do i = 1_int64, ncl
-        cl_vtherm(i)  = line%vtherm1 * sqrt(cl_temperature(i))
+        cl_vtherm(i)  = vtherm_total(cl_temperature(i))
         cl_Dfreq(i)   = cl_vtherm(i) / (line%wavelength0 * um2km)
         cl_voigt_a(i) = (line%damping / fourpi) / cl_Dfreq(i)
         cl_radius2(i) = cl_radius(i) * cl_radius(i)

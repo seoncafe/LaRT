@@ -115,8 +115,13 @@ contains
 
   !--- temperature0 is a temperature of the photon source, which is independent of the cell temperature.
   !--- comment added, 2020.09.02.
-  !--- bturb is the turbulence b parameter in units of km/s (added, 2023.06.08).
-  if (par%bturb > 0.0_wp)         par%temperature  = (par%bturb/line%vtherm1)**2
+  !--- bturb is the turbulent b parameter in km/s (added, 2023.06.08).
+  !--- It is now the TRUE turbulent velocity and is combined in quadrature with
+  !--- the (per-cell) thermal width via vtherm_total(T); par%temperature is left
+  !--- as the real gas temperature.  (Previously bturb overwrote par%temperature
+  !--- with (bturb/vtherm1)^2, which forced a uniform width and was silently
+  !--- ignored wherever a per-cell temperature existed — AMR grids, cart/temp
+  !--- files — making those paths disagree with the native Cartesian grid.)
   if (par%temperature0 <= 0.0_wp) par%temperature0 = par%temperature
   if (par%temperature <= 0.0_wp) then
      write(*,'(a)') 'ERROR: par%temperature must be > 0 K'
@@ -126,7 +131,7 @@ contains
      write(*,'(a)') 'ERROR: par%temperature0 must be > 0 K'
      call MPI_ABORT(MPI_COMM_WORLD, 1, ierr)
   end if
-  vtherm0       = line%vtherm1*sqrt(par%temperature0)
+  vtherm0       = vtherm_total(par%temperature0)
   par%Dfreq0    = vtherm0/(line%wavelength0*um2km)
   par%voigt_a0  = (line%damping/fourpi)/par%Dfreq0
 
@@ -538,7 +543,7 @@ contains
         close(unit)
 
         !--- reference temperature and Doppler frequencey.
-        vtherm_ref = line%vtherm1*sqrt(par%temperature)
+        vtherm_ref = vtherm_total(par%temperature)
         Dfreq_ref  = vtherm_ref/(line%wavelength0*um2km)
 
         !--- assuming that the line profile is given in frequency  (Hz)       if line_prof_file_type == 0.

@@ -258,7 +258,7 @@ contains
         else
            gsig = par%gaussian_sigma_vel
         end if
-        photon%xfreq = photon%xfreq + rand_gauss() * (gsig / (line%vtherm1 * sqrt(par%temperature)))
+        photon%xfreq = photon%xfreq + rand_gauss() * (gsig / (vtherm_total(par%temperature)))
      end block
      photon%xfreq = photon%xfreq / (Dfreq_local / grid%Dfreq_ref)
   case ('line_prof_file')
@@ -279,13 +279,13 @@ contains
         !--- EW in velocity units [km/s]
         EW_vel   = par%EW_line / (line%wavelength0 * 1.0e4_wp) * speedc_kms
         !--- velocity bandwidth of the continuum [km/s]
-        dv_range = (grid%xfreq_max - grid%xfreq_min) * line%vtherm1 * sqrt(par%temperature)
+        dv_range = (grid%xfreq_max - grid%xfreq_min) * vtherm_total(par%temperature)
         !--- line photon fraction
         f_line   = EW_vel / (EW_vel + dv_range)
         if (rand_number() < f_line) then
            !--- Gaussian line: sigma_x in xfreq units (reference Dfreq)
            sigma_x = fwhm_use * fwhm2sigma &
-                   / (line%vtherm1 * sqrt(par%temperature))
+                   / (vtherm_total(par%temperature))
            photon%xfreq = photon%xfreq + rand_gauss() * sigma_x
         else
            !--- flat continuum
