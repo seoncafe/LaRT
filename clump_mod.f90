@@ -37,6 +37,7 @@ module clump_mod
   real(kind=wp), pointer, save :: cl_radius(:)      => null()  ! clump radius [code units]
   real(kind=wp), pointer, save :: cl_radius2(:)     => null()  ! cl_radius(icl)**2
   real(kind=wp), pointer, save :: cl_rhokap(:)      => null()  ! opacity/code-unit inside clump
+  real(kind=wp), pointer, save :: cl_rhokapD(:)     => null()  ! dust opacity/code-unit (allocated only if DGR>0)
   real(kind=wp), pointer, save :: cl_voigt_a(:)     => null()  ! Voigt damping parameter
   real(kind=wp), pointer, save :: cl_Dfreq(:)       => null()  ! Doppler frequency [Hz]
   real(kind=wp), pointer, save :: cl_vtherm(:)      => null()  ! thermal velocity [km/s]
@@ -78,6 +79,11 @@ module clump_mod
   real(kind=wp), save :: base_nH_in       = 0.0_wp     ! peak n_H [cm^-3] (when known)
   logical,       save :: profiles_active  = .false.    ! .true. if any profile != 'constant'
   logical,       save :: clumps_from_file = .false.    ! .true. if init_clumps loaded the population
+  !--- When .true., kappa_clump returns the GAS line opacity only (no dust).
+  !    Set transiently by the raytrace_to_*_tau_gas_clump wrappers so that
+  !    gas-only sightline tau matches the Cartesian _tau_gas routines.
+  !    Safe as a module scalar because v2.00 is MPI-only (one thread/rank).
+  logical,       save :: clump_gas_only   = .false.
                                                        !  from par%clump_input_file (via read_clumps_info)
   logical,       save :: has_overlap      = .false.    ! .true. if file-loaded clumps contain overlapping pairs
 
@@ -124,10 +130,37 @@ contains
   function voigt_clump(xfreq, icl) result(v)
   real(kind=wp),  intent(in) :: xfreq
   integer(int64), intent(in) :: icl
-  real(kind=wp)              :: v
+  real(kind=wp)              :: v, xloc, Dnu, a_ratio, f_ratio
+  integer                    :: i
 !DIR$ ATTRIBUTES INLINE :: voigt_mod_voigt
-  v = voigt(xfreq * (cl_Dfreq_ref/cl_Dfreq(icl)), cl_voigt_a(icl))
+  !--- Multiplet profile (exact mirror of calc_voigt3) in this clump's LOCAL
+  !    Doppler units.  photon%xfreq is carried in REF units, so rescale once
+  !    to local units (xloc); the member offsets delE_Hz(i)/cl_Dfreq(icl) are
+  !    likewise in local units.  For single-line types (nup=1) the loop is
+  !    skipped -> identical to the previous single-voigt behaviour.
+  xloc = xfreq * (cl_Dfreq_ref/cl_Dfreq(icl))
+  v    = voigt(xloc, cl_voigt_a(icl))
+  do i = 2, line%nup
+     Dnu     = line%delE_Hz(i)   / cl_Dfreq(icl)
+     a_ratio = line%b(i)%damping / line%b(1)%damping
+     f_ratio = line%f12(i)       / line%f12(1)
+     v = v + voigt(xloc + Dnu, cl_voigt_a(icl)*a_ratio) * f_ratio
+  end do
   end function voigt_clump
+  !===========================================================================
+  ! Total opacity per code-unit length for a clump leaf: gas line opacity
+  ! (multiplet-aware via voigt_clump) plus the co-located dust continuum
+  ! opacity when DGR > 0.  Mirrors the Cartesian raytrace
+  !   rhokap = grid%rhokap*calc_voigt(...) + grid%rhokapD
+  ! so that the dust/resonance split and total tau are consistent.
+  !===========================================================================
+  function kappa_clump(xfreq, icl) result(kap)
+  real(kind=wp),  intent(in) :: xfreq
+  integer(int64), intent(in) :: icl
+  real(kind=wp)              :: kap
+  kap = cl_rhokap(icl) * voigt_clump(xfreq, icl)
+  if (par%DGR > 0.0_wp .and. .not. clump_gas_only) kap = kap + cl_rhokapD(icl)
+  end function kappa_clump
   !===========================================================================
   pure function ulos_clump(icl, kx, ky, kz) result(u)
   integer(int64), intent(in) :: icl
@@ -788,6 +821,7 @@ contains
   call create_shared_mem(cl_radius,      [int(N_clumps)])
   call create_shared_mem(cl_radius2,     [int(N_clumps)])
   call create_shared_mem(cl_rhokap,      [int(N_clumps)])
+  if (par%DGR > 0.0_wp) call create_shared_mem(cl_rhokapD, [int(N_clumps)])
   call create_shared_mem(cl_voigt_a,     [int(N_clumps)])
   call create_shared_mem(cl_Dfreq,       [int(N_clumps)])
   call create_shared_mem(cl_vtherm,      [int(N_clumps)])
@@ -804,6 +838,10 @@ contains
      cl_Dfreq(:)       = cl_Dfreq_ref
      cl_vtherm(:)      = cl_vtherm_ref
      cl_temperature(:) = cl_temperature_ref
+     !--- uniform-case dust opacity (overwritten per-clump below if profiles
+     !    are active), matching the Cartesian rhokapD/rhokap ratio.
+     if (par%DGR > 0.0_wp .and. associated(cl_rhokapD)) &
+        cl_rhokapD(:) = cl_rhokap_ref * par%cext_dust * par%DGR * cl_Dfreq_ref / line%cross0
   end if
   call MPI_BARRIER(mpar%hostcomm, ierr)
 
@@ -1059,6 +1097,8 @@ contains
         dens_factor   = shape_density(r_trial)
         kap_loc       = base_rhokap_in * dens_factor * (cl_Dfreq_ref / Df_loc)
         cl_rhokap(icl) = kap_loc
+        if (par%DGR > 0.0_wp .and. associated(cl_rhokapD)) &
+           cl_rhokapD(icl) = kap_loc * par%cext_dust * par%DGR * Df_loc / line%cross0
      end if
 
      if (par%clump_sigma_v > 0.0_wp) then
@@ -1709,7 +1749,7 @@ contains
   ! MPI_WIN_FREE is called collectively, then nullify all pointers manually.
   call destroy_shared_mem_all()
   nullify(cl_x, cl_y, cl_z, cl_vx, cl_vy, cl_vz)
-  nullify(cl_radius, cl_radius2, cl_rhokap, cl_voigt_a, cl_Dfreq, &
+  nullify(cl_radius, cl_radius2, cl_rhokap, cl_rhokapD, cl_voigt_a, cl_Dfreq, &
           cl_vtherm, cl_temperature)
   nullify(cg_start, cg_list)
   N_clumps = 0_int64
@@ -2057,6 +2097,7 @@ contains
   call create_shared_mem(cl_radius,      [int(N_clumps)])
   call create_shared_mem(cl_radius2,     [int(N_clumps)])
   call create_shared_mem(cl_rhokap,      [int(N_clumps)])
+  if (par%DGR > 0.0_wp) call create_shared_mem(cl_rhokapD, [int(N_clumps)])
   call create_shared_mem(cl_voigt_a,     [int(N_clumps)])
   call create_shared_mem(cl_Dfreq,       [int(N_clumps)])
   call create_shared_mem(cl_vtherm,      [int(N_clumps)])
@@ -2225,6 +2266,18 @@ contains
   !    center).  Both cl_rhokap and cl_rhokap_ref are updated in lockstep
   !    so write_clumps_info and grid_create_clump see the rescaled values.
   call rescale_loaded_clumps_to_target()
+
+  !--- Per-clump dust opacity from the finalized (rescaled) cl_rhokap, using
+  !    the same Cartesian convention as the generate path:
+  !      cl_rhokapD = cl_rhokap * cext_dust * DGR * cl_Dfreq / cross0.
+  if (par%DGR > 0.0_wp .and. associated(cl_rhokapD)) then
+     if (mpar%h_rank == 0) then
+        do i = 1_int64, N_clumps
+           cl_rhokapD(i) = cl_rhokap(i) * par%cext_dust * par%DGR * cl_Dfreq(i) / line%cross0
+        end do
+     end if
+     call MPI_BARRIER(mpar%hostcomm, ierr)
+  end if
 
   if (mpar%p_rank == 0) then
      write(*,'(a,i14)')    ' Clumps: N_clumps  = ', N_clumps

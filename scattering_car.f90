@@ -11,7 +11,8 @@ module scatter_mod
 contains
   !=====================================
   subroutine scattering(photon,grid)
-  use octree_mod, only: amr_grid
+  use octree_mod, only: amr_grid, amr_line_profile
+  use clump_mod,  only: cl_rhokap, cl_rhokapD, voigt_clump
   implicit none
   ! Calculate new direction cosines and wavelength after scattering
   ! 2020/09/27, bug-fixed. Fine Structure Splitting was not taken into account.
@@ -23,13 +24,33 @@ contains
   ! local variables
   real(kind=wp) :: p_dust
   integer :: i1,i2,i3
+  integer(int64) :: icl_s
 
   !--- AMR mode: use amr_grid arrays indexed by leaf index
   if (par%use_amr_grid) then
      i1 = photon%icell_amr
      if (par%DGR > 0.0_wp .and. associated(amr_grid%rhokapD)) then
         p_dust = amr_grid%rhokapD(i1) / &
-            (amr_grid%rhokap(i1)*voigt(photon%xfreq, amr_grid%voigt_a(i1)) + amr_grid%rhokapD(i1))
+            (amr_grid%rhokap(i1)*amr_line_profile(i1, photon%xfreq) + amr_grid%rhokapD(i1))
+        if (rand_number() <= p_dust) then
+           call scatter_dust(photon,grid)
+        else
+           call scatter_resonance(photon,grid)
+        endif
+     else
+        call scatter_resonance(photon,grid)
+     endif
+     return
+  endif
+
+  !--- Clump mode: dust-vs-resonance split from per-clump opacities.
+  !    Gas line opacity is multiplet-aware via voigt_clump; cl_rhokapD is
+  !    the co-located dust continuum opacity (allocated only when DGR>0).
+  if (par%use_clump_medium) then
+     if (par%DGR > 0.0_wp .and. associated(cl_rhokapD)) then
+        icl_s  = int(photon%icell_clump, int64)
+        p_dust = cl_rhokapD(icl_s) / &
+            (cl_rhokap(icl_s)*voigt_clump(photon%xfreq, icl_s) + cl_rhokapD(icl_s))
         if (rand_number() <= p_dust) then
            call scatter_dust(photon,grid)
         else

@@ -653,11 +653,13 @@ class AMRGrid:
     def refine_by_velocity(self, vel_fn, dens_fn=None, threshold=0.1,
                            level_max=6, level_min=2, nprobe=2, floor=1e-30):
         """
-        Refine cells where the velocity magnitude gradient exceeds ``threshold``.
+        Refine cells where the per-component velocity variation exceeds
+        ``threshold``.
 
-        Follows the RASCAS criterion applied to |v|:
+        Component-wise criterion (sensitive to direction changes / sign
+        reversals at constant speed, unlike a |v|-based test):
 
-            delta = (|v|_max - |v|_min) / (|v|_max + |v|_min + floor)
+            delta = max(dvx, dvy, dvz) / (|v|_max + floor),   dvc = c_max - c_min
 
         Sampling is done at the same sub-grid as :meth:`refine_by_density`.
         If ``dens_fn`` is supplied, sub-cells with ``dens == 0`` are skipped
@@ -1109,12 +1111,20 @@ class AMRGrid:
     @staticmethod
     def _make_vel_criterion(vel_fn, dens_fn, threshold, floor, nprobe):
         """
-        Return a cell criterion function for velocity gradient refinement.
+        Return a cell criterion function for velocity refinement based on the
+        *component-wise* velocity variation across the cell.
 
-        Same multi-scale probing as ``_make_dens_criterion``, but applied
-        to |v|.  Sub-cells with dens == 0 are skipped when dens_fn is given.
-        Numpy-vectorisable vel_fn is evaluated with a single array call per
-        probe level (fast path).
+        For each component the spread (max - min) over the sub-probe points is
+        measured, and the cell is flagged when the largest component spread
+        exceeds ``threshold`` times the local speed scale:
+
+            delta = max(dvx, dvy, dvz) / (|v|_max + floor),   dvc = c_max - c_min
+
+        Unlike a |v|-based test this is sensitive to direction changes / sign
+        reversals at (near-)constant speed (e.g. shear or rotation).
+        Same multi-scale probing as ``_make_dens_criterion``.  Sub-cells with
+        dens == 0 are skipped when dens_fn is given.  Numpy-vectorisable
+        vel_fn is evaluated with a single array call per probe level (fast path).
         """
         _probe = np.array([0.0, 1.0])
         try:
@@ -1132,39 +1142,49 @@ class AMRGrid:
         else:
             _vec_den = False
 
-        def speed_arr(xx, yy, zz):
-            vx, vy, vz = vel_fn(xx, yy, zz)
-            return np.sqrt(np.asarray(vx)**2 + np.asarray(vy)**2 + np.asarray(vz)**2)
-
         def criterion(c):
             if dens_fn is not None and float(dens_fn(c.cx, c.cy, c.cz)) <= 0.0:
                 return False
             vx0, vy0, vz0 = vel_fn(c.cx, c.cy, c.cz)
-            vmin = vmax = float(np.sqrt(float(vx0)**2 + float(vy0)**2 + float(vz0)**2))
+            vx0, vy0, vz0 = float(vx0), float(vy0), float(vz0)
+            vxmin = vxmax = vx0
+            vymin = vymax = vy0
+            vzmin = vzmax = vz0
+            vmag_max = (vx0**2 + vy0**2 + vz0**2) ** 0.5
 
             for np_ in ([2] if nprobe <= 2 else [2, nprobe]):
                 xx, yy, zz = AMRGrid._subcell_centers(c, np_)
                 if _vec_vel:
+                    vx, vy, vz = vel_fn(xx, yy, zz)
+                    vx = np.asarray(vx, dtype=float)
+                    vy = np.asarray(vy, dtype=float)
+                    vz = np.asarray(vz, dtype=float)
                     if dens_fn is not None and _vec_den:
                         mask = np.asarray(dens_fn(xx, yy, zz)) > 0.0
                         if not np.any(mask):
                             continue
-                        spd = speed_arr(xx[mask], yy[mask], zz[mask])
-                    else:
-                        spd = speed_arr(xx, yy, zz)
-                    v_max = float(spd.max())
-                    v_min = float(spd.min())
-                    if v_max > vmax: vmax = v_max
-                    if v_min < vmin: vmin = v_min
+                        vx, vy, vz = vx[mask], vy[mask], vz[mask]
+                    vxmin = min(vxmin, float(vx.min())); vxmax = max(vxmax, float(vx.max()))
+                    vymin = min(vymin, float(vy.min())); vymax = max(vymax, float(vy.max()))
+                    vzmin = min(vzmin, float(vz.min())); vzmax = max(vzmax, float(vz.max()))
+                    spd_max = float(np.sqrt(vx**2 + vy**2 + vz**2).max())
+                    if spd_max > vmag_max: vmag_max = spd_max
                 else:
                     for x, y, z in zip(xx, yy, zz):
                         if dens_fn is not None and float(dens_fn(x, y, z)) <= 0.0:
                             continue
                         vx2, vy2, vz2 = vel_fn(x, y, z)
-                        v2 = float(np.sqrt(float(vx2)**2 + float(vy2)**2 + float(vz2)**2))
-                        if v2 > vmax: vmax = v2
-                        if v2 < vmin: vmin = v2
-                delta = (vmax - vmin) / (vmax + vmin + floor)
+                        vx2, vy2, vz2 = float(vx2), float(vy2), float(vz2)
+                        if vx2 < vxmin: vxmin = vx2
+                        if vx2 > vxmax: vxmax = vx2
+                        if vy2 < vymin: vymin = vy2
+                        if vy2 > vymax: vymax = vy2
+                        if vz2 < vzmin: vzmin = vz2
+                        if vz2 > vzmax: vzmax = vz2
+                        spd2 = (vx2**2 + vy2**2 + vz2**2) ** 0.5
+                        if spd2 > vmag_max: vmag_max = spd2
+                dvmax = max(vxmax - vxmin, vymax - vymin, vzmax - vzmin)
+                delta = dvmax / (vmag_max + floor)
                 if delta >= threshold:
                     return True
             return False

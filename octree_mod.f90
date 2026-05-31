@@ -1,6 +1,7 @@
 module octree_mod
   use define
   use memory_mod
+  use voigt_mod
   implicit none
   public
 
@@ -222,6 +223,28 @@ contains
       xcrit2_out = xcrit_out * xcrit_out
     end if
   end subroutine amr_xcrit_local
+
+  !=========================================================================
+  ! Multiplet line profile for an AMR leaf -- exact mirror of calc_voigt3
+  ! (line_mod.f90), but using the per-leaf amr_grid arrays.  Sums all
+  ! line%nup upward members so that multiplet line types (line_type = 5/6,
+  ! e.g. Si II 1190/1193, Fe II 2586/2600) carry the FULL opacity.  For
+  ! single-line types (line%nup = 1) the loop is skipped and this reduces
+  ! to voigt(xfreq, voigt_a(il)) -- identical to the previous behaviour.
+  !=========================================================================
+  function amr_line_profile(il, xfreq) result(v)
+    integer,  intent(in) :: il
+    real(wp), intent(in) :: xfreq
+    real(wp) :: v, Dnu, a_ratio, f_ratio
+    integer  :: i
+    v = voigt(xfreq, amr_grid%voigt_a(il))
+    do i = 2, line%nup
+      Dnu     = line%delE_Hz(i)   / amr_grid%Dfreq(il)
+      a_ratio = line%b(i)%damping / line%b(1)%damping
+      f_ratio = line%f12(i)       / line%f12(1)
+      v = v + voigt(xfreq + Dnu, amr_grid%voigt_a(il)*a_ratio) * f_ratio
+    end do
+  end function amr_line_profile
 
   !=========================================================================
   ! Step through a virtual sub-cell of an internal cell: half the size of

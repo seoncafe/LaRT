@@ -368,7 +368,9 @@ def parse_args():
     r.add_argument('--dens_threshold', type=float, default=0.1,
                    help='Density gradient threshold [0,1) for refinement (default: 0.1)')
     r.add_argument('--vel_threshold', type=float, default=0.1,
-                   help='Velocity gradient threshold [0,1) for refinement (default: 0.1)')
+                   help='Per-component velocity variation threshold '
+                        '(largest |dvx|,|dvy|,|dvz| as a fraction of local '
+                        'speed) for refinement (default: 0.1)')
     r.add_argument('--refine_boundary', action='store_true',
                    help='Force sphere surface cells to level_max '
                         '(auto-enabled for uniform density)')

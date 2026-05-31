@@ -109,7 +109,7 @@ contains
         icl   = int(photon%icell_clump, int64)
         t_seg = clump_exit_dist(photon%x, photon%y, photon%z, kx, ky, kz, icl)
 
-        kap = cl_rhokap(icl) * voigt_clump(photon%xfreq, icl)
+        kap = kappa_clump(photon%xfreq, icl)
 
         if (tau_rem <= kap * t_seg) then
            !--- scatter inside this clump
@@ -228,7 +228,7 @@ contains
   !--- first, if photon starts inside a clump, traverse it
   if (icl_cur > 0) then
      t_seg = clump_exit_dist(xp, yp, zp, kx, ky, kz, icl_cur)
-     kap   = cl_rhokap(icl_cur) * voigt_clump(xfreq_loc, icl_cur)
+     kap   = kappa_clump(xfreq_loc, icl_cur)
      tau   = tau + kap * t_seg
      xp    = xp + t_seg * kx
      yp    = yp + t_seg * ky
@@ -258,7 +258,7 @@ contains
 
      !--- tau through this clump
      t_seg = clump_exit_dist(xp, yp, zp, kx, ky, kz, icl_found)
-     kap   = cl_rhokap(icl_found) * voigt_clump(xfreq_loc, icl_found)
+     kap   = kappa_clump(xfreq_loc, icl_found)
      tau   = tau + kap * t_seg
      xp    = xp + t_seg * kx;  yp = yp + t_seg * ky;  zp = zp + t_seg * kz
      xfreq_loc = xfreq_loc + u_los  ! restore global frame
@@ -277,8 +277,11 @@ contains
   type(photon_type), intent(in)  :: photon0
   type(grid_type),   intent(in)  :: grid
   real(kind=wp),     intent(out) :: tau_gas
-  ! For clump medium, all opacity is gas (no dust unless DGR>0 handled elsewhere)
+  !--- Gas-only sightline tau (matches the Cartesian _tau_gas routines):
+  !    suppress the dust continuum in kappa_clump for this traversal.
+  clump_gas_only = .true.
   call raytrace_to_edge_clump(photon0, grid, tau_gas)
+  clump_gas_only = .false.
   end subroutine raytrace_to_edge_tau_gas_clump
   !===========================================================================
 
@@ -304,6 +307,8 @@ contains
   if (icl_cur > 0) then
      t_seg = clump_exit_dist(xp, yp, zp, kx, ky, kz, icl_cur)
      N_gas = N_gas + (cl_rhokap(icl_cur) / line%cross0) * cl_Dfreq(icl_cur) * t_seg
+     if (par%DGR > 0.0_wp .and. associated(cl_rhokapD)) &
+        tau_dust = tau_dust + cl_rhokapD(icl_cur) * t_seg
      xp = xp + t_seg*kx;  yp = yp + t_seg*ky;  zp = zp + t_seg*kz
      ! keep icl_cur as skip for first find_next_clump
      if (xp**2 + yp**2 + zp**2 >= sphere_R**2) return
@@ -319,6 +324,8 @@ contains
      xp = xp + te*kx;  yp = yp + te*ky;  zp = zp + te*kz
      t_seg = clump_exit_dist(xp, yp, zp, kx, ky, kz, icl_found)
      N_gas = N_gas + (cl_rhokap(icl_found) / line%cross0) * cl_Dfreq(icl_found) * t_seg
+     if (par%DGR > 0.0_wp .and. associated(cl_rhokapD)) &
+        tau_dust = tau_dust + cl_rhokapD(icl_found) * t_seg
      xp = xp + t_seg*kx;  yp = yp + t_seg*ky;  zp = zp + t_seg*kz
      icl_cur = icl_found
      if (xp**2 + yp**2 + zp**2 >= sphere_R**2) exit
@@ -354,7 +361,7 @@ contains
 
   if (icl_cur > 0) then
      t_seg = min(clump_exit_dist(xp, yp, zp, kx, ky, kz, icl_cur), t_rem)
-     kap   = cl_rhokap(icl_cur) * voigt_clump(xfreq_loc, icl_cur)
+     kap   = kappa_clump(xfreq_loc, icl_cur)
      tau   = tau + kap * t_seg
      t_rem = t_rem - t_seg
      if (t_rem <= 0.0_wp) return
@@ -377,7 +384,7 @@ contains
      xfreq_loc = xfreq_loc - u_los
 
      t_seg = min(clump_exit_dist(xp, yp, zp, kx, ky, kz, icl_found), t_rem)
-     kap   = cl_rhokap(icl_found) * voigt_clump(xfreq_loc, icl_found)
+     kap   = kappa_clump(xfreq_loc, icl_found)
      tau   = tau + kap * t_seg
      t_rem = t_rem - t_seg
      if (t_rem <= 0.0_wp) return
@@ -398,7 +405,9 @@ contains
   type(grid_type),   intent(in)  :: grid
   real(kind=wp),     intent(in)  :: dist_in
   real(kind=wp),     intent(out) :: tau_gas
+  clump_gas_only = .true.
   call raytrace_to_dist_clump(photon0, grid, dist_in, tau_gas)
+  clump_gas_only = .false.
   end subroutine raytrace_to_dist_tau_gas_clump
   !===========================================================================
 
@@ -426,6 +435,8 @@ contains
   if (icl_cur > 0) then
      t_seg = min(clump_exit_dist(xp, yp, zp, kx, ky, kz, icl_cur), t_rem)
      N_gas = N_gas + (cl_rhokap(icl_cur) / line%cross0) * cl_Dfreq(icl_cur) * t_seg
+     if (par%DGR > 0.0_wp .and. associated(cl_rhokapD)) &
+        tau_dust = tau_dust + cl_rhokapD(icl_cur) * t_seg
      t_rem = t_rem - t_seg
      if (t_rem <= 0.0_wp) return
      xp = xp + t_seg*kx;  yp = yp + t_seg*ky;  zp = zp + t_seg*kz
@@ -441,6 +452,8 @@ contains
      t_rem = t_rem - te
      t_seg = min(clump_exit_dist(xp, yp, zp, kx, ky, kz, icl_found), t_rem)
      N_gas = N_gas + (cl_rhokap(icl_found) / line%cross0) * cl_Dfreq(icl_found) * t_seg
+     if (par%DGR > 0.0_wp .and. associated(cl_rhokapD)) &
+        tau_dust = tau_dust + cl_rhokapD(icl_found) * t_seg
      t_rem = t_rem - t_seg
      if (t_rem <= 0.0_wp) return
      xp = xp + t_seg*kx;  yp = yp + t_seg*ky;  zp = zp + t_seg*kz
@@ -500,7 +513,7 @@ contains
 
   if (icl_cur > 0) then
      t_seg = clump_exit_dist(xp, yp, zp, kx, ky, kz, icl_cur)
-     kap   = cl_rhokap(icl_cur) * voigt_clump(xfreq_loc, icl_cur)
+     kap   = kappa_clump(xfreq_loc, icl_cur)
      tau   = tau + kap * t_seg
      if (tau >= tau_max) return
      xp    = xp + t_seg * kx
@@ -522,7 +535,7 @@ contains
      u_los = ulos_clump(icl_found, kx, ky, kz)
      xfreq_loc = xfreq_loc - u_los
      t_seg = clump_exit_dist(xp, yp, zp, kx, ky, kz, icl_found)
-     kap   = cl_rhokap(icl_found) * voigt_clump(xfreq_loc, icl_found)
+     kap   = kappa_clump(xfreq_loc, icl_found)
      tau   = tau + kap * t_seg
      if (tau >= tau_max) return
      xp    = xp + t_seg * kx;  yp = yp + t_seg * ky;  zp = zp + t_seg * kz
@@ -560,7 +573,7 @@ contains
 
   if (icl_cur > 0) then
      t_seg = min(clump_exit_dist(xp, yp, zp, kx, ky, kz, icl_cur), t_rem)
-     kap   = cl_rhokap(icl_cur) * voigt_clump(xfreq_loc, icl_cur)
+     kap   = kappa_clump(xfreq_loc, icl_cur)
      tau   = tau + kap * t_seg
      if (tau >= tau_max) return
      t_rem = t_rem - t_seg
@@ -580,7 +593,7 @@ contains
      u_los = ulos_clump(icl_found, kx, ky, kz)
      xfreq_loc = xfreq_loc - u_los
      t_seg = min(clump_exit_dist(xp, yp, zp, kx, ky, kz, icl_found), t_rem)
-     kap   = cl_rhokap(icl_found) * voigt_clump(xfreq_loc, icl_found)
+     kap   = kappa_clump(xfreq_loc, icl_found)
      tau   = tau + kap * t_seg
      if (tau >= tau_max) return
      t_rem = t_rem - t_seg
@@ -618,7 +631,7 @@ contains
      icl   = active(m)
      u_los = ulos_clump(icl, kx, ky, kz)
      x_cl  = xfreq_g - u_los
-     sum_kap_active = sum_kap_active + cl_rhokap(icl) * voigt_clump(x_cl, icl)
+     sum_kap_active = sum_kap_active + kappa_clump(x_cl, icl)
   end do
   end function sum_kap_active
   !===========================================================================
@@ -643,7 +656,7 @@ contains
      icl   = active(m)
      u_los = ulos_clump(icl, kx, ky, kz)
      x_cl  = xfreq_g - u_los
-     kap   = cl_rhokap(icl) * voigt_clump(x_cl, icl)
+     kap   = kappa_clump(x_cl, icl)
      cumul = cumul + kap
      sample_owner_clump = icl
      if (rnd * sum_kap_active(active, n_active, xfreq_g, kx, ky, kz) <= cumul) return
@@ -912,7 +925,9 @@ contains
   type(photon_type), intent(in)  :: photon0
   type(grid_type),   intent(in)  :: grid
   real(kind=wp),     intent(out) :: tau_gas
+  clump_gas_only = .true.
   call raytrace_to_edge_clump_overlap(photon0, grid, tau_gas)
+  clump_gas_only = .false.
   end subroutine raytrace_to_edge_tau_gas_clump_overlap
   !===========================================================================
 
@@ -956,6 +971,8 @@ contains
         do m = 1, n_active
            icl   = active(m)
            N_gas = N_gas + (cl_rhokap(icl) / line%cross0) * cl_Dfreq(icl) * dt
+           if (par%DGR > 0.0_wp .and. associated(cl_rhokapD)) &
+              tau_dust = tau_dust + cl_rhokapD(icl) * dt
         end do
      end if
      t_cur = t_next
@@ -1117,7 +1134,9 @@ contains
   type(grid_type),   intent(in)  :: grid
   real(kind=wp),     intent(in)  :: dist_in
   real(kind=wp),     intent(out) :: tau_gas
+  clump_gas_only = .true.
   call raytrace_to_dist_clump_overlap(photon0, grid, dist_in, tau_gas)
+  clump_gas_only = .false.
   end subroutine raytrace_to_dist_tau_gas_clump_overlap
   !===========================================================================
 
@@ -1156,6 +1175,8 @@ contains
         do m = 1, n_active
            icl   = active(m)
            N_gas = N_gas + (cl_rhokap(icl) / line%cross0) * cl_Dfreq(icl) * dt
+           if (par%DGR > 0.0_wp .and. associated(cl_rhokapD)) &
+              tau_dust = tau_dust + cl_rhokapD(icl) * dt
         end do
      end if
      t_cur = t_next

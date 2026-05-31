@@ -49,7 +49,7 @@ contains
 
     if (par%DGR > 0.0_wp .and. associated(amr_grid%rhokapD)) then
       p_dust = amr_grid%rhokapD(il) / &
-          (amr_grid%rhokap(il) * voigt(photon%xfreq, amr_grid%voigt_a(il)) + amr_grid%rhokapD(il))
+          (amr_grid%rhokap(il) * amr_line_profile(il, photon%xfreq) + amr_grid%rhokapD(il))
       if (rand_number() <= p_dust) then
         call scatter_dust(photon, grid)
       else
