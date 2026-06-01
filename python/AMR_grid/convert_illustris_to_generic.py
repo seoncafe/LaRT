@@ -340,13 +340,30 @@ def download_tng_cutout(simulation: str, snap_num: int, subhalo_id: int,
 # ---------------------------------------------------------------------------
 class VoronoiInterpolator:
     """
-    Nearest-neighbor interpolator from Voronoi cell data using a KD-tree.
+    Resample Voronoi cell data onto query points using a KD-tree.
 
-    For Voronoi tessellation this is the physically exact assignment: each
-    spatial point belongs to the Voronoi cell whose generator is nearest.
+    Two methods are supported:
+
+    ``method='nearest'`` (default)
+        Each query point takes the value of the nearest Voronoi generator.
+        Physically exact for a Voronoi tessellation (each point in space
+        belongs to exactly one cell), but produces blocky / staircase fields.
+
+    ``method='gaussian'``
+        Volume-weighted, normalized Gaussian gather over the K nearest cells::
+
+            A(r) = Sum_i V_i A_i exp(-d_i^2 / 2 h_i^2)
+                 / Sum_i V_i      exp(-d_i^2 / 2 h_i^2)
+
+        The smoothing length is adaptive by default, ``h_i = factor * r_eff,i``
+        with ``r_eff,i = (3 V_i / 4 pi)^(1/3)`` the effective radius of cell i,
+        so the kernel tracks the local Voronoi resolution.  A fixed ``h`` (in
+        the coordinate unit) can be forced with ``kernel_size``.
     """
 
-    def __init__(self, positions: np.ndarray, data: IllustrisData):
+    def __init__(self, positions: np.ndarray, data: IllustrisData,
+                 method: str = "nearest", kernel_factor: float = 1.0,
+                 kernel_neighbors: int = 32, kernel_size=None):
         """
         Parameters
         ----------
@@ -354,11 +371,41 @@ class VoronoiInterpolator:
             Voronoi generator positions [kpc].
         data : IllustrisData
             Container with all physical arrays (indexed 1:1 with positions).
+        method : {'nearest', 'gaussian'}
+            Value-assignment scheme (see class docstring).
+        kernel_factor : float
+            Adaptive smoothing length in units of the cell effective radius
+            (``h_i = kernel_factor * r_eff,i``).  Used when ``kernel_size`` is
+            None.
+        kernel_neighbors : int
+            Number of nearest cells gathered per query point (gaussian only).
+        kernel_size : float or None
+            If set (> 0), a fixed smoothing length for all points, overriding
+            the adaptive ``kernel_factor * r_eff`` rule.
         """
         from scipy.spatial import cKDTree
         self.tree = cKDTree(positions)
         self.data = data
         self.positions = positions
+        self.method = method
+        self.kernel_factor = float(kernel_factor)
+        self.kernel_neighbors = int(kernel_neighbors)
+        self.kernel_size = kernel_size
+        self._wcache = None   # (key, idx, wnorm) -- reuse weights across fields
+
+        if method == "gaussian":
+            n = len(data.x)
+            self.kernel_neighbors = max(1, min(self.kernel_neighbors, n))
+            # Effective cell radius and volume weights.
+            if data.volume_kpc3 is not None:
+                vol = np.maximum(np.asarray(data.volume_kpc3, dtype=float), 1e-30)
+            else:
+                # Fallback: estimate cell size from nearest-neighbor spacing.
+                dnn, _ = self.tree.query(positions, k=2)
+                r_nn = np.maximum(dnn[:, 1], 1e-30)
+                vol = (4.0 / 3.0) * np.pi * r_nn**3
+            self.cell_volume = vol
+            self.r_eff = (3.0 * vol / (4.0 * np.pi))**(1.0 / 3.0)
 
     def query(self, x, y, z):
         """Return indices of nearest Voronoi cells for query points."""
@@ -368,21 +415,64 @@ class VoronoiInterpolator:
         _, idx = self.tree.query(pts)
         return idx
 
+    def _gather_weights(self, x, y, z):
+        """Return (idx (P,K), wnorm (P,K)) normalized Gaussian kernel weights."""
+        x = np.atleast_1d(x); y = np.atleast_1d(y); z = np.atleast_1d(z)
+        key = (id(x), id(y), id(z), x.shape[0])
+        if self._wcache is not None and self._wcache[0] == key:
+            return self._wcache[1], self._wcache[2]
+        pts = np.column_stack([x, y, z])
+        K = self.kernel_neighbors
+        d, idx = self.tree.query(pts, k=K)
+        if K == 1:
+            d = d[:, None]; idx = idx[:, None]
+        if self.kernel_size is not None and self.kernel_size > 0:
+            h = float(self.kernel_size)              # fixed, scalar
+        else:
+            h = self.kernel_factor * self.r_eff[idx]  # adaptive, per-neighbor
+        w = self.cell_volume[idx] * np.exp(-0.5 * (d / h)**2)
+        wsum = w.sum(axis=1)
+        zero = (wsum == 0.0)
+        safe = np.where(zero, 1.0, wsum)
+        wnorm = w / safe[:, None]
+        if zero.any():                                # fall back to nearest cell
+            wnorm[zero] = 0.0
+            wnorm[zero, 0] = 1.0
+        self._wcache = (key, idx, wnorm)
+        return idx, wnorm
+
+    def sample(self, field, x, y, z):
+        """Resample a scalar ``field`` (indexed 1:1 with cells) at query points."""
+        if self.method == "gaussian":
+            idx, wnorm = self._gather_weights(x, y, z)
+            return (wnorm * field[idx]).sum(axis=1)
+        return field[self.query(x, y, z)]
+
     def density_fn(self, x, y, z):
         """Return nH [cm^-3] at query points."""
-        return self.data.nH[self.query(x, y, z)]
+        return self.sample(self.data.nH, x, y, z)
 
     def temperature_fn(self, x, y, z):
         """Return T [K] at query points."""
-        return self.data.T[self.query(x, y, z)]
+        return self.sample(self.data.T, x, y, z)
 
     def velocity_fn(self, x, y, z):
         """Return (vx, vy, vz) [km/s] at query points."""
+        if self.method == "gaussian":
+            idx, wnorm = self._gather_weights(x, y, z)
+            return ((wnorm * self.data.vx[idx]).sum(axis=1),
+                    (wnorm * self.data.vy[idx]).sum(axis=1),
+                    (wnorm * self.data.vz[idx]).sum(axis=1))
         idx = self.query(x, y, z)
         return self.data.vx[idx], self.data.vy[idx], self.data.vz[idx]
 
     def properties_fn(self, x, y, z):
         """Return (nH, T, vx, vy, vz) at query points (for set_properties)."""
+        if self.method == "gaussian":
+            idx, wnorm = self._gather_weights(x, y, z)
+            g = lambda f: (wnorm * f[idx]).sum(axis=1)
+            return (g(self.data.nH), g(self.data.T),
+                    g(self.data.vx), g(self.data.vy), g(self.data.vz))
         idx = self.query(x, y, z)
         return (self.data.nH[idx], self.data.T[idx],
                 self.data.vx[idx], self.data.vy[idx], self.data.vz[idx])
@@ -774,8 +864,22 @@ def convert(args):
     # ---- 5. Build KD-tree interpolator ----
     print("\nBuilding KD-tree ...")
     positions = np.column_stack([data.x, data.y, data.z])
-    interp = VoronoiInterpolator(positions, data)
+    interp = VoronoiInterpolator(
+        positions, data,
+        method=args.resample_method,
+        kernel_factor=args.kernel_size_factor,
+        kernel_neighbors=args.kernel_neighbors,
+        kernel_size=args.kernel_size)
     print(f"  KD-tree built with {ncells:,} points")
+    if args.resample_method == "gaussian":
+        if args.kernel_size and args.kernel_size > 0:
+            print(f"  Resampling: Gaussian kernel, fixed h = {args.kernel_size} "
+                  f"{args.output_unit} (K={interp.kernel_neighbors})")
+        else:
+            print(f"  Resampling: Gaussian kernel, adaptive h = "
+                  f"{args.kernel_size_factor} x r_eff (K={interp.kernel_neighbors})")
+    else:
+        print("  Resampling: nearest-neighbor (Voronoi-exact)")
 
     # ---- 6–9. Build grid, assign properties, compute physics, write output ----
     outpath = Path(args.output)
@@ -810,15 +914,15 @@ def _compute_physics(args, data, interp, nH_arr, T_arr, cx_arr, cy_arr, cz_arr):
     if not (args.compute_physics or args.ionization != "none"):
         return xHI_arr, ne_arr, emiss_arr, ndust_arr, Z_arr
 
-    idx_leaf = interp.query(cx_arr, cy_arr, cz_arr)
-
+    # Native data-file fields (metallicity, xHI, ElectronAbundance) are
+    # resampled with the SAME method as nH/T/v (nearest or Gaussian kernel).
     # Metallicity
     if data.metallicity is not None:
-        Z_arr = data.metallicity[idx_leaf]
+        Z_arr = interp.sample(data.metallicity, cx_arr, cy_arr, cz_arr)
 
     # Ionization
     if args.ionization == "from_illustris" and data.xHI is not None:
-        xHI_arr = data.xHI[idx_leaf]
+        xHI_arr = interp.sample(data.xHI, cx_arr, cy_arr, cz_arr)
         print("  xHI: from Illustris NeutralHydrogenAbundance")
     elif args.ionization == "cie":
         xHI_arr = cie_neutral_fraction(T_arr)
@@ -830,7 +934,8 @@ def _compute_physics(args, data, interp, nH_arr, T_arr, cx_arr, cy_arr, cz_arr):
     # Electron density
     if xHI_arr is not None:
         if args.ionization == "from_illustris" and data.electron_abundance is not None:
-            ne_arr = nH_arr * data.electron_abundance[idx_leaf]
+            ne_arr = nH_arr * interp.sample(data.electron_abundance,
+                                            cx_arr, cy_arr, cz_arr)
             print("  n_e: from Illustris ElectronAbundance")
         else:
             ne_arr = electron_density(nH_arr, xHI_arr)
@@ -1025,14 +1130,10 @@ def _convert_cartesian(args, data, interp, boxlen, outpath, unit_l_cgs):
     ntotal = N * N * N
     print(f"  {ntotal:,} cells, dx = {dx:.4f} kpc")
 
-    # Assign properties via nearest-neighbor
+    # Assign properties (nearest-neighbor or Gaussian kernel, per --resample-method)
     print("  Querying KD-tree ...")
-    idx = interp.query(cx_flat, cy_flat, cz_flat)
-    nH_flat = data.nH[idx]
-    T_flat  = data.T[idx]
-    vx_flat = data.vx[idx]
-    vy_flat = data.vy[idx]
-    vz_flat = data.vz[idx]
+    nH_flat, T_flat, vx_flat, vy_flat, vz_flat = \
+        interp.properties_fn(cx_flat, cy_flat, cz_flat)
 
     # Reshape to 3D (nx, ny, nz)
     nH_3d = nH_flat.reshape((N, N, N))
@@ -1290,6 +1391,23 @@ Examples:
                         help="Also refine to match local Voronoi cell size")
     parser.add_argument("--resolution-factor", type=float, default=1.0,
                         help="Factor for resolution matching (default: 1.0)")
+
+    # Resampling (Voronoi -> grid value assignment)
+    parser.add_argument("--resample-method", default="nearest",
+                        choices=["nearest", "gaussian"],
+                        help="How cell values are assigned to grid points: "
+                             "nearest (Voronoi-exact, default) or gaussian "
+                             "(volume-weighted kernel smoothing)")
+    parser.add_argument("--kernel-size-factor", type=float, default=1.0,
+                        help="Gaussian mode: adaptive smoothing length "
+                             "h = factor x cell effective radius r_eff "
+                             "(default: 1.0)")
+    parser.add_argument("--kernel-neighbors", type=int, default=32,
+                        help="Gaussian mode: number of nearest cells gathered "
+                             "per grid point (default: 32)")
+    parser.add_argument("--kernel-size", type=float, default=None,
+                        help="Gaussian mode: fixed smoothing length in output "
+                             "units, overriding the adaptive --kernel-size-factor")
 
     # Physics
     parser.add_argument("--compute-physics", action="store_true",

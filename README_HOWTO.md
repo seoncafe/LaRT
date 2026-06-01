@@ -508,7 +508,7 @@ mpirun -np N LaRT.x input.in   # par%amr_file = 'sim_subset.h5'
 
 | Tool | Description |
 |------|-------------|
-| `convert_illustris_to_generic.py` | Illustris/IllustrisTNG Voronoi data to generic AMR octree. Builds adaptive octree via KD-tree nearest-neighbor from Voronoi cells. |
+| `convert_illustris_to_generic.py` | Illustris/IllustrisTNG Voronoi data to generic AMR octree or uniform Cartesian grid. Resamples the Voronoi mesh by KD-tree nearest-neighbor (default) or volume-weighted Gaussian kernel smoothing. |
 
 The converter reads HDF5 snapshots or API cutouts from Illustris/TNG,
 converts comoving+h code units to physical (kpc, cm^-3, K, km/s),
@@ -519,6 +519,7 @@ standard generic AMR format.
 
 - Direct HDF5 reading with `h5py` (no `illustris_python` dependency)
 - Adaptive octree refinement by density/velocity gradient + optional resolution matching
+- Two resampling methods: nearest-neighbor (Voronoi-exact, default) or Gaussian kernel smoothing with an adaptive per-cell smoothing length (`--resample-method gaussian`)
 - ISM treatment for star-forming cells (`--sfr-treatment cap-temperature`)
 - Optional physics: TNG-native or CIE ionization, Laursen+09 dust, multi-line emissivity (Lya/CIV/OVI)
 - Optional TNG API cutout download (`--api-key`)
@@ -553,6 +554,10 @@ mpirun -np N LaRT.x input.in   # par%amr_file = 'galaxy.h5'
 | `--dens-threshold` | 0.3 | Density gradient threshold |
 | `--vel-threshold` | 0.3 | Velocity gradient threshold |
 | `--match-resolution` | off | Refine to match local Voronoi cell size |
+| `--resample-method` | `nearest` | `nearest` (Voronoi-exact) or `gaussian` (volume-weighted kernel smoothing) |
+| `--kernel-size-factor` | 1.0 | Gaussian mode: adaptive smoothing length `h_i = factor * r_eff,i` |
+| `--kernel-neighbors` | 32 | Gaussian mode: number of nearest cells gathered per grid point |
+| `--kernel-size` | auto | Gaussian mode: fixed smoothing length [output units], overriding the adaptive factor |
 | `--compute-physics` | off | Compute xHI, n_e, emissivity, ndust |
 | `--ionization` | `from_illustris` | `from_illustris`, `cie`, `full_neutral`, `none` |
 | `--emissivity-line` | `lya` | Emission line for emissivity: `lya` (Case B), `civ` (CIE C IV 1548+1550), `ovi` (CIE O VI 1032+1038) |
@@ -566,7 +571,8 @@ mpirun -np N LaRT.x input.in   # par%amr_file = 'galaxy.h5'
 | `--subhalo-id` | 0 | Subhalo ID |
 | `--grid-type` | `amr` | Output grid type: `amr` (generic AMR octree) or `cartesian` (uniform Cartesian grid) |
 | `--ngrid` | 128 | Cells per side when `--grid-type cartesian` |
-| `--plot` | off | Generate diagnostic slice plot |
+| `--plot` | off | Generate diagnostic slice plot (area-filled cross-sections by default) |
+| `--plot-scatter` | off | With `--plot`, use the legacy cell-center scatter style (thin slab) instead of area-filled slices |
 
 See `docs/Illustris_data_structure.pdf` for detailed documentation of
 the Illustris data format, unit conversions, and the Voronoi-to-octree
