@@ -785,15 +785,12 @@ def convert(args):
     elif args.output_unit.lower() == "cm":
         unit_l_cgs = 1.0
 
+    # The diagnostic plot (if --plot) is produced inside the conversion
+    # routine, where the octree / Cartesian grid arrays are available.
     if args.grid_type == "cartesian":
         _convert_cartesian(args, data, interp, boxlen, outpath, unit_l_cgs)
     else:
         _convert_amr(args, data, interp, boxlen, outpath, unit_l_cgs)
-
-    # ---- 11. Optional plot ----
-    if args.plot:
-        make_diagnostic_plot(data, None, None, None, None, None,
-                             boxlen, outpath)
 
 
 # ---------------------------------------------------------------------------
@@ -994,8 +991,11 @@ Suggested LaRT input snippet:
 {'─' * 60}""")
 
     if args.plot:
-        make_diagnostic_plot(data, cx_arr, cy_arr, cz_arr, nH_arr, T_arr,
-                             boxlen, outpath)
+        make_diagnostic_plot(data, interp, boxlen, outpath,
+                             grid_kind="amr",
+                             leaf_cx=cx_arr, leaf_cy=cy_arr, leaf_cz=cz_arr,
+                             leaf_level=level_arr, leaf_nH=nH_arr, leaf_T=T_arr,
+                             scatter=args.plot_scatter)
 
 
 # ---------------------------------------------------------------------------
@@ -1101,12 +1101,51 @@ Suggested LaRT input snippet:
 {'─' * 60}""")
 
     if args.plot:
-        make_diagnostic_plot(data, cx_flat, cy_flat, cz_flat, nH_flat, T_flat,
-                             boxlen, outpath)
+        make_diagnostic_plot(data, interp, boxlen, outpath,
+                             grid_kind="cartesian",
+                             cart_nH_3d=nH_3d, cart_T_3d=T_3d, cart_centers=centers,
+                             leaf_cx=cx_flat, leaf_cy=cy_flat, leaf_cz=cz_flat,
+                             leaf_nH=nH_flat, leaf_T=T_flat,
+                             scatter=args.plot_scatter)
 
 
-def make_diagnostic_plot(data, cx, cy, cz, nH_oct, T_oct, boxlen, outpath):
-    """Side-by-side Voronoi scatter vs octree slice for nH and T."""
+def _draw_octree_slice(ax, plt, cx, cy, cz, level, values, boxlen,
+                       cmap, vmin, vmax, label):
+    """Fill the z=0 plane with true octree leaf squares (area-filled slice).
+
+    A leaf cell of side ``boxlen / 2^level`` is intersected by the z=0 plane
+    when ``|cz| <= side/2``; each such cell is drawn as a filled square.
+    """
+    from matplotlib.collections import PatchCollection
+    from matplotlib.patches import Rectangle
+    size = boxlen / (2.0 ** level)
+    halfc = size / 2.0
+    sel = np.where(np.abs(cz) <= halfc)[0]
+    rects = [Rectangle((cx[i] - halfc[i], cy[i] - halfc[i]), size[i], size[i])
+             for i in sel]
+    pc = PatchCollection(rects, cmap=cmap)
+    pc.set_array(values[sel])
+    pc.set_clim(vmin, vmax)
+    ax.add_collection(pc)
+    plt.colorbar(pc, ax=ax, label=label)
+
+
+def make_diagnostic_plot(data, interp, boxlen, outpath, *,
+                         grid_kind="amr",
+                         leaf_cx=None, leaf_cy=None, leaf_cz=None,
+                         leaf_level=None, leaf_nH=None, leaf_T=None,
+                         cart_nH_3d=None, cart_T_3d=None, cart_centers=None,
+                         scatter=False):
+    """Side-by-side original Voronoi vs resampled grid, for nH and T.
+
+    Default (``scatter=False``): true area-filled z=0 slices. The left column
+    is the exact Voronoi slice (nearest-neighbor of the 3D mesh sampled on a
+    pixel grid at z=0); the right column is the resampled grid -- octree leaf
+    squares (``grid_kind='amr'``) or a Cartesian image (``grid_kind='cartesian'``).
+
+    With ``scatter=True`` the old behavior is reproduced: a scatter of cell
+    centers lying in a thin ``|z| < boxlen/50`` slab.
+    """
     try:
         import matplotlib
         matplotlib.use("Agg")
@@ -1115,72 +1154,81 @@ def make_diagnostic_plot(data, cx, cy, cz, nH_oct, T_oct, boxlen, outpath):
         print("  matplotlib not available; skipping plot")
         return
 
-    # z-slice: select cells near z=0
     half = boxlen / 2.0
-    dz = boxlen / 50.0
+    extent = [-half, half, -half, half]
+    nH_label = r"$\log_{10}(n_H$ [cm$^{-3}$])"
+    T_label  = r"$\log_{10}(T$ [K])"
+    grid_name = "Cartesian" if grid_kind == "cartesian" else "Octree"
 
-    # Voronoi cells near z=0
-    mask_v = np.abs(data.z) < dz
-    # Octree cells near z=0
-    mask_o = np.abs(cz) < dz
+    def _cosmetics(ax, title):
+        ax.set_xlim(-half, half)
+        ax.set_ylim(-half, half)
+        ax.set_title(title)
+        ax.set_xlabel("x [kpc]")
+        ax.set_ylabel("y [kpc]")
+        ax.set_aspect("equal")
 
     fig, axes = plt.subplots(2, 2, figsize=(14, 12))
 
-    # nH: Voronoi
-    ax = axes[0, 0]
-    if mask_v.any():
-        sc = ax.scatter(data.x[mask_v], data.y[mask_v],
-                        c=np.log10(np.maximum(data.nH[mask_v], 1e-10)),
-                        s=1, cmap="viridis", vmin=-6, vmax=2)
-        plt.colorbar(sc, ax=ax, label=r"$\log_{10}(n_H$ [cm$^{-3}$])")
-    ax.set_xlim(-half, half)
-    ax.set_ylim(-half, half)
-    ax.set_title("Voronoi: nH (z=0 slice)")
-    ax.set_xlabel("x [kpc]")
-    ax.set_ylabel("y [kpc]")
-    ax.set_aspect("equal")
+    if scatter:
+        dz = boxlen / 50.0
+        mask_v = np.abs(data.z) < dz
+        mask_o = np.abs(leaf_cz) < dz
+        for (ax, mx, my, mc, cmap, vmin, vmax, label, title) in [
+            (axes[0, 0], data.x, data.y, np.log10(np.maximum(data.nH, 1e-10)),
+             "viridis", -6, 2, nH_label, "Voronoi: nH (z=0 slab)"),
+            (axes[0, 1], leaf_cx, leaf_cy, np.log10(np.maximum(leaf_nH, 1e-10)),
+             "viridis", -6, 2, nH_label, f"{grid_name}: nH (z=0 slab)"),
+            (axes[1, 0], data.x, data.y, np.log10(np.maximum(data.T, 10.0)),
+             "hot", 3, 7, T_label, "Voronoi: T (z=0 slab)"),
+            (axes[1, 1], leaf_cx, leaf_cy, np.log10(np.maximum(leaf_T, 10.0)),
+             "hot", 3, 7, T_label, f"{grid_name}: T (z=0 slab)"),
+        ]:
+            m = mask_v if mx is data.x else mask_o
+            if m.any():
+                sc = ax.scatter(mx[m], my[m], c=mc[m], s=1,
+                                cmap=cmap, vmin=vmin, vmax=vmax)
+                plt.colorbar(sc, ax=ax, label=label)
+            _cosmetics(ax, title)
+    else:
+        # LEFT: exact Voronoi slice via nearest-neighbor on a pixel grid at z=0
+        npix = 512
+        px = np.linspace(-half, half, npix)
+        PX, PY = np.meshgrid(px, px, indexing="ij")
+        idx = interp.query(PX.ravel(), PY.ravel(), np.zeros(PX.size))
+        vor_nH = np.log10(np.maximum(data.nH[idx].reshape(npix, npix), 1e-10))
+        vor_T  = np.log10(np.maximum(data.T[idx].reshape(npix, npix), 10.0))
 
-    # nH: Octree
-    ax = axes[0, 1]
-    if mask_o.any():
-        sc = ax.scatter(cx[mask_o], cy[mask_o],
-                        c=np.log10(np.maximum(nH_oct[mask_o], 1e-10)),
-                        s=1, cmap="viridis", vmin=-6, vmax=2)
-        plt.colorbar(sc, ax=ax, label=r"$\log_{10}(n_H$ [cm$^{-3}$])")
-    ax.set_xlim(-half, half)
-    ax.set_ylim(-half, half)
-    ax.set_title("Octree: nH (z=0 slice)")
-    ax.set_xlabel("x [kpc]")
-    ax.set_ylabel("y [kpc]")
-    ax.set_aspect("equal")
+        im = axes[0, 0].imshow(vor_nH.T, origin="lower", extent=extent,
+                               cmap="viridis", vmin=-6, vmax=2)
+        plt.colorbar(im, ax=axes[0, 0], label=nH_label)
+        _cosmetics(axes[0, 0], "Voronoi: nH (z=0 slice)")
 
-    # T: Voronoi
-    ax = axes[1, 0]
-    if mask_v.any():
-        sc = ax.scatter(data.x[mask_v], data.y[mask_v],
-                        c=np.log10(np.maximum(data.T[mask_v], 10.0)),
-                        s=1, cmap="hot", vmin=3, vmax=7)
-        plt.colorbar(sc, ax=ax, label=r"$\log_{10}(T$ [K])")
-    ax.set_xlim(-half, half)
-    ax.set_ylim(-half, half)
-    ax.set_title("Voronoi: T (z=0 slice)")
-    ax.set_xlabel("x [kpc]")
-    ax.set_ylabel("y [kpc]")
-    ax.set_aspect("equal")
+        im = axes[1, 0].imshow(vor_T.T, origin="lower", extent=extent,
+                               cmap="hot", vmin=3, vmax=7)
+        plt.colorbar(im, ax=axes[1, 0], label=T_label)
+        _cosmetics(axes[1, 0], "Voronoi: T (z=0 slice)")
 
-    # T: Octree
-    ax = axes[1, 1]
-    if mask_o.any():
-        sc = ax.scatter(cx[mask_o], cy[mask_o],
-                        c=np.log10(np.maximum(T_oct[mask_o], 10.0)),
-                        s=1, cmap="hot", vmin=3, vmax=7)
-        plt.colorbar(sc, ax=ax, label=r"$\log_{10}(T$ [K])")
-    ax.set_xlim(-half, half)
-    ax.set_ylim(-half, half)
-    ax.set_title("Octree: T (z=0 slice)")
-    ax.set_xlabel("x [kpc]")
-    ax.set_ylabel("y [kpc]")
-    ax.set_aspect("equal")
+        # RIGHT: resampled grid slice
+        if grid_kind == "cartesian":
+            k = int(np.argmin(np.abs(cart_centers)))
+            grid_nH = np.log10(np.maximum(cart_nH_3d[:, :, k], 1e-10))
+            grid_T  = np.log10(np.maximum(cart_T_3d[:, :, k], 10.0))
+            im = axes[0, 1].imshow(grid_nH.T, origin="lower", extent=extent,
+                                   cmap="viridis", vmin=-6, vmax=2)
+            plt.colorbar(im, ax=axes[0, 1], label=nH_label)
+            im = axes[1, 1].imshow(grid_T.T, origin="lower", extent=extent,
+                                   cmap="hot", vmin=3, vmax=7)
+            plt.colorbar(im, ax=axes[1, 1], label=T_label)
+        else:
+            _draw_octree_slice(axes[0, 1], plt, leaf_cx, leaf_cy, leaf_cz,
+                               leaf_level, np.log10(np.maximum(leaf_nH, 1e-10)),
+                               boxlen, "viridis", -6, 2, nH_label)
+            _draw_octree_slice(axes[1, 1], plt, leaf_cx, leaf_cy, leaf_cz,
+                               leaf_level, np.log10(np.maximum(leaf_T, 10.0)),
+                               boxlen, "hot", 3, 7, T_label)
+        _cosmetics(axes[0, 1], f"{grid_name}: nH (z=0 slice)")
+        _cosmetics(axes[1, 1], f"{grid_name}: T (z=0 slice)")
 
     plt.tight_layout()
     figpath = outpath.with_suffix(".png")
@@ -1282,7 +1330,12 @@ Examples:
 
     # Misc
     parser.add_argument("--plot", action="store_true",
-                        help="Generate diagnostic slice plot")
+                        help="Generate diagnostic slice plot (area-filled slices "
+                             "by default)")
+    parser.add_argument("--plot-scatter", action="store_true",
+                        help="With --plot, draw the old scatter-of-cell-centers "
+                             "style (thin |z|<boxlen/50 slab) instead of "
+                             "area-filled slices")
 
     args = parser.parse_args()
     convert(args)
