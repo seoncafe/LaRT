@@ -130,22 +130,41 @@ contains
   function voigt_clump(xfreq, icl) result(v)
   real(kind=wp),  intent(in) :: xfreq
   integer(int64), intent(in) :: icl
-  real(kind=wp)              :: v, xloc, Dnu, a_ratio, f_ratio
+  real(kind=wp)              :: v, xloc, Dnu, a_ratio, f_ratio, xD
   integer                    :: i
 !DIR$ ATTRIBUTES INLINE :: voigt_mod_voigt
-  !--- Multiplet profile (exact mirror of calc_voigt3) in this clump's LOCAL
-  !    Doppler units.  photon%xfreq is carried in REF units, so rescale once
-  !    to local units (xloc); the member offsets delE_Hz(i)/cl_Dfreq(icl) are
-  !    likewise in local units.  For single-line types (nup=1) the loop is
-  !    skipped -> identical to the previous single-voigt behaviour.
+  !--- Line profile in this clump's LOCAL Doppler units, dispatched by
+  !    line%line_type to mirror the Cartesian calc_voigt1/2/3/HD EXACTLY
+  !    (same select case as setup.f90):
+  !      type 2      -> calc_voigt2  (DnuHK doublet, 1/3 + 2/3)
+  !      type 5, 6   -> calc_voigt3  (general multiplet, sum over line%nup)
+  !      type 7      -> calc_voigt_HD (combined H + D Lyman-alpha)
+  !      default 1,4 -> calc_voigt1  (single Voigt)
+  !    photon%xfreq is carried in REF units, so rescale once to local (xloc);
+  !    all member/offset frequencies use this clump's cl_Dfreq(icl).
   xloc = xfreq * (cl_Dfreq_ref/cl_Dfreq(icl))
-  v    = voigt(xloc, cl_voigt_a(icl))
-  do i = 2, line%nup
-     Dnu     = line%delE_Hz(i)   / cl_Dfreq(icl)
-     a_ratio = line%b(i)%damping / line%b(1)%damping
-     f_ratio = line%f12(i)       / line%f12(1)
-     v = v + voigt(xloc + Dnu, cl_voigt_a(icl)*a_ratio) * f_ratio
-  end do
+  select case (line%line_type)
+  case (2)
+     Dnu = line%DnuHK_Hz / cl_Dfreq(icl)
+     v = voigt(xloc + Dnu, cl_voigt_a(icl)) * (1.0_wp/3.0_wp) &
+       + voigt(xloc,       cl_voigt_a(icl)) * (2.0_wp/3.0_wp)
+  case (5, 6)
+     v = voigt(xloc, cl_voigt_a(icl))
+     do i = 2, line%nup
+        Dnu     = line%delE_Hz(i)   / cl_Dfreq(icl)
+        a_ratio = line%b(i)%damping / line%b(1)%damping
+        f_ratio = line%f12(i)       / line%f12(1)
+        v = v + voigt(xloc + Dnu, cl_voigt_a(icl)*a_ratio) * f_ratio
+     end do
+  case (7)
+     Dnu = line%delta_nu_HD_Hz / cl_Dfreq(icl)
+     xD  = (xloc - Dnu) * line%ratio_Dfreq_HD
+     v = voigt(xloc, cl_voigt_a(icl)) &
+       + line%nD_over_nH * line%ratio_Dfreq_HD &
+         * voigt(xD, cl_voigt_a(icl) * line%ratio_voigta_HD)
+  case default
+     v = voigt(xloc, cl_voigt_a(icl))
+  end select
   end function voigt_clump
   !===========================================================================
   ! Total opacity per code-unit length for a clump leaf: gas line opacity

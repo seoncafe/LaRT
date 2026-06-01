@@ -225,25 +225,42 @@ contains
   end subroutine amr_xcrit_local
 
   !=========================================================================
-  ! Multiplet line profile for an AMR leaf -- exact mirror of calc_voigt3
-  ! (line_mod.f90), but using the per-leaf amr_grid arrays.  Sums all
-  ! line%nup upward members so that multiplet line types (line_type = 5/6,
-  ! e.g. Si II 1190/1193, Fe II 2586/2600) carry the FULL opacity.  For
-  ! single-line types (line%nup = 1) the loop is skipped and this reduces
-  ! to voigt(xfreq, voigt_a(il)) -- identical to the previous behaviour.
+  ! Line profile for an AMR leaf, dispatched by line%line_type to mirror the
+  ! Cartesian calc_voigt1/2/3/HD EXACTLY (same select case as setup.f90):
+  !   type 2      -> calc_voigt2  (DnuHK doublet, 1/3 + 2/3)
+  !   type 5, 6   -> calc_voigt3  (general multiplet, sum over line%nup)
+  !   type 7      -> calc_voigt_HD (combined H + D Lyman-alpha)
+  !   default 1,4 -> calc_voigt1  (single Voigt)
+  ! Uses the per-leaf amr_grid arrays; xfreq is carried in this leaf's Doppler
+  ! units by the AMR raytrace.
   !=========================================================================
   function amr_line_profile(il, xfreq) result(v)
     integer,  intent(in) :: il
     real(wp), intent(in) :: xfreq
-    real(wp) :: v, Dnu, a_ratio, f_ratio
+    real(wp) :: v, Dnu, a_ratio, f_ratio, xD
     integer  :: i
-    v = voigt(xfreq, amr_grid%voigt_a(il))
-    do i = 2, line%nup
-      Dnu     = line%delE_Hz(i)   / amr_grid%Dfreq(il)
-      a_ratio = line%b(i)%damping / line%b(1)%damping
-      f_ratio = line%f12(i)       / line%f12(1)
-      v = v + voigt(xfreq + Dnu, amr_grid%voigt_a(il)*a_ratio) * f_ratio
-    end do
+    select case (line%line_type)
+    case (2)
+      Dnu = line%DnuHK_Hz / amr_grid%Dfreq(il)
+      v = voigt(xfreq + Dnu, amr_grid%voigt_a(il)) * (1.0_wp/3.0_wp) &
+        + voigt(xfreq,       amr_grid%voigt_a(il)) * (2.0_wp/3.0_wp)
+    case (5, 6)
+      v = voigt(xfreq, amr_grid%voigt_a(il))
+      do i = 2, line%nup
+        Dnu     = line%delE_Hz(i)   / amr_grid%Dfreq(il)
+        a_ratio = line%b(i)%damping / line%b(1)%damping
+        f_ratio = line%f12(i)       / line%f12(1)
+        v = v + voigt(xfreq + Dnu, amr_grid%voigt_a(il)*a_ratio) * f_ratio
+      end do
+    case (7)
+      Dnu = line%delta_nu_HD_Hz / amr_grid%Dfreq(il)
+      xD  = (xfreq - Dnu) * line%ratio_Dfreq_HD
+      v = voigt(xfreq, amr_grid%voigt_a(il)) &
+        + line%nD_over_nH * line%ratio_Dfreq_HD &
+          * voigt(xD, amr_grid%voigt_a(il) * line%ratio_voigta_HD)
+    case default
+      v = voigt(xfreq, amr_grid%voigt_a(il))
+    end select
   end function amr_line_profile
 
   !=========================================================================

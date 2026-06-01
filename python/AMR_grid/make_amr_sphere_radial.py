@@ -79,7 +79,7 @@ import sys
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from AMR_grid import AMRGrid
+from AMR_grid import AMRGrid, _OPTIONAL_COLUMNS
 
 
 # ---------------------------------------------------------------------------
@@ -240,6 +240,148 @@ def make_velocity_fn(law, rmax, v_exp=0.0, velocity_alpha=1.0, vrot=0.0, rinner=
 
 
 # ---------------------------------------------------------------------------
+# Vectorized fast path (no per-cell Cell objects)
+# ---------------------------------------------------------------------------
+def _shell_radii_array(rmax, level_min, level_max, spacing, ratio, custom_radii):
+    """Outer-boundary radius of each refinement shell (outermost first)."""
+    n = level_max - level_min + 1
+    if custom_radii is not None:
+        return np.asarray(custom_radii, dtype=float)
+    if spacing == 'linear':
+        return np.array([rmax * (n - i) / n for i in range(n)], dtype=float)
+    if spacing == 'log':
+        return np.array([rmax * ratio ** i for i in range(n)], dtype=float)
+    raise ValueError(f"spacing must be 'linear' or 'log', got {spacing!r}")
+
+
+def _target_level(d, radii_inc, level_min):
+    """Vectorized AMRGrid._target(): the finest shell level whose ball encloses
+    distance ``d``.  ``radii_inc`` is the shell radii sorted ascending."""
+    n_gt = radii_inc.size - np.searchsorted(radii_inc, d, side='right')
+    return np.where(n_gt > 0, level_min + n_gt - 1, 0)
+
+
+def radial_leaves_fast(boxlen, rmax, level_min, level_max,
+                       spacing='log', ratio=0.5, custom_radii=None,
+                       refine_boundary=False, boundary_level_max=None):
+    """Generate the leaf ``(cx, cy, cz, level)`` arrays of a centered
+    radial-shell sphere octree by vectorized breadth-first refinement.
+
+    This reproduces ``AMRGrid.refine_sphere_radial`` **bit-for-bit** (verified
+    against the object tree) without ever instantiating a ``Cell`` object, which
+    makes very deep grids (level >= 8, millions of leaves) feasible in seconds
+    and a few hundred MB instead of ~minutes and several GB.
+
+    Centered convention: sphere center = box center = origin.  Refinement
+    criterion, applied in a single pass and re-evaluated at every level:
+
+    * radial: split while ``max(target(d_center), target(d_closest)) > level``
+      where ``d_center`` is the center-to-origin distance and ``d_closest`` is
+      the closest distance from the (axis-aligned) cell to the origin;
+    * boundary (optional): cells that straddle the sphere surface — i.e. they
+      intersect the sphere (``d_closest <= rmax``) but are not fully inside it
+      (``d_farthest > rmax``) — are forced up to ``boundary_level_max``.
+    """
+    half0 = boxlen / 2.0
+    radii = _shell_radii_array(rmax, level_min, level_max, spacing, ratio, custom_radii)
+    radii_inc = np.sort(radii)
+    blmax = (boundary_level_max if (refine_boundary and boundary_level_max is not None)
+             else level_max)
+    cx = np.zeros(1); cy = np.zeros(1); cz = np.zeros(1)
+    level = 0
+    chunks = []
+    while cx.size:
+        h = half0 / (2 ** level)
+        d_cen = np.sqrt(cx * cx + cy * cy + cz * cz)
+        ax = np.maximum(np.abs(cx) - h, 0.0)
+        ay = np.maximum(np.abs(cy) - h, 0.0)
+        az = np.maximum(np.abs(cz) - h, 0.0)
+        d_cls = np.sqrt(ax * ax + ay * ay + az * az)
+        t = np.maximum(_target_level(d_cen, radii_inc, level_min),
+                       _target_level(d_cls, radii_inc, level_min))
+        if refine_boundary:
+            d_far = np.sqrt((np.abs(cx) + h) ** 2 +
+                            (np.abs(cy) + h) ** 2 +
+                            (np.abs(cz) + h) ** 2)
+            straddle = (d_cls <= rmax) & (d_far > rmax)
+            t = np.where(straddle, np.maximum(t, blmax), t)
+        refine = level < t
+        leaf = ~refine
+        if leaf.any():
+            chunks.append((cx[leaf], cy[leaf], cz[leaf],
+                           np.full(int(leaf.sum()), level, dtype=np.int32)))
+        if not refine.any():
+            break
+        pcx = cx[refine]; pcy = cy[refine]; pcz = cz[refine]
+        q = h / 2.0
+        s = np.array([-q, q])
+        ox, oy, oz = (a.ravel() for a in np.meshgrid(s, s, s, indexing='ij'))
+        cx = (pcx[:, None] + ox).ravel()
+        cy = (pcy[:, None] + oy).ravel()
+        cz = (pcz[:, None] + oz).ravel()
+        level += 1
+    return (np.concatenate([c[0] for c in chunks]),
+            np.concatenate([c[1] for c in chunks]),
+            np.concatenate([c[2] for c in chunks]),
+            np.concatenate([c[3] for c in chunks]))
+
+
+class FastAMRGrid(AMRGrid):
+    """Array-backed :class:`AMRGrid`: leaf columns are held as numpy arrays
+    instead of a ``Cell`` octree.  Produced by the vectorized generators for
+    fast writing of very large grids.  It reuses the inherited ``write()``
+    machinery (HDF5/FITS) and supports ``info()`` and ``len(grid.leaves())``;
+    per-cell iteration and ``slice_plot()`` are intentionally unavailable —
+    read the written file back with ``AMRGrid.read()`` for analysis."""
+
+    def __init__(self, boxlen, cx, cy, cz, level, dens, T, vx, vy, vz,
+                 origin=None, opt=None, metadata=None):
+        self.boxlen = float(boxlen)
+        h = self.boxlen * 0.5
+        self.origin = (-h, -h, -h) if origin is None else tuple(float(v) for v in origin)
+        self.metadata = dict(metadata) if metadata else {}
+        n = len(cx)
+        self._n = n
+        dt = [('x', 'f8'), ('y', 'f8'), ('z', 'f8'), ('level', 'i4'),
+              ('dens', 'f8'), ('T', 'f8'), ('vx', 'f8'), ('vy', 'f8'), ('vz', 'f8')]
+        opt = opt or {}
+        opt_present = [a for a in _OPTIONAL_COLUMNS if opt.get(a) is not None]
+        for a in opt_present:
+            dt.append((a, 'f8'))
+        data = np.empty(n, dtype=dt)
+        data['x'] = cx; data['y'] = cy; data['z'] = cz
+        data['level'] = level
+        data['dens'] = dens; data['T'] = T
+        data['vx'] = vx; data['vy'] = vy; data['vz'] = vz
+        for a in opt_present:
+            data[a] = opt[a]
+        self._table = data
+
+    # -- overrides so the inherited write() works without a Cell tree --
+    def _leaf_table_array(self):
+        return self._table
+
+    def leaves(self):
+        # Only len() is used by callers (leaf-count reporting); per-cell
+        # iteration is intentionally unsupported on the array-backed grid.
+        return range(self._n)
+
+    def info(self):
+        d = self._table
+        levels = d['level']
+        hist = {int(l): int((levels == l).sum()) for l in np.unique(levels)}
+        lines = [f'AMRGrid  boxlen={self.boxlen}  nleaf={self._n}',
+                 f'  Level distribution: {dict(sorted(hist.items()))}']
+        dens = d['dens']
+        if dens.max() > 0:
+            nz = dens[dens > 0]
+            lines.append(f'  dens [cm^-3]: min={nz.min():.3e}  '
+                         f'max={dens.max():.3e}  mean={dens.mean():.3e}')
+        lines.append(f'  T  [K]:     min={d["T"].min():.3e}  max={d["T"].max():.3e}')
+        return '\n'.join(lines)
+
+
+# ---------------------------------------------------------------------------
 # Grid builder
 # ---------------------------------------------------------------------------
 
@@ -250,7 +392,7 @@ def build_radial_grid(boxlen, rmax, level_min, level_max, spacing, ratio,
                       boundary_level_max=None,
                       velocity='none', v_exp=0.0, velocity_alpha=1.0,
                       vrot=0.0, rinner=None,
-                      cone_opening=0.0):
+                      cone_opening=0.0, engine='fast'):
     """
     Build and return an AMRGrid with radial shell refinement.
 
@@ -284,6 +426,42 @@ def build_radial_grid(boxlen, rmax, level_min, level_max, spacing, ratio,
             xm2 = 0.0 if c.xmin <= 0 <= c.xmax else min(c.xmin**2, c.xmax**2)
             ym2 = 0.0 if c.ymin <= 0 <= c.ymax else min(c.ymin**2, c.ymax**2)
             return z_max * z_max * sin2 >= cos2 * (xm2 + ym2)
+
+    # -----------------------------------------------------------------
+    # Fast path: vectorized leaf generation (no Cell-object octree).
+    # Reproduces the object tree bit-for-bit for the plain radial sphere.
+    # Cone geometry (region_check) is not vectorized -> fall back to tree.
+    # -----------------------------------------------------------------
+    if engine == 'fast' and not has_cone:
+        cx, cy, cz, lev = radial_leaves_fast(
+            boxlen, rmax, level_min, level_max,
+            spacing=spacing, ratio=ratio, custom_radii=custom_radii,
+            refine_boundary=refine_boundary, boundary_level_max=boundary_level_max)
+        ones = np.ones_like(cx)
+        dens = np.asarray(dens_fn(cx, cy, cz), dtype=float) * ones
+        if vel_fn is not None:
+            vx, vy, vz = vel_fn(cx, cy, cz)
+            vx = np.asarray(vx, dtype=float) * ones
+            vy = np.asarray(vy, dtype=float) * ones
+            vz = np.asarray(vz, dtype=float) * ones
+        else:
+            vx = np.zeros_like(cx); vy = np.zeros_like(cx); vz = np.zeros_like(cx)
+        zero = dens == 0.0          # zero velocity where density is zero
+        vx = np.where(zero, 0.0, vx)
+        vy = np.where(zero, 0.0, vy)
+        vz = np.where(zero, 0.0, vz)
+        T = np.full(cx.shape, float(temperature))
+        grid = FastAMRGrid(boxlen, cx, cy, cz, lev, dens, T, vx, vy, vz)
+        blmax_used = boundary_level_max if boundary_level_max is not None else level_max
+        grid.metadata.update({
+            'LMIN':   (level_min,       'Outermost shell AMR level'),
+            'LMAX':   (level_max,       'Innermost shell AMR level'),
+            'BLMAX':  (blmax_used,      'Boundary refinement max level'),
+            'REFBND': (refine_boundary, 'Sphere boundary refinement applied'),
+        })
+        radii = list(_shell_radii_array(rmax, level_min, level_max,
+                                        spacing, ratio, custom_radii))
+        return grid, radii
 
     grid = AMRGrid(boxlen)
     grid.refine_sphere_radial(
@@ -704,13 +882,17 @@ def main():
         cone_opening       = args.cone_opening,
     )
 
+    # The vectorized fast engine builds no Cell tree, so slice plots (which
+    # need per-cell traversal) require the object-tree engine.
+    _engine = 'tree' if args.plot else 'fast'
+
     if args.compare:
         # ── radial only vs. radial + boundary ────────────────────────────
         print('=' * 60)
         print('Mode: radial shells only')
         print('=' * 60)
         grid_base, radii_base = build_radial_grid(
-            **common, refine_boundary=False)
+            **common, refine_boundary=False, engine=_engine)
         print(grid_base.info())
         print_shell_table(radii_base, args.level_min, args.level_max)
 
@@ -722,7 +904,7 @@ def main():
         print('Mode: radial shells + boundary refinement')
         print('=' * 60)
         grid_bnd, radii_bnd = build_radial_grid(
-            **common, refine_boundary=True)
+            **common, refine_boundary=True, engine=_engine)
         print(grid_bnd.info())
         print_shell_table(radii_bnd, args.level_min, args.level_max)
 
@@ -761,7 +943,7 @@ def main():
                  if args.refine_boundary else ''))
 
         grid, radii = build_radial_grid(
-            **common, refine_boundary=args.refine_boundary)
+            **common, refine_boundary=args.refine_boundary, engine=_engine)
 
         print(grid.info())
         print_shell_table(radii, args.level_min, args.level_max)

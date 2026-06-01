@@ -29,9 +29,12 @@
 !   --density_alpha 0.0     Power-law exponent: n(r) = n0*(rmax/r)^alpha
 !   --temperature 1e4       Gas temperature [K]
 !   --velocity none         Velocity law: none|hubble|constant_radial|
-!                           power_law|linear_decelerate
-!   --v_exp   0.0           Expansion speed [km/s]
+!                           power_law|linear_decelerate|rotating_solid_body|
+!                           rotating_galaxy_halo
+!   --vexp    0.0           Expansion speed [km/s]
 !   --velocity_alpha 1.0           Power-law velocity exponent
+!   --vrot    0.0           Rotation speed [km/s] for rotating_* laws
+!   --rinner  -1            Inner radius for rotating_galaxy_halo
 !   --refine_boundary       Refine cells at sphere surface
 !   --boundary_level_max -1 Boundary level (default = level_max)
 !   -o output.h5            Output file (.h5, .fits.gz, or .dat)
@@ -59,10 +62,13 @@ program make_amr_sphere_radial
   character(len=32) :: velocity_law = 'none'
   real(wp) :: v_exp        = 0.0_wp
   real(wp) :: velocity_alpha      = 1.0_wp
+  real(wp) :: vrot         = 0.0_wp     ! rotation speed [km/s] for rotating_* laws
+  real(wp) :: rinner       = -1.0_wp    ! inner radius for rotating_galaxy_halo; <0 = unset
   real(wp) :: cone_opening  = 0.0_wp    ! bicone half-opening angle [deg]; 0 = full sphere
   logical  :: refine_boundary = .false.
   integer  :: boundary_level_max_in = -1   ! -1 -> use level_max
   character(len=512) :: output_file = 'amr_sphere.h5'
+  real(wp) :: taumax_hint  = 1.0e4_wp   ! only for the suggested LaRT-input snippet
 
   ! Shell radii
   integer  :: n_shells, boundary_lmax
@@ -86,6 +92,14 @@ program make_amr_sphere_radial
   if (r_scale <= 0.0_wp) r_scale = 0.3_wp * rmax
   boundary_lmax = boundary_level_max_in
   if (boundary_lmax < 0) boundary_lmax = level_max
+
+  ! Validate rotating_galaxy_halo: requires 0 < rinner < rmax
+  if (trim(velocity_law) == 'rotating_galaxy_halo') then
+    if (rinner <= 0.0_wp .or. rinner >= rmax) then
+      write(*,'(a)') 'ERROR: rotating_galaxy_halo requires --rinner with 0 < rinner < rmax'
+      stop 1
+    end if
+  end if
 
   ! Build shell radii
   n_shells = level_max - level_min + 1
@@ -130,6 +144,7 @@ program make_amr_sphere_radial
   if (status /= 0) stop 'make_amr_sphere_radial: error closing output file'
 
   write(*,'(a,i0,a,a)') 'Written ', nleaf, ' leaf cells to ', trim(output_file)
+  call print_lart_hint()
 
 contains
 
@@ -379,6 +394,25 @@ contains
       vr = v_exp * (rmax - r) / denom
       scale = vr / r
       vxo = scale * x; vyo = scale * y; vzo = scale * z
+    case ('rotating_solid_body')
+      ! Solid-body rotation about z (Garavito-Camargo et al. 2014):
+      !   vx = -Vrot*y/rmax,  vy = Vrot*x/rmax,  vz = 0
+      scale = vrot / rmax
+      vxo = -scale * y; vyo = scale * x; vzo = 0.0_wp
+    case ('rotating_galaxy_halo')
+      ! Flat rotation curve above rinner about z (Kim et al.):
+      !   rxy < rinner : solid body   (scale = Vrot/rinner)
+      !   rxy >= rinner: flat curve   (scale = Vrot/rxy)
+      block
+        real(wp) :: rxy
+        rxy = sqrt(x*x + y*y)
+        if (rxy < rinner) then
+          scale = vrot / rinner
+        else
+          scale = vrot / rxy
+        end if
+        vxo = -scale * y; vyo = scale * x; vzo = 0.0_wp
+      end block
     end select
   end subroutine
 
@@ -507,10 +541,16 @@ contains
         call get_next_arg(i, val); read(val, *) temperature
       case ('--velocity')
         call get_next_arg(i, val); velocity_law = trim(val)
-      case ('--v_exp')
+      case ('--vexp', '--v_exp')   ! --vexp matches the Python CLI; --v_exp kept as alias
         call get_next_arg(i, val); read(val, *) v_exp
+      case ('--taumax')            ! used only for the printed LaRT-input hint
+        call get_next_arg(i, val); read(val, *) taumax_hint
       case ('--velocity_alpha')
         call get_next_arg(i, val); read(val, *) velocity_alpha
+      case ('--vrot')
+        call get_next_arg(i, val); read(val, *) vrot
+      case ('--rinner')
+        call get_next_arg(i, val); read(val, *) rinner
       case ('--refine_boundary')
         refine_boundary = .true.
       case ('--boundary_level_max')
@@ -557,15 +597,39 @@ contains
     write(*,'(a)') '  --r_scale VAL         Exponential scale (default: 0.3*rmax)'
     write(*,'(a)') '  --density_alpha VAL   Power-law exponent (default: 0.0)'
     write(*,'(a)') '  --temperature VAL     Gas temperature [K] (default: 1e4)'
-    write(*,'(a)') '  --velocity TYPE       none|hubble|constant_radial|'
-    write(*,'(a)') '                        power_law|linear_decelerate'
-    write(*,'(a)') '  --v_exp VAL           Expansion speed [km/s] (default: 0)'
+    write(*,'(a)') '  --velocity TYPE       none|hubble|constant_radial|power_law|'
+    write(*,'(a)') '                        linear_decelerate|rotating_solid_body|'
+    write(*,'(a)') '                        rotating_galaxy_halo'
+    write(*,'(a)') '  --vexp VAL            Expansion speed [km/s] (default: 0)'
     write(*,'(a)') '  --velocity_alpha VAL         Velocity power-law exponent (default: 1)'
+    write(*,'(a)') '  --vrot VAL            Rotation speed [km/s] for rotating_* (default: 0)'
+    write(*,'(a)') '  --rinner VAL          Inner radius for rotating_galaxy_halo'
     write(*,'(a)') '  --refine_boundary     Refine cells at sphere surface'
     write(*,'(a)') '  --boundary_level_max N  Surface refinement level'
     write(*,'(a)') '  --cone_opening VAL    Bicone half-opening angle [deg] (0=sphere)'
+    write(*,'(a)') '  --taumax VAL          taumax for the printed LaRT-input hint (default: 1e4)'
     write(*,'(a)') '  -o FILE               Output file (default: amr_sphere.h5)'
     write(*,'(a)') '  -h, --help            Show this help'
+  end subroutine
+
+  !-----------------------------------------------------------------------
+  ! Print a suggested LaRT input snippet (parity with the Python tool).
+  !-----------------------------------------------------------------------
+  subroutine print_lart_hint()
+    write(*,'(a)') ''
+    write(*,'(a)') repeat('-', 60)
+    write(*,'(a)') 'Suggested LaRT input snippet:'
+    write(*,'(a)') repeat('-', 60)
+    write(*,'(a)')      ' &parameters'
+    write(*,'(a)')      "  par%use_amr_grid    = .true."
+    write(*,'(a)')      "  par%amr_type        = 'generic'"
+    write(*,'(a,a,a)')  "  par%amr_file        = '", trim(output_file), "'"
+    write(*,'(a,es9.2)')"  par%no_photons      = ", 1.0e6_wp
+    write(*,'(a,es9.2)')"  par%taumax          = ", taumax_hint
+    write(*,'(a,es12.4)')"  par%temperature     = ", temperature
+    write(*,'(a)')      "  par%spectral_type   = 'voigt'"
+    write(*,'(a)')      "  par%source_geometry = 'point'"
+    write(*,'(a)')      " /"
   end subroutine
 
 end program make_amr_sphere_radial
