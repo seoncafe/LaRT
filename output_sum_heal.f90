@@ -389,12 +389,14 @@ contains
 !--------------------------------------------------------------
   subroutine output_normalize_inside_amr(grid)
   !-- AMR + inside-observer normalization.
-  !-- Uses the AMR-convention area = fourpi * distance2cm**2 (matches output_normalize_amr),
-  !-- so Jout/Jin are independent of L_box. HEALPix observer arrays are
-  !-- normalized identically to the Cartesian _inside path.
+  !-- Geometry-aware area, mirroring the Cartesian convention so AMR and
+  !-- Cartesian runs with the same par%geometry agree (see output_normalize_amr
+  !-- in output_sum_rect.f90).  HEALPix observer arrays are normalized
+  !-- identically to the Cartesian _inside path.
+  use octree_mod, only: amr_grid
   implicit none
   type(grid_type), intent(inout) :: grid
-  real(wp) :: area, scale_factor, intensity_bin_unit
+  real(wp) :: area, norm_out, scale_factor, intensity_bin_unit
   integer  :: k
 
   par%nscatt_dust = par%nscatt_dust / par%nphotons
@@ -407,15 +409,26 @@ contains
      intensity_bin_unit = grid%dxfreq
   endif
 
-  area = fourpi * par%rmax**2 * par%distance2cm**2
+  if (par%xy_periodic) then
+     ! slab geometry: 2.0 = top+bottom boundaries, solid angle 2*pi
+     norm_out = par%nphotons * intensity_bin_unit * twopi * 2.0_wp
+  else
+     if (trim(par%geometry) == 'sphere') then
+        area = fourpi * par%rmax**2 * par%distance2cm**2
+     else
+        area = 2.0_wp*(amr_grid%xrange*amr_grid%yrange + amr_grid%yrange*amr_grid%zrange + &
+                       amr_grid%zrange*amr_grid%xrange) * par%distance2cm**2
+     endif
+     norm_out = par%nphotons * intensity_bin_unit * twopi * area
+  endif
 
-  grid%Jout(:) = grid%Jout(:) / (par%nphotons * intensity_bin_unit * twopi * area)
+  grid%Jout(:) = grid%Jout(:) / norm_out
   if (associated(grid%Jin)) &
-     grid%Jin(:)  = grid%Jin(:)  / (par%nphotons * intensity_bin_unit * twopi * area)
+     grid%Jin(:)  = grid%Jin(:)  / norm_out
   if (associated(grid%Jabs)) &
-     grid%Jabs(:) = grid%Jabs(:) / (par%nphotons * intensity_bin_unit * twopi * area)
+     grid%Jabs(:) = grid%Jabs(:) / norm_out
   if (associated(grid%Jmu)) &
-     grid%Jmu(:,:) = grid%Jmu(:,:) * par%nmu / (par%nphotons * intensity_bin_unit * twopi * area)
+     grid%Jmu(:,:) = grid%Jmu(:,:) * par%nmu / norm_out
 
   if ((trim(par%spectral_type) == 'continuum' .or. &
        trim(par%spectral_type) == 'continuum+gaussian') .and. par%continuum_normalize) then

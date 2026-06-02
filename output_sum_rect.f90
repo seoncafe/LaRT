@@ -599,7 +599,7 @@ contains
   use octree_mod, only: amr_grid
   implicit none
   type(grid_type), intent(inout) :: grid
-  real(wp) :: area, scale_factor, intensity_bin_unit
+  real(wp) :: area, norm_out, scale_factor, intensity_bin_unit
   integer  :: k, ierr
 
   par%nscatt_dust = par%nscatt_dust / par%nphotons
@@ -612,18 +612,39 @@ contains
      intensity_bin_unit = grid%dxfreq
   end if
 
-  ! Normalize consistently with the Cartesian convention:
-  !   area = 4*pi * rmax^2 * distance2cm^2  (sphere)
-  ! where rmax = L_box/2 is set by grid_mod_amr during AMR setup.
-  area = fourpi * par%rmax**2 * par%distance2cm**2
+  ! Geometry-aware surface-area / solid-angle normalization, mirroring the
+  ! Cartesian output_normalize_outside convention so that AMR and Cartesian
+  ! runs with the SAME par%geometry agree:
+  !   par%xy_periodic        -> slab: 2 faces (top+bottom), no area factor
+  !   trim(par%geometry)=='sphere' -> area = 4*pi*rmax^2  (rmax = L_box/2)
+  !   otherwise ('rectangle'/'box') -> 6-face box area
+  ! NOTE: setup.f90 maps the par%geometry='' default to 'sphere', so default
+  ! AMR runs keep the sphere convention (unchanged from before this fix); the
+  ! box branch is reached only for an explicit par%geometry='box'/'rectangle'.
+  ! The box dimensions come from the octree grid (amr_grid), not the grid_type
+  ! argument.  A single divisor `norm_out` is valid for Jout/Jin/Jabs/Jmu.
+  if (par%xy_periodic) then
+     ! slab geometry: 2.0 = two (top+bottom) boundaries, solid angle 2*pi
+     norm_out = par%nphotons * intensity_bin_unit * twopi * 2.0_wp
+  else
+     if (trim(par%geometry) == 'sphere') then
+        area = fourpi * par%rmax**2 * par%distance2cm**2
+     else
+        ! 6-face area of the AMR box; half-widths are xrange/2, ... so that
+        ! (hx*hy + hy*hz + hz*hx)*8 == 2*(xrange*yrange + yrange*zrange + zrange*xrange)
+        area = 2.0_wp*(amr_grid%xrange*amr_grid%yrange + amr_grid%yrange*amr_grid%zrange + &
+                       amr_grid%zrange*amr_grid%xrange) * par%distance2cm**2
+     endif
+     norm_out = par%nphotons * intensity_bin_unit * twopi * area
+  endif
 
-  grid%Jout(:) = grid%Jout(:) / (par%nphotons * intensity_bin_unit * twopi * area)
+  grid%Jout(:) = grid%Jout(:) / norm_out
   if (associated(grid%Jin)) &
-      grid%Jin(:)  = grid%Jin(:)  / (par%nphotons * intensity_bin_unit * twopi * area)
+      grid%Jin(:)  = grid%Jin(:)  / norm_out
   if (associated(grid%Jabs)) &
-      grid%Jabs(:) = grid%Jabs(:) / (par%nphotons * intensity_bin_unit * twopi * area)
+      grid%Jabs(:) = grid%Jabs(:) / norm_out
   if (associated(grid%Jmu)) &
-      grid%Jmu(:,:) = grid%Jmu(:,:) * par%nmu / (par%nphotons * intensity_bin_unit * twopi * area)
+      grid%Jmu(:,:) = grid%Jmu(:,:) * par%nmu / norm_out
 
   ! Continuum normalization (same logic as output_normalize_outside)
   if ((trim(par%spectral_type) == 'continuum' .or. &

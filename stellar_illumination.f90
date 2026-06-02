@@ -7,6 +7,7 @@ module stellar_illumination_mod
   !--
   use define
   use octree_mod, only: amr_grid, amr_find_leaf
+  use clump_mod,  only: ulos_clump
   implicit none
   public random_stellar_illumination
   public random_stellar_illumination_amr
@@ -971,10 +972,19 @@ contains
   !-- But, note that the input frequency is expressed in the local cell of the exoplanet.
   !-- Thus, transform the frequency back to the lab frame.
   pobs      = photon
-  u1        = grid%vfx(photon%icell,photon%jcell,photon%kcell)*photon%kx + &
-              grid%vfy(photon%icell,photon%jcell,photon%kcell)*photon%ky + &
-              grid%vfz(photon%icell,photon%jcell,photon%kcell)*photon%kz
-  xfreq_ref = (photon%xfreq + u1) * (grid%Dfreq(photon%icell,photon%jcell,photon%kcell) / grid%Dfreq_ref)
+  if (par%use_clump_medium .and. photon%icell_clump > 0) then
+     !-- Clump medium: photon%xfreq is in the owner clump's rest frame
+     !   (generate_photon subtracted ulos_clump along photon%k at birth);
+     !   add it back to recover the lab-frame frequency.  No Doppler width
+     !   scaling (grid%Dfreq == Dfreq_ref in clump mode), matching peelingoff_rect.
+     u1        = ulos_clump(int(photon%icell_clump, int64), photon%kx, photon%ky, photon%kz)
+     xfreq_ref = photon%xfreq + u1
+  else
+     u1        = grid%vfx(photon%icell,photon%jcell,photon%kcell)*photon%kx + &
+                 grid%vfy(photon%icell,photon%jcell,photon%kcell)*photon%ky + &
+                 grid%vfz(photon%icell,photon%jcell,photon%kcell)*photon%kz
+     xfreq_ref = (photon%xfreq + u1) * (grid%Dfreq(photon%icell,photon%jcell,photon%kcell) / grid%Dfreq_ref)
+  endif
 
   !-- reset photon%wgt.
   pobs%wgt = 1.0_wp
@@ -1175,10 +1185,19 @@ contains
   !-- But, note that the input frequency is expressed in the local cell of the exoplanet.
   !-- Thus, transform the frequency back to the lab frame.
   pobs      = photon
-  u1        = grid%vfx(photon%icell,photon%jcell,photon%kcell)*photon%kx + &
-              grid%vfy(photon%icell,photon%jcell,photon%kcell)*photon%ky + &
-              grid%vfz(photon%icell,photon%jcell,photon%kcell)*photon%kz
-  xfreq_ref = (photon%xfreq + u1) * (grid%Dfreq(photon%icell,photon%jcell,photon%kcell) / grid%Dfreq_ref)
+  if (par%use_clump_medium .and. photon%icell_clump > 0) then
+     !-- Clump medium: photon%xfreq is in the owner clump's rest frame
+     !   (generate_photon subtracted ulos_clump along photon%k at birth);
+     !   add it back to recover the lab-frame frequency.  No Doppler width
+     !   scaling (grid%Dfreq == Dfreq_ref in clump mode), matching peelingoff_rect.
+     u1        = ulos_clump(int(photon%icell_clump, int64), photon%kx, photon%ky, photon%kz)
+     xfreq_ref = photon%xfreq + u1
+  else
+     u1        = grid%vfx(photon%icell,photon%jcell,photon%kcell)*photon%kx + &
+                 grid%vfy(photon%icell,photon%jcell,photon%kcell)*photon%ky + &
+                 grid%vfz(photon%icell,photon%jcell,photon%kcell)*photon%kz
+     xfreq_ref = (photon%xfreq + u1) * (grid%Dfreq(photon%icell,photon%jcell,photon%kcell) / grid%Dfreq_ref)
+  endif
 
   !-- reset photon%wgt.
   pobs%wgt = 1.0_wp
