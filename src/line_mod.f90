@@ -515,7 +515,7 @@ contains
   !-- line types
   !   1 : singlet (one resonance)
   !   2 : doublet (two upward transitions, two resonances)
-  !   3 : two resonance lines with different f12 and damping constants. (two upward transitions)
+  !   3 : two resonance lines with different f12 and damping constants. (two upward transitions) [NOT USED/IMPLEMENTED YET]
   !   4 : one upward transition + several downward transitions
   !       (one resonance + one or more fluorescences) (SiII 1527, FeII UV3 lines)
   !   5 : FeII UV1 or UV2 like lines (the most general case)

@@ -123,12 +123,16 @@ contains
   !--- ignored wherever a per-cell temperature existed — AMR grids, cart/temp
   !--- files — making those paths disagree with the native Cartesian grid.)
   if (par%temperature0 <= 0.0_wp) par%temperature0 = par%temperature
-  if (par%temperature <= 0.0_wp) then
-     write(*,'(a)') 'ERROR: par%temperature must be > 0 K'
+  !--- T=0 is permitted when par%bturb > 0: the total Doppler width is then
+  !--- vtherm_total(0) = bturb > 0, so every width/Voigt/recoil site stays finite
+  !--- (all of them route through vtherm_total or divide by Dfreq, never by T).
+  !--- Reject only when BOTH the thermal and turbulent widths vanish.
+  if (par%temperature <= 0.0_wp .and. par%bturb <= 0.0_wp) then
+     write(*,'(a)') 'ERROR: par%temperature must be > 0 K (or set par%bturb > 0)'
      call MPI_ABORT(MPI_COMM_WORLD, 1, ierr)
   end if
-  if (par%temperature0 <= 0.0_wp) then
-     write(*,'(a)') 'ERROR: par%temperature0 must be > 0 K'
+  if (par%temperature0 <= 0.0_wp .and. par%bturb <= 0.0_wp) then
+     write(*,'(a)') 'ERROR: par%temperature0 must be > 0 K (or set par%bturb > 0)'
      call MPI_ABORT(MPI_COMM_WORLD, 1, ierr)
   end if
   vtherm0       = vtherm_total(par%temperature0)

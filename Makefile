@@ -113,6 +113,14 @@ endif
 
 LDFLAGS = $(extra) $(FFLAGS) -lcfitsio -L/usr/local/lib $(HDF5_LIBS)
 #*********************************************************************
+# Fortran sources live under src/; objects and .mod files are built in
+# the top-level directory (both are gitignored).  vpath lets the suffix
+# rules and explicit prerequisites resolve bare *.f90 names to src/.
+SRCDIR = src
+vpath %.f90 $(SRCDIR)
+vpath %.f   $(SRCDIR)
+vpath %.c   $(SRCDIR)
+
 .SUFFIXES: .c .f .f90 .o
 
 .c.o:
@@ -194,32 +202,32 @@ sightline_tau_link: $(OBJSB) make_sightline_tau.o
 #     make convert_ramses HDF5=1       ->  same, with HDF5 writes enabled
 # Legacy alias `ramses2fits` is kept for backwards compatibility.
 convert_ramses ramses2fits:
-	$(FC) $(FFLAGS) -c define.f90
-	$(FC) $(FFLAGS) -c fitsio_mod.f90
-	$(FC) $(FFLAGS) -c hdf5io_mod.f90
-	$(FC) $(FFLAGS) -c iofile_mod.f90
-	$(FC) $(FFLAGS) -c physics_amr_mod.f90
-	$(FC) $(FFLAGS) -c read_ramses_amr.f90
-	$(FC) $(FFLAGS) -c convert_ramses_to_generic.f90
+	$(FC) $(FFLAGS) -c $(SRCDIR)/define.f90
+	$(FC) $(FFLAGS) -c $(SRCDIR)/fitsio_mod.f90
+	$(FC) $(FFLAGS) -c $(SRCDIR)/hdf5io_mod.f90
+	$(FC) $(FFLAGS) -c $(SRCDIR)/iofile_mod.f90
+	$(FC) $(FFLAGS) -c $(SRCDIR)/physics_amr_mod.f90
+	$(FC) $(FFLAGS) -c $(SRCDIR)/read_ramses_amr.f90
+	$(FC) $(FFLAGS) -c $(SRCDIR)/convert_ramses_to_generic.f90
 	$(FC) $(FFLAGS) define.o fitsio_mod.o hdf5io_mod.o iofile_mod.o physics_amr_mod.o read_ramses_amr.o convert_ramses_to_generic.o -lcfitsio -L/usr/local/lib $(HDF5_LIBS) -o convert_ramses_to_generic.x
 
 # Standalone AMR sphere generator (no MPI, no Python dependency)
 make_amr_sphere:
-	$(FC) $(FFLAGS) -c define.f90
-	$(FC) $(FFLAGS) -c fitsio_mod.f90
-	$(FC) $(FFLAGS) -c hdf5io_mod.f90
-	$(FC) $(FFLAGS) -c iofile_mod.f90
-	$(FC) $(FFLAGS) -c make_amr_sphere_radial.f90
+	$(FC) $(FFLAGS) -c $(SRCDIR)/define.f90
+	$(FC) $(FFLAGS) -c $(SRCDIR)/fitsio_mod.f90
+	$(FC) $(FFLAGS) -c $(SRCDIR)/hdf5io_mod.f90
+	$(FC) $(FFLAGS) -c $(SRCDIR)/iofile_mod.f90
+	$(FC) $(FFLAGS) -c $(SRCDIR)/make_amr_sphere_radial.f90
 	$(FC) $(FFLAGS) define.o fitsio_mod.o hdf5io_mod.o iofile_mod.o make_amr_sphere_radial.o -lcfitsio -L/usr/local/lib $(HDF5_LIBS) -o make_amr_sphere_radial.x
 
 # Standalone clump generator (no MPI, no namelist input -- CLI args only)
 make_clumps:
-	$(FC) $(FFLAGS) -c define.f90
-	$(FC) $(FFLAGS) -c fitsio_mod.f90
-	$(FC) $(FFLAGS) -c hdf5io_mod.f90
-	$(FC) $(FFLAGS) -c iofile_mod.f90
-	$(FC) $(FFLAGS) -c voigt_mod.f90
-	$(FC) $(FFLAGS) -c make_clumps.f90
+	$(FC) $(FFLAGS) -c $(SRCDIR)/define.f90
+	$(FC) $(FFLAGS) -c $(SRCDIR)/fitsio_mod.f90
+	$(FC) $(FFLAGS) -c $(SRCDIR)/hdf5io_mod.f90
+	$(FC) $(FFLAGS) -c $(SRCDIR)/iofile_mod.f90
+	$(FC) $(FFLAGS) -c $(SRCDIR)/voigt_mod.f90
+	$(FC) $(FFLAGS) -c $(SRCDIR)/make_clumps.f90
 	$(FC) $(FFLAGS) define.o fitsio_mod.o hdf5io_mod.o iofile_mod.o voigt_mod.o make_clumps.o -lcfitsio -L/usr/local/lib $(HDF5_LIBS) -o make_clumps.x
 
 clean:
