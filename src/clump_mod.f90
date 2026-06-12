@@ -2148,7 +2148,7 @@ contains
 
      !--- R_CLUMP / RHOKAP / TEMP are optional. write_clumps_info omits
      !    each one when its spread is below const_tol (= 1e-3 of mean).
-     !    Legacy FITS files do not carry these columns at all.
+     !    FITS files do not carry these columns at all.
      !    In both cases we fall back to the corresponding header keyword.
      call read_perclump_or_keyword(iofh, 'R_CLUMP',                'CL_RAD',  tmp, ncl, cl_radius)
      call read_perclump_or_keyword(iofh, 'RHOKAP,DENSITY,DENS',    'RHOKAP',  tmp, ncl, cl_rhokap, &
