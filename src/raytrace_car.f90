@@ -3889,8 +3889,11 @@ contains
            !$OMP ATOMIC UPDATE
            grid%J(ix,icell,jcell,kcell)                = grid%J(ix,icell,jcell,kcell) + del * photon%wgt
         case (2)
+           !--- guard: corner cells can have cylindrical radius > rmax (ind_cyl > nr)
+           if (grid%ind_cyl(icell,jcell) >= 1 .and. grid%ind_cyl(icell,jcell) <= grid%nr) then
            !$OMP ATOMIC UPDATE
            grid%J2(ix,grid%ind_cyl(icell,jcell),kcell) = grid%J2(ix,grid%ind_cyl(icell,jcell),kcell) + del * photon%wgt
+           endif
         case (1)
            !$OMP ATOMIC UPDATE
            grid%J1(ix,grid%ind_sph(icell,jcell,kcell)) = grid%J1(ix,grid%ind_sph(icell,jcell,kcell)) + del * photon%wgt
@@ -3920,8 +3923,11 @@ contains
            !$OMP ATOMIC UPDATE
            grid%Pa_new(icell,jcell,kcell)               = grid%Pa_new(icell,jcell,kcell) + dtauH * photon%wgt / rhokap
         case (2)
+           !--- guard: corner cells can have cylindrical radius > rmax (ind_cyl > nr)
+           if (grid%ind_cyl(icell,jcell) >= 1 .and. grid%ind_cyl(icell,jcell) <= grid%nr) then
            !$OMP ATOMIC UPDATE
            grid%P2_new(grid%ind_cyl(icell,jcell),kcell) = grid%P2_new(grid%ind_cyl(icell,jcell),kcell) + dtauH * photon%wgt / rhokap
+           endif
         case (1)
            !$OMP ATOMIC UPDATE
            grid%P1_new(grid%ind_sph(icell,jcell,kcell)) = grid%P1_new(grid%ind_sph(icell,jcell,kcell)) + dtauH * photon%wgt / rhokap

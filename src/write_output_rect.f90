@@ -46,6 +46,9 @@ contains
 !+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
   subroutine write_output_basic(filename,grid)
   use define
+#if defined (CALCJ) || defined (CALCP) || defined (CALCPnew)
+  use octree_mod, only: amr_grid
+#endif
   implicit none
   character(len=*), intent(in)    :: filename
   type(grid_type),  intent(inout) :: grid
@@ -160,6 +163,29 @@ contains
         grid%P2 = (arr_2D * nph1 + grid%P2 * nph2)/nph_tot
         if (allocated(arr_2D)) deallocate(arr_2D)
      endif
+     if (par%use_amr_grid) then
+        if (associated(amr_grid%Pa)) then
+           if (.not. allocated(arr_1D)) allocate(arr_1D, source=amr_grid%Pa)
+           call io_move_to_next_section(iofh0,status)
+           call io_read_image(iofh0,arr_1D,status)
+           amr_grid%Pa = (arr_1D * nph1 + amr_grid%Pa * nph2)/nph_tot
+           if (allocated(arr_1D)) deallocate(arr_1D)
+        endif
+        if (associated(amr_grid%P1)) then
+           if (.not. allocated(arr_1D)) allocate(arr_1D, source=amr_grid%P1)
+           call io_move_to_next_section(iofh0,status)
+           call io_read_image(iofh0,arr_1D,status)
+           amr_grid%P1 = (arr_1D * nph1 + amr_grid%P1 * nph2)/nph_tot
+           if (allocated(arr_1D)) deallocate(arr_1D)
+        endif
+        if (associated(amr_grid%P2)) then
+           if (.not. allocated(arr_2D)) allocate(arr_2D, source=amr_grid%P2)
+           call io_move_to_next_section(iofh0,status)
+           call io_read_image(iofh0,arr_2D,status)
+           amr_grid%P2 = (arr_2D * nph1 + amr_grid%P2 * nph2)/nph_tot
+           if (allocated(arr_2D)) deallocate(arr_2D)
+        endif
+     endif
 #endif
 
 #ifdef CALCPnew
@@ -189,6 +215,29 @@ contains
         grid%P2_new = (arr_2D * nph1 + grid%P2_new * nph2)/nph_tot
         if (allocated(arr_2D)) deallocate(arr_2D)
      endif
+     if (par%use_amr_grid) then
+        if (associated(amr_grid%Pa_new)) then
+           if (.not. allocated(arr_1D)) allocate(arr_1D, source=amr_grid%Pa_new)
+           call io_move_to_next_section(iofh0,status)
+           call io_read_image(iofh0,arr_1D,status)
+           amr_grid%Pa_new = (arr_1D * nph1 + amr_grid%Pa_new * nph2)/nph_tot
+           if (allocated(arr_1D)) deallocate(arr_1D)
+        endif
+        if (associated(amr_grid%P1_new)) then
+           if (.not. allocated(arr_1D)) allocate(arr_1D, source=amr_grid%P1_new)
+           call io_move_to_next_section(iofh0,status)
+           call io_read_image(iofh0,arr_1D,status)
+           amr_grid%P1_new = (arr_1D * nph1 + amr_grid%P1_new * nph2)/nph_tot
+           if (allocated(arr_1D)) deallocate(arr_1D)
+        endif
+        if (associated(amr_grid%P2_new)) then
+           if (.not. allocated(arr_2D)) allocate(arr_2D, source=amr_grid%P2_new)
+           call io_move_to_next_section(iofh0,status)
+           call io_read_image(iofh0,arr_2D,status)
+           amr_grid%P2_new = (arr_2D * nph1 + amr_grid%P2_new * nph2)/nph_tot
+           if (allocated(arr_2D)) deallocate(arr_2D)
+        endif
+     endif
 #endif
 
 #ifdef CALCJ
@@ -217,6 +266,29 @@ contains
         call io_read_image(iofh0,arr_3D,status)
         grid%J2 = (arr_3D * nph1 + grid%J2 * nph2)/nph_tot
         if (allocated(arr_3D)) deallocate(arr_3D)
+     endif
+     if (par%use_amr_grid) then
+        if (associated(amr_grid%J)) then
+           if (.not. allocated(arr_2D)) allocate(arr_2D, source=amr_grid%J)
+           call io_move_to_next_section(iofh0,status)
+           call io_read_image(iofh0,arr_2D,status)
+           amr_grid%J = (arr_2D * nph1 + amr_grid%J * nph2)/nph_tot
+           if (allocated(arr_2D)) deallocate(arr_2D)
+        endif
+        if (associated(amr_grid%J1)) then
+           if (.not. allocated(arr_2D)) allocate(arr_2D, source=amr_grid%J1)
+           call io_move_to_next_section(iofh0,status)
+           call io_read_image(iofh0,arr_2D,status)
+           amr_grid%J1 = (arr_2D * nph1 + amr_grid%J1 * nph2)/nph_tot
+           if (allocated(arr_2D)) deallocate(arr_2D)
+        endif
+        if (associated(amr_grid%J2)) then
+           if (.not. allocated(arr_3D)) allocate(arr_3D, source=amr_grid%J2)
+           call io_move_to_next_section(iofh0,status)
+           call io_read_image(iofh0,arr_3D,status)
+           amr_grid%J2 = (arr_3D * nph1 + amr_grid%J2 * nph2)/nph_tot
+           if (allocated(arr_3D)) deallocate(arr_3D)
+        endif
      endif
 #endif
      call io_close(iofh0,status)
@@ -347,25 +419,59 @@ contains
      call io_append_image(iofh,grid%P2,status,bitpix=par%out_bitpix)
      call io_put_keyword(iofh,'EXTNAME','Pa_2D',  'P_alpha (number of scattering)',status)
   endif
+  if (par%use_amr_grid) then
+     if (associated(amr_grid%Pa)) then
+        call io_append_image(iofh,amr_grid%Pa,status,bitpix=par%out_bitpix)
+        call io_put_keyword(iofh,'EXTNAME','Pa_AMR', 'P_alpha per leaf (number of scattering)',status)
+        call put_amr_JPa_axes(iofh,status)
+     endif
+     if (associated(amr_grid%P1)) then
+        call io_append_image(iofh,amr_grid%P1,status,bitpix=par%out_bitpix)
+        call io_put_keyword(iofh,'EXTNAME','Pa_1D',  'P_alpha (number of scattering)',status)
+        call put_amr_JPa_axes(iofh,status)
+     endif
+     if (associated(amr_grid%P2)) then
+        call io_append_image(iofh,amr_grid%P2,status,bitpix=par%out_bitpix)
+        call io_put_keyword(iofh,'EXTNAME','Pa_2D',  'P_alpha (number of scattering)',status)
+        call put_amr_JPa_axes(iofh,status)
+     endif
+  endif
 #endif
 
 #ifdef CALCPnew
   if (associated(grid%Pa_new)) then
      !--- save P_alapha(x,y,z) : scattering number per atom per photon
      call io_append_image(iofh,grid%Pa_new,status,bitpix=par%out_bitpix)
-     call io_put_keyword(iofh,'EXTNAME','Pa_3D',  'P_alpha (new_method, number of scattering)',status)
+     call io_put_keyword(iofh,'EXTNAME','Pa_3D_new',  'P_alpha (new_method, number of scattering)',status)
   endif
 
   if (associated(grid%P1_new)) then
      !--- save radial or z profile, P_alpha
      call io_append_image(iofh,grid%P1_new,status,bitpix=par%out_bitpix)
-     call io_put_keyword(iofh,'EXTNAME','Pa_1D',  'P_alpha (new_method, number of scattering)',status)
+     call io_put_keyword(iofh,'EXTNAME','Pa_1D_new',  'P_alpha (new_method, number of scattering)',status)
   endif
 
   if (associated(grid%P2_new)) then
      !--- save cylindrical (r, z) profile, P_alpha
      call io_append_image(iofh,grid%P2_new,status,bitpix=par%out_bitpix)
-     call io_put_keyword(iofh,'EXTNAME','Pa_2D',  'P_alpha (new_method, number of scattering)',status)
+     call io_put_keyword(iofh,'EXTNAME','Pa_2D_new',  'P_alpha (new_method, number of scattering)',status)
+  endif
+  if (par%use_amr_grid) then
+     if (associated(amr_grid%Pa_new)) then
+        call io_append_image(iofh,amr_grid%Pa_new,status,bitpix=par%out_bitpix)
+        call io_put_keyword(iofh,'EXTNAME','Pa_AMR_new', 'P_alpha per leaf (new_method)',status)
+        call put_amr_JPa_axes(iofh,status)
+     endif
+     if (associated(amr_grid%P1_new)) then
+        call io_append_image(iofh,amr_grid%P1_new,status,bitpix=par%out_bitpix)
+        call io_put_keyword(iofh,'EXTNAME','Pa_1D_new',  'P_alpha (new_method, number of scattering)',status)
+        call put_amr_JPa_axes(iofh,status)
+     endif
+     if (associated(amr_grid%P2_new)) then
+        call io_append_image(iofh,amr_grid%P2_new,status,bitpix=par%out_bitpix)
+        call io_put_keyword(iofh,'EXTNAME','Pa_2D_new',  'P_alpha (new_method, number of scattering)',status)
+        call put_amr_JPa_axes(iofh,status)
+     endif
   endif
 #endif
 
@@ -386,6 +492,23 @@ contains
      !--- save cylindrical (r, z) profile of mean intensity spectrum J(nu)
      call io_append_image(iofh,grid%J2,status,bitpix=par%out_bitpix)
      call io_put_keyword(iofh,'EXTNAME','Jx_2D','J(x) (mean intensity)',status)
+  endif
+  if (par%use_amr_grid) then
+     if (associated(amr_grid%J)) then
+        call io_append_image(iofh,amr_grid%J,status,bitpix=par%out_bitpix)
+        call io_put_keyword(iofh,'EXTNAME','Jx_AMR','J(x) per leaf (mean intensity)',status)
+        call put_amr_JPa_axes(iofh,status)
+     endif
+     if (associated(amr_grid%J1)) then
+        call io_append_image(iofh,amr_grid%J1,status,bitpix=par%out_bitpix)
+        call io_put_keyword(iofh,'EXTNAME','Jx_1D','J(x) (mean intensity)',status)
+        call put_amr_JPa_axes(iofh,status)
+     endif
+     if (associated(amr_grid%J2)) then
+        call io_append_image(iofh,amr_grid%J2,status,bitpix=par%out_bitpix)
+        call io_put_keyword(iofh,'EXTNAME','Jx_2D','J(x) (mean intensity)',status)
+        call put_amr_JPa_axes(iofh,status)
+     endif
   endif
 #endif
 
@@ -1127,4 +1250,36 @@ contains
   call io_close(iofh,status)
   end subroutine write_output_allph
 !+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+#if defined (CALCJ) || defined (CALCP) || defined (CALCPnew)
+!+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+!--- Write the bin-axis keywords for the AMR CALC* sections so that readers
+!--- can reconstruct the radial / z bin grids without the input AMR file.
+  subroutine put_amr_JPa_axes(iofh,status)
+  use octree_mod, only: amr_grid
+  type(io_file_type), intent(inout) :: iofh
+  integer,            intent(inout) :: status
+  call io_put_keyword(iofh,'geom_JPa', amr_grid%geometry_JPa, 'JPa geometry (3/2/1/-1)',status)
+  select case (amr_grid%geometry_JPa)
+  case (3)
+     call io_put_keyword(iofh,'nleaf', amr_grid%nleaf, 'number of AMR leaves',status)
+  case (2)
+     call io_put_keyword(iofh,'nr',   amr_grid%nr_JPa,   'number of radial bins',status)
+     call io_put_keyword(iofh,'rmax', amr_grid%rmax_JPa, 'outer radius of radial bins',status)
+     call io_put_keyword(iofh,'dr',   amr_grid%dr_JPa,   'radial bin width',status)
+     call io_put_keyword(iofh,'nz',   amr_grid%nz_JPa,   'number of z bins',status)
+     call io_put_keyword(iofh,'zmin', amr_grid%zmin,     'lower edge of z bins',status)
+     call io_put_keyword(iofh,'dz',   amr_grid%dz_JPa,   'z bin width',status)
+  case (-1)
+     call io_put_keyword(iofh,'nz',   amr_grid%nz_JPa, 'number of z bins',status)
+     call io_put_keyword(iofh,'zmin', amr_grid%zmin,   'lower edge of z bins',status)
+     call io_put_keyword(iofh,'dz',   amr_grid%dz_JPa, 'z bin width',status)
+  case default
+     call io_put_keyword(iofh,'nr',   amr_grid%nr_JPa,   'number of radial bins',status)
+     call io_put_keyword(iofh,'rmax', amr_grid%rmax_JPa, 'outer radius of radial bins',status)
+     call io_put_keyword(iofh,'dr',   amr_grid%dr_JPa,   'radial bin width',status)
+  end select
+  end subroutine put_amr_JPa_axes
+#endif
+
 end module write_output_rect

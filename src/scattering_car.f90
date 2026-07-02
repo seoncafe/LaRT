@@ -605,8 +605,11 @@ contains
            !$OMP ATOMIC UPDATE
            grid%Pa(icell,jcell,kcell)               = grid%Pa(icell,jcell,kcell) + photon%wgt / rhokap
         case (2)
+           !--- guard: corner cells can have cylindrical radius > rmax (ind_cyl > nr)
+           if (grid%ind_cyl(icell,jcell) >= 1 .and. grid%ind_cyl(icell,jcell) <= grid%nr) then
            !$OMP ATOMIC UPDATE
            grid%P2(grid%ind_cyl(icell,jcell),kcell) = grid%P2(grid%ind_cyl(icell,jcell),kcell) + photon%wgt / rhokap
+           endif
         case (1)
            !$OMP ATOMIC UPDATE
            grid%P1(grid%ind_sph(icell,jcell,kcell)) = grid%P1(grid%ind_sph(icell,jcell,kcell)) + photon%wgt / rhokap

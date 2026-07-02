@@ -509,6 +509,11 @@ contains
     !--- Step 9: Allocate output arrays -------------------------------
     call amr_alloc_output(par%save_Jin, par%save_Jabs, par%DGR > 0.0_wp, par%save_Jmu, par%nmu)
 
+#if defined (CALCJ) || defined (CALCP) || defined (CALCPnew)
+    !--- Step 9b: Allocate mean-intensity / scattering-rate accumulators
+    call create_JPa_amr_mem()
+#endif
+
     !--- Print summary ------------------------------------------------
     if (mpar%p_rank == 0) then
       write(6,'(a,es12.4)') 'AMR voigt_a      : ', amr_grid%voigt_amean
@@ -519,6 +524,192 @@ contains
 
     deallocate(xleaf, yleaf, zleaf, leaf_level, nH_cgs, T_cgs, vx_kms, vy_kms, vz_kms)
   end subroutine grid_create_amr
+
+#if defined (CALCJ) || defined (CALCP) || defined (CALCPnew)
+  !=========================================================================
+  ! Allocate the AMR mean-intensity J and scattering-rate P_alpha
+  ! accumulators, mirroring create_JPa_mem in grid_mod_car.f90.
+  !
+  ! The per-leaf bin indices (ind_sph / ind_cyl / ind_pln) and the
+  ! volume-weighting arrays (vol_leaf / vol_sph / vol_cyl / vol_plane) are
+  ! filled once on h_rank==0 into shared memory.  The J / Pa accumulators
+  ! themselves are per-rank (create_mem), reduced by output_reduce_amr.
+  !
+  ! Octant multiplicity for xyz_symmetry (8) / xy_symmetry (4) /
+  ! xy_periodic (2) is folded into vol_* via the integer factor nadd; AMR
+  ! leaves are required not to straddle a symmetry plane, so no half-cell
+  ! correction is needed (unlike the Cartesian odd-nx case).
+  !=========================================================================
+  subroutine create_JPa_amr_mem()
+    use define
+    use memory_mod
+    use mpi
+    implicit none
+    integer  :: il, ic, ir, iz, iz1, iz2, nadd, nr, nz, ierr
+    integer  :: is, js, ks, ns
+    real(wp) :: rr, vleaf, rmax, dr, dz, zlo, hc, wsub
+    real(wp) :: xs, ys, zs, z1, z2, ov
+    real(wp) :: gb_per_rank
+
+    amr_grid%geometry_JPa = par%geometry_JPa
+
+    !--- radial / z bin counts (resolution-matched to the finest level,
+    !--- capped at 512 so a deep octree cannot blow up the J2 memory;
+    !--- par%nr overrides the radial count without a cap) ---
+    rmax = par%rmax
+    if (rmax <= 0.0_wp) rmax = amr_grid%L_box * 0.5_wp
+    if (par%nr > 1) then
+       nr = par%nr
+    else
+       nr = min(512, max(1, 2**max(0, amr_grid%levelmax - 1)))
+    end if
+    nz = min(512, max(1, 2**max(0, amr_grid%levelmax)))
+    amr_grid%nr_JPa   = nr
+    amr_grid%nz_JPa   = nz
+    amr_grid%rmax_JPa = rmax
+    amr_grid%dr_JPa   = rmax / real(nr, wp)
+    amr_grid%dz_JPa   = amr_grid%zrange / real(nz, wp)
+    dr  = amr_grid%dr_JPa
+    dz  = amr_grid%dz_JPa
+    zlo = amr_grid%zmin
+
+    !--- octant multiplicity folded into the volume weights.
+    !--- Mirrors grid_mod_car create_JPa_mem: only the reflective symmetries
+    !--- fold (xyz_symmetry -> 8, xy_symmetry -> 4).  xy_periodic does NOT
+    !--- fold: the full slab volume is stored and periodic wrapping keeps
+    !--- photons inside it.
+    if (par%xyz_symmetry) then
+       nadd = 8
+    else if (par%xy_symmetry) then
+       nadd = 4
+    else
+       nadd = 1
+    end if
+
+    !--- allocate per-leaf and per-bin bookkeeping (shared memory) ---
+    call create_shared_mem(amr_grid%vol_leaf, [amr_grid%nleaf])
+    select case (amr_grid%geometry_JPa)
+    case (1)
+       call create_shared_mem(amr_grid%vol_sph, [nr])
+    case (2)
+       call create_shared_mem(amr_grid%vol_cyl, [nr, nz])
+    case (-1)
+       call create_shared_mem(amr_grid%vol_plane, [nz])
+    end select
+
+    !--- accumulate the gas volume overlapping each bin (h_rank 0 only).
+    !--- Deposits are position-binned at runtime, so the volume weights must
+    !--- be the true leaf/bin overlap: each gas leaf is sub-sampled with
+    !--- ns^3 uniformly spaced points (ns grows with leaf size / bin width);
+    !--- the plane (-1) overlap is computed analytically.
+    !--- NOTE: cx/cy/cz/ch are CELL-indexed (1..ncells); physical arrays
+    !--- (rhokap, ...) are LEAF-indexed.  Convert via icell_of_leaf.
+    if (mpar%h_rank == 0) then
+       do il = 1, amr_grid%nleaf
+          ic    = amr_grid%icell_of_leaf(il)
+          hc    = amr_grid%ch(ic)
+          vleaf = (2.0_wp*hc)**3 * real(nadd, wp)
+          amr_grid%vol_leaf(il) = vleaf
+          if (amr_grid%rhokap(il) <= 0.0_wp) cycle
+          select case (amr_grid%geometry_JPa)
+          case (1)
+             ns   = min(8, max(2, nint(2.0_wp*hc/dr)))
+             wsub = vleaf / real(ns**3, wp)
+             do ks = 1, ns
+             do js = 1, ns
+             do is = 1, ns
+                xs = amr_grid%cx(ic) + (2.0_wp*is - ns - 1.0_wp)*hc/ns
+                ys = amr_grid%cy(ic) + (2.0_wp*js - ns - 1.0_wp)*hc/ns
+                zs = amr_grid%cz(ic) + (2.0_wp*ks - ns - 1.0_wp)*hc/ns
+                rr = sqrt(xs*xs + ys*ys + zs*zs)
+                ir = floor(rr/dr) + 1
+                if (ir >= 1 .and. ir <= nr) &
+                   amr_grid%vol_sph(ir) = amr_grid%vol_sph(ir) + wsub
+             end do
+             end do
+             end do
+          case (2)
+             ns   = min(8, max(2, nint(2.0_wp*hc/min(dr, dz))))
+             wsub = vleaf / real(ns**3, wp)
+             do ks = 1, ns
+             do js = 1, ns
+             do is = 1, ns
+                xs = amr_grid%cx(ic) + (2.0_wp*is - ns - 1.0_wp)*hc/ns
+                ys = amr_grid%cy(ic) + (2.0_wp*js - ns - 1.0_wp)*hc/ns
+                zs = amr_grid%cz(ic) + (2.0_wp*ks - ns - 1.0_wp)*hc/ns
+                rr = sqrt(xs*xs + ys*ys)
+                ir = floor(rr/dr) + 1
+                iz = floor((zs - zlo)/dz) + 1
+                if (iz < 1)  iz = 1
+                if (iz > nz) iz = nz
+                if (ir >= 1 .and. ir <= nr) &
+                   amr_grid%vol_cyl(ir,iz) = amr_grid%vol_cyl(ir,iz) + wsub
+             end do
+             end do
+             end do
+          case (-1)
+             !--- analytic overlap of the leaf z-extent with each z bin
+             z1  = amr_grid%cz(ic) - hc
+             z2  = amr_grid%cz(ic) + hc
+             iz1 = max(1,  floor((z1 - zlo)/dz) + 1)
+             iz2 = min(nz, floor((z2 - zlo)/dz) + 1)
+             do iz = iz1, iz2
+                ov = min(z2, zlo + iz*dz) - max(z1, zlo + (iz-1)*dz)
+                if (ov > 0.0_wp) &
+                   amr_grid%vol_plane(iz) = amr_grid%vol_plane(iz) + vleaf * ov/(2.0_wp*hc)
+             end do
+          end select
+       end do
+    end if
+    call MPI_BARRIER(mpar%hostcomm, ierr)
+
+    !--- allocate the J / Pa accumulators (per-rank; zero-initialized) ---
+#ifdef CALCJ
+    select case (amr_grid%geometry_JPa)
+    case (3);     call create_mem(amr_grid%J,  [amr_grid%nxfreq, amr_grid%nleaf])
+    case (2);     call create_mem(amr_grid%J2, [amr_grid%nxfreq, nr, nz])
+    case (-1);    call create_mem(amr_grid%J1, [amr_grid%nxfreq, nz])
+    case default; call create_mem(amr_grid%J1, [amr_grid%nxfreq, nr])
+    end select
+#endif
+#ifdef CALCP
+    select case (amr_grid%geometry_JPa)
+    case (3);     call create_mem(amr_grid%Pa, [amr_grid%nleaf])
+    case (2);     call create_mem(amr_grid%P2, [nr, nz])
+    case (-1);    call create_mem(amr_grid%P1, [nz])
+    case default; call create_mem(amr_grid%P1, [nr])
+    end select
+#endif
+#ifdef CALCPnew
+    select case (amr_grid%geometry_JPa)
+    case (3);     call create_mem(amr_grid%Pa_new, [amr_grid%nleaf])
+    case (2);     call create_mem(amr_grid%P2_new, [nr, nz])
+    case (-1);    call create_mem(amr_grid%P1_new, [nz])
+    case default; call create_mem(amr_grid%P1_new, [nr])
+    end select
+#endif
+
+    if (mpar%p_rank == 0) then
+#ifdef CALCJ
+       if (amr_grid%geometry_JPa == 3) then
+          gb_per_rank = real(amr_grid%nxfreq, wp) * real(amr_grid%nleaf, wp) * 8.0_wp / 1024.0_wp**3
+          write(6,'(a,i0,a,i0,a,f8.3,a)') 'AMR CALCJ: J(', amr_grid%nxfreq, ',', amr_grid%nleaf, &
+             ') = ', gb_per_rank, ' GB/rank'
+          if (gb_per_rank > 1.0_wp) write(6,'(a)') &
+             ' WARNING: AMR J array exceeds 1 GB/rank; consider geometry_JPa /= 3.'
+       else
+          write(6,'(a,i0)') 'AMR CALCJ enabled, geometry_JPa = ', amr_grid%geometry_JPa
+       end if
+#endif
+#ifdef CALCP
+       write(6,'(a,i0)') 'AMR CALCP enabled, geometry_JPa = ', amr_grid%geometry_JPa
+#endif
+#ifdef CALCPnew
+       write(6,'(a,i0)') 'AMR CALCPnew enabled, geometry_JPa = ', amr_grid%geometry_JPa
+#endif
+    end if
+  end subroutine create_JPa_amr_mem
+#endif
 
   !=========================================================================
   ! Set up AMR frequency grid (mirrors grid_mod_car logic).
@@ -855,6 +1046,29 @@ contains
     if (allocated(amr_grid%Jin))   deallocate(amr_grid%Jin)
     if (allocated(amr_grid%Jabs))  deallocate(amr_grid%Jabs)
     if (allocated(amr_grid%Jmu))   deallocate(amr_grid%Jmu)
+#if defined (CALCJ) || defined (CALCP) || defined (CALCPnew)
+    ! CALC* volume arrays are shared-memory windows, already freed
+    ! by destroy_shared_mem_all(); just drop the dangling pointers.
+    nullify(amr_grid%vol_leaf, amr_grid%vol_sph, amr_grid%vol_cyl, amr_grid%vol_plane)
+#endif
+#ifdef CALCJ
+    if (associated(amr_grid%J))  deallocate(amr_grid%J)
+    if (associated(amr_grid%J1)) deallocate(amr_grid%J1)
+    if (associated(amr_grid%J2)) deallocate(amr_grid%J2)
+    nullify(amr_grid%J, amr_grid%J1, amr_grid%J2)
+#endif
+#ifdef CALCP
+    if (associated(amr_grid%Pa)) deallocate(amr_grid%Pa)
+    if (associated(amr_grid%P1)) deallocate(amr_grid%P1)
+    if (associated(amr_grid%P2)) deallocate(amr_grid%P2)
+    nullify(amr_grid%Pa, amr_grid%P1, amr_grid%P2)
+#endif
+#ifdef CALCPnew
+    if (associated(amr_grid%Pa_new)) deallocate(amr_grid%Pa_new)
+    if (associated(amr_grid%P1_new)) deallocate(amr_grid%P1_new)
+    if (associated(amr_grid%P2_new)) deallocate(amr_grid%P2_new)
+    nullify(amr_grid%Pa_new, amr_grid%P1_new, amr_grid%P2_new)
+#endif
   end subroutine grid_destroy_amr
 
   !=========================================================================

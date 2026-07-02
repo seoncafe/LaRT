@@ -120,6 +120,14 @@ contains
         else
           d_step = t_exit
         end if
+#ifdef CALCJ
+        call add_to_J_amr(photon, il, x + 0.5_wp*d_step*kx, &
+                          y + 0.5_wp*d_step*ky, z + 0.5_wp*d_step*kz, d_step)
+#endif
+#ifdef CALCPnew
+        call add_to_Pnew_amr(photon, il, x + 0.5_wp*d_step*kx, &
+                             y + 0.5_wp*d_step*ky, z + 0.5_wp*d_step*kz, d_step * rhokapH)
+#endif
         x   = x + d_step * kx
         y   = y + d_step * ky
         z   = z + d_step * kz
@@ -134,6 +142,14 @@ contains
       x   = x + t_exit * kx
       y   = y + t_exit * ky
       z   = z + t_exit * kz
+#ifdef CALCJ
+      call add_to_J_amr(photon, il, x - 0.5_wp*t_exit*kx, &
+                        y - 0.5_wp*t_exit*ky, z - 0.5_wp*t_exit*kz, t_exit)
+#endif
+#ifdef CALCPnew
+      call add_to_Pnew_amr(photon, il, x - 0.5_wp*t_exit*kx, &
+                           y - 0.5_wp*t_exit*ky, z - 0.5_wp*t_exit*kz, t_exit * rhokapH)
+#endif
 
       ! Next leaf via precomputed neighbor table (O(1) + optional descent)
       il_new    = amr_next_leaf(icell, iface, x, y, z)
@@ -741,5 +757,77 @@ contains
   !$OMP ATOMIC UPDATE
   amr_grid%Jmu(ix, imu) = amr_grid%Jmu(ix, imu) + photon%wgt
   end subroutine add_to_Jmu_amr
+
+#ifdef CALCJ
+!--- accumulate mean intensity J for a path segment of length `del` whose
+!    MIDPOINT is (x0, y0, z0), inside leaf `il`.  Binning is position-based
+!    (bins narrower than the leaf are resolved); geometry_JPa = 3 stores
+!    per leaf.  Mirrors add_to_J in raytrace_car.f90.
+  subroutine add_to_J_amr(photon, il, x0, y0, z0, del)
+  use define
+  use octree_mod, only: amr_grid, amr_JPa_bin
+  type(photon_type), intent(inout) :: photon
+  integer,           intent(in)    :: il
+  real(wp),          intent(in)    :: x0, y0, z0, del
+  integer  :: ix, ib1, ib2
+  logical  :: ok
+  real(wp) :: xfreq_ref
+  if (il < 1 .or. il > amr_grid%nleaf) return
+  if (amr_grid%rhokap(il) <= 0.0_wp) return
+  xfreq_ref        = photon%xfreq * (amr_grid%Dfreq(il) / amr_grid%Dfreq_ref)
+  photon%xfreq_ref = xfreq_ref
+  ix = floor((xfreq_ref - amr_grid%xfreq_min)/amr_grid%dxfreq) + 1
+  if (ix < 1 .or. ix > amr_grid%nxfreq) return
+  if (amr_grid%geometry_JPa == 3) then
+     !$OMP ATOMIC UPDATE
+     amr_grid%J(ix, il) = amr_grid%J(ix, il) + del * photon%wgt
+     return
+  end if
+  call amr_JPa_bin(amr_grid, x0, y0, z0, ib1, ib2, ok)
+  if (.not. ok) return
+  select case (amr_grid%geometry_JPa)
+  case (2)
+     !$OMP ATOMIC UPDATE
+     amr_grid%J2(ix, ib1, ib2) = amr_grid%J2(ix, ib1, ib2) + del * photon%wgt
+  case default   ! 1 and -1
+     !$OMP ATOMIC UPDATE
+     amr_grid%J1(ix, ib1) = amr_grid%J1(ix, ib1) + del * photon%wgt
+  end select
+  end subroutine add_to_J_amr
+#endif
+
+#ifdef CALCPnew
+!--- accumulate scattering rate P_alpha (Seon & Kim 2020) for a path segment
+!    with midpoint (x0, y0, z0) inside leaf `il`.
+!    dtauH = in-cell HI-only optical depth (without dust).  Mirrors add_to_Pnew.
+  subroutine add_to_Pnew_amr(photon, il, x0, y0, z0, dtauH)
+  use define
+  use octree_mod, only: amr_grid, amr_JPa_bin
+  type(photon_type), intent(in) :: photon
+  integer,           intent(in) :: il
+  real(wp),          intent(in) :: x0, y0, z0, dtauH
+  integer  :: ib1, ib2
+  logical  :: ok
+  real(wp) :: rhokap
+  if (il < 1 .or. il > amr_grid%nleaf) return
+  if (amr_grid%rhokap(il) <= 0.0_wp) return
+  rhokap = amr_grid%rhokap(il) * amr_grid%Dfreq(il) / line%cross0
+  if (amr_grid%geometry_JPa == 3) then
+     !$OMP ATOMIC UPDATE
+     amr_grid%Pa_new(il) = amr_grid%Pa_new(il) + dtauH * photon%wgt / rhokap
+     return
+  end if
+  call amr_JPa_bin(amr_grid, x0, y0, z0, ib1, ib2, ok)
+  if (.not. ok) return
+  select case (amr_grid%geometry_JPa)
+  case (2)
+     !$OMP ATOMIC UPDATE
+     amr_grid%P2_new(ib1, ib2) = amr_grid%P2_new(ib1, ib2) + dtauH * photon%wgt / rhokap
+  case default   ! 1 and -1
+     !$OMP ATOMIC UPDATE
+     amr_grid%P1_new(ib1) = amr_grid%P1_new(ib1) + dtauH * photon%wgt / rhokap
+  end select
+  end subroutine add_to_Pnew_amr
+#endif
 
 end module raytrace_amr_mod

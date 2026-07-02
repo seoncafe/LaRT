@@ -623,6 +623,31 @@ class LaRTOutput:
     nmu:         Optional[int]        = None
     mu_min:      Optional[float]      = None
     dmu:         Optional[float]      = None
+    # --- CALCJ / CALCP / CALCPnew internal radiation field (optional) ---
+    # Present only when LaRT was built with make CALCJ=1 / CALCP=1 / CALCPnew=1.
+    # Shapes follow the file (numpy axis order = reversed Fortran order):
+    #   J1 (nbin, nxfreq)   radial (geometry_JPa=1) or z (geometry_JPa=-1) bins
+    #   J2 (nz, nr, nxfreq) cylindrical bins
+    #   J3D  Cartesian (nz, ny, nx, nxfreq);  J_leaf  AMR per-leaf (nleaf, nxfreq)
+    #   P*   same shapes without the frequency axis; *_new = Seon & Kim (2020)
+    J1:          Optional[np.ndarray] = None
+    J2:          Optional[np.ndarray] = None
+    J3D:         Optional[np.ndarray] = None
+    J_leaf:      Optional[np.ndarray] = None
+    P1:          Optional[np.ndarray] = None
+    P2:          Optional[np.ndarray] = None
+    Pa3D:        Optional[np.ndarray] = None
+    Pa_leaf:     Optional[np.ndarray] = None
+    P1_new:      Optional[np.ndarray] = None
+    P2_new:      Optional[np.ndarray] = None
+    Pa3D_new:    Optional[np.ndarray] = None
+    Pa_leaf_new: Optional[np.ndarray] = None
+    geometry_JPa: Optional[int]       = None       # 3 / 2 / 1 / -1 (AMR sections only)
+    r_JPa:       Optional[np.ndarray] = None       # radial bin centers
+    r_JPa_edges: Optional[np.ndarray] = None
+    z_JPa:       Optional[np.ndarray] = None       # z bin centers
+    z_JPa_edges: Optional[np.ndarray] = None
+    jpa_header:  dict = field(default_factory=dict)
     # --- Peel-off observers (optional) ---
     peelings:    List[PeelObservation] = field(default_factory=list)
     # --- Metadata ---
@@ -658,6 +683,15 @@ class LaRTOutput:
                          f"mu_min={self.mu_min:+.3f}, dmu={self.dmu:.4f})")
         else:
             lines.append("Jmu      : (absent)")
+        calc_bits = [n for n in ('J1', 'J2', 'J3D', 'J_leaf',
+                                 'P1', 'P2', 'Pa3D', 'Pa_leaf',
+                                 'P1_new', 'P2_new', 'Pa3D_new', 'Pa_leaf_new')
+                     if getattr(self, n) is not None]
+        if calc_bits:
+            gj = f" (geometry_JPa={self.geometry_JPa})" if self.geometry_JPa is not None else ''
+            lines.append("CALC J/Pa: " + ', '.join(calc_bits) + gj)
+        else:
+            lines.append("CALC J/Pa: (absent)")
         if self.peelings:
             lines.append(f"peelings : {len(self.peelings)} observer(s)")
             for i, p in enumerate(self.peelings, 1):
@@ -968,6 +1002,77 @@ class LaRTOutput:
             rmax_eff = rmax if rmax > 0.0 else xmax
             return 4.0 * np.pi * rmax_eff**2, f'sphere (rmax={rmax_eff:g}, inferred)'
         return 8.0 * (xmax*ymax + ymax*zmax + zmax*xmax), 'box (inferred)'
+
+    # ------------------------------------------------------------------
+    # CALCJ / CALCP profiles (internal mean intensity and scattering rate)
+    # ------------------------------------------------------------------
+    def _jpa_axis(self, n: int):
+        """(x, xlabel) for an n-bin CALC 1-D profile (radial or z bins)."""
+        if (self.geometry_JPa == -1 and self.z_JPa is not None
+                and len(self.z_JPa) == n):
+            return self.z_JPa, 'z [code units]'
+        if self.r_JPa is not None and len(self.r_JPa) == n:
+            return self.r_JPa, 'r [code units]'
+        if self.z_JPa is not None and len(self.z_JPa) == n:
+            return self.z_JPa, 'z [code units]'
+        return np.arange(n) + 0.5, 'bin index'
+
+    def plot_J_profile(self, ax=None, log: bool = True,
+                       label: Optional[str] = None, **kwargs):
+        """Frequency-integrated mean-intensity profile from the CALCJ output.
+
+        Uses the 1-D section ``Jx_1D`` (``self.J1``, radial bins for
+        ``geometry_JPa = 1`` or z bins for ``-1``).  The bin axis comes from
+        the section keywords (AMR runs) or the input namelist (Cartesian).
+        Returns the matplotlib axis.
+        """
+        if self.J1 is None:
+            raise RuntimeError(
+                "No Jx_1D section in the output.  Build LaRT with CALCJ=1 "
+                "and use geometry_JPa = 1 (radial) or -1 (plane).")
+        import matplotlib.pyplot as plt
+        if ax is None:
+            _, ax = plt.subplots()
+        dx = (float(self.xfreq[1] - self.xfreq[0])
+              if self.xfreq is not None and len(self.xfreq) > 1 else 1.0)
+        y = self.J1.sum(axis=-1) * dx
+        x, xlabel = self._jpa_axis(len(y))
+        ax.plot(x, y, label=label, **kwargs)
+        if log:
+            ax.set_yscale('log')
+        ax.set_xlabel(xlabel)
+        ax.set_ylabel(r'$\int J \, dx$')
+        if label:
+            ax.legend()
+        return ax
+
+    def plot_Pa_profile(self, ax=None, which: str = 'auto', log: bool = True,
+                        label: Optional[str] = None, **kwargs):
+        """Scattering-rate profile P_alpha from the CALCP / CALCPnew output.
+
+        ``which``: 'Pa' (per-scattering counter, CALCP), 'Pa_new'
+        (path-length estimator, CALCPnew), or 'auto' (Pa if present, else
+        Pa_new).  Uses the 1-D section (``self.P1`` / ``self.P1_new``).
+        Returns the matplotlib axis.
+        """
+        arr = {'Pa': self.P1, 'Pa_new': self.P1_new,
+               'auto': self.P1 if self.P1 is not None else self.P1_new}.get(which)
+        if arr is None:
+            raise RuntimeError(
+                "No Pa_1D section in the output.  Build LaRT with CALCP=1 "
+                "(or CALCPnew=1) and use geometry_JPa = 1 or -1.")
+        import matplotlib.pyplot as plt
+        if ax is None:
+            _, ax = plt.subplots()
+        x, xlabel = self._jpa_axis(len(arr))
+        ax.plot(x, arr, label=label, **kwargs)
+        if log:
+            ax.set_yscale('log')
+        ax.set_xlabel(xlabel)
+        ax.set_ylabel(r'$P_{\alpha}$ (scatterings atom$^{-1}$ photon$^{-1}$)')
+        if label:
+            ax.legend()
+        return ax
 
     # ------------------------------------------------------------------
     # Plotting: peel-off vs Jmu comparison
@@ -2678,6 +2783,78 @@ def read_clumps(name: str) -> ClumpsOutput:
 read_clump = read_clumps
 
 
+def _attr_scalar(v, cast=float):
+    """Coerce a section attribute (possibly a 1-element numpy array or a
+    bytes string, depending on the file format) to a python scalar."""
+    if v is None:
+        return None
+    a = np.asarray(v).ravel()
+    if a.size == 0:
+        return None
+    x = a[0]
+    if isinstance(x, bytes):
+        x = x.decode()
+    try:
+        return cast(x)
+    except (TypeError, ValueError):
+        return None
+
+
+def _read_JPa(lf, params: dict) -> dict:
+    """Load the CALCJ / CALCP / CALCPnew sections (if present).
+
+    Returns a dict of LaRTOutput field values: the arrays plus the bin axes
+    (r_JPa / z_JPa), reconstructed from the section keywords written by the
+    AMR path (nr / rmax / dr, nz / zmin / dz, geom_JPa).  Cartesian sections
+    carry no keywords; the axes are then reconstructed from the input
+    namelist (par%rmax with even nr, or the xy_periodic slab z range).
+    """
+    name_map = [
+        ('Jx_1D', 'J1'), ('Jx_2D', 'J2'), ('Jx_3D', 'J3D'), ('Jx_AMR', 'J_leaf'),
+        ('Pa_1D', 'P1'), ('Pa_2D', 'P2'), ('Pa_3D', 'Pa3D'), ('Pa_AMR', 'Pa_leaf'),
+        ('Pa_1D_new', 'P1_new'), ('Pa_2D_new', 'P2_new'),
+        ('Pa_3D_new', 'Pa3D_new'), ('Pa_AMR_new', 'Pa_leaf_new'),
+    ]
+    out: dict = {}
+    for sec_name, field_name in name_map:
+        sec = lf.section(sec_name)
+        if sec is None or sec.data is None:
+            continue
+        out[field_name] = np.asarray(sec.data)
+        gj = _attr_scalar(sec.attr('geom_JPa'), int)
+        if gj is not None and 'geometry_JPa' not in out:
+            out['geometry_JPa'] = gj
+            out['jpa_header']   = dict(sec.attrs)
+            nr   = _attr_scalar(sec.attr('nr'), int)
+            dr   = _attr_scalar(sec.attr('dr'))
+            nz   = _attr_scalar(sec.attr('nz'), int)
+            dz   = _attr_scalar(sec.attr('dz'))
+            zmin = _attr_scalar(sec.attr('zmin'))
+            if nr and dr:
+                out['r_JPa_edges'] = np.arange(nr + 1) * dr
+                out['r_JPa']       = (np.arange(nr) + 0.5) * dr
+            if nz and dz and zmin is not None:
+                out['z_JPa_edges'] = zmin + np.arange(nz + 1) * dz
+                out['z_JPa']       = zmin + (np.arange(nz) + 0.5) * dz
+    # Cartesian sections carry no bin keywords: reconstruct from the namelist.
+    if out and 'geometry_JPa' not in out:
+        prof = out.get('J1', out.get('P1', out.get('P1_new')))
+        if prof is not None:
+            nbin = prof.shape[0]
+            if params.get('xy_periodic'):
+                zmax = float(params.get('zmax', 1.0))
+                out['z_JPa_edges'] = -zmax + np.arange(nbin + 1) * (2.0*zmax/nbin)
+                out['z_JPa']       = -zmax + (np.arange(nbin) + 0.5) * (2.0*zmax/nbin)
+            else:
+                rmax = float(params.get('rmax', 0.0) or 0.0)
+                if rmax > 0.0:
+                    # Cartesian convention with even nr (odd nr uses a half-bin
+                    # offset that is not reconstructed here).
+                    out['r_JPa_edges'] = np.arange(nbin + 1) * (rmax/nbin)
+                    out['r_JPa']       = (np.arange(nbin) + 0.5) * (rmax/nbin)
+    return out
+
+
 def read_lart(name: str) -> LaRTOutput:
     """Read a LaRT output file (FITS or HDF5).
 
@@ -2791,6 +2968,9 @@ def read_lart(name: str) -> LaRTOutput:
         mu_arr  = mu_min + (np.arange(nmu) + 0.5) * dmu
         mu_edges = mu_min + np.arange(nmu + 1) * dmu
 
+    # CALCJ / CALCP / CALCPnew sections (optional)
+    jpa_fields = _read_JPa(lf, params)
+
     # Peel-off observers (optional)
     peelings: List[PeelObservation] = []
     for fname in _peel_file_list(fits_file):
@@ -2820,6 +3000,7 @@ def read_lart(name: str) -> LaRTOutput:
         spectrum_header = spec_hdr,
         jmu_header = jmu_hdr_d,
         params = params,
+        **jpa_fields,
     )
 
 

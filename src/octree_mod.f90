@@ -82,6 +82,45 @@ module octree_mod
     real(wp), allocatable :: Jabs(:)  ! absorbed by dust spectrum
     real(wp), allocatable :: Jmu(:,:) ! escaped spectrum binned by mu = cos(theta_z)
 
+    ! ------ CALCJ / CALCP / CALCPnew : mean-intensity & scattering-rate maps ------
+    ! Per-leaf storage (the natural AMR counterpart of the Cartesian (i,j,k) arrays).
+    ! geometry_JPa: 3 = per-leaf 3D, 2 = cylinder (r,z), 1 = sphere (radial),
+    !              -1 = plane-parallel (z bins).  Set from par%geometry_JPa.
+    ! Binning is POSITION-based: each path segment (J, Pnew) or scattering event
+    ! (Pa) deposits into the bin containing its position, independent of the
+    ! leaf size, so bins narrower than the local leaf are resolved correctly.
+    ! Normalization is volume-weighted: vol_* holds the gas (rhokap > 0) volume
+    ! overlapping each bin, computed by sub-sampling the leaves at setup.
+    ! Octant multiplicity for xyz_symmetry / xy_symmetry is folded into vol_*
+    ! via the factor nadd (8/4), mirroring grid_mod_car.
+#if defined (CALCJ) || defined (CALCP) || defined (CALCPnew)
+    integer  :: geometry_JPa = huge(1)
+    integer  :: nr_JPa = 0        ! number of radial bins (geom 1, 2)
+    integer  :: nz_JPa = 0        ! number of z bins      (geom -1, 2)
+    real(wp) :: rmax_JPa = 0.0_wp ! outer radius for radial binning
+    real(wp) :: dr_JPa = 0.0_wp   ! radial bin width
+    real(wp) :: dz_JPa = 0.0_wp   ! z bin width
+    real(wp), pointer :: vol_leaf(:)  => null()  ! (nleaf) leaf volume * nadd (geom 3)
+    real(wp), pointer :: vol_sph(:)   => null()  ! (nr)    gas volume per radial bin
+    real(wp), pointer :: vol_cyl(:,:) => null()  ! (nr,nz) gas volume per (r,z) bin
+    real(wp), pointer :: vol_plane(:) => null()  ! (nz)    gas volume per z bin
+#endif
+#ifdef CALCJ
+    real(dp), pointer :: J(:,:)    => null()  ! (nxfreq, nleaf)  geom 3
+    real(wp), pointer :: J1(:,:)   => null()  ! (nxfreq, nr) geom 1 / (nxfreq, nz) geom -1
+    real(wp), pointer :: J2(:,:,:) => null()  ! (nxfreq, nr, nz) geom 2
+#endif
+#ifdef CALCP
+    real(dp), pointer :: Pa(:)   => null()    ! (nleaf) geom 3
+    real(wp), pointer :: P1(:)   => null()    ! (nr) geom 1 / (nz) geom -1
+    real(wp), pointer :: P2(:,:) => null()    ! (nr,nz) geom 2
+#endif
+#ifdef CALCPnew
+    real(dp), pointer :: Pa_new(:)   => null()
+    real(wp), pointer :: P1_new(:)   => null()
+    real(wp), pointer :: P2_new(:,:) => null()
+#endif
+
   end type amr_grid_type
 
   ! Global AMR grid instance (accessible from any module that uses octree_mod)
@@ -223,6 +262,40 @@ contains
       xcrit2_out = xcrit_out * xcrit_out
     end if
   end subroutine amr_xcrit_local
+
+#if defined (CALCJ) || defined (CALCP) || defined (CALCPnew)
+  !-----------------------------------------------------------------------
+  ! Position -> bin index for the CALC* profile shapes (geometry_JPa 1/2/-1).
+  ! Returns ibin1 (radial or z bin) and ibin2 (z bin, geom 2 only);
+  ! ok = .false. when the position falls outside the binned range.
+  !-----------------------------------------------------------------------
+  subroutine amr_JPa_bin(amr, x0, y0, z0, ibin1, ibin2, ok)
+    type(amr_grid_type), intent(in)  :: amr
+    real(wp),            intent(in)  :: x0, y0, z0
+    integer,             intent(out) :: ibin1, ibin2
+    logical,             intent(out) :: ok
+    real(wp) :: rr
+    ibin1 = 0;  ibin2 = 0;  ok = .false.
+    select case (amr%geometry_JPa)
+    case (2)
+       rr    = sqrt(x0*x0 + y0*y0)
+       ibin1 = floor(rr/amr%dr_JPa) + 1
+       ibin2 = floor((z0 - amr%zmin)/amr%dz_JPa) + 1
+       if (ibin2 < 1)          ibin2 = 1
+       if (ibin2 > amr%nz_JPa) ibin2 = amr%nz_JPa
+       ok = (ibin1 >= 1 .and. ibin1 <= amr%nr_JPa)
+    case (1)
+       rr    = sqrt(x0*x0 + y0*y0 + z0*z0)
+       ibin1 = floor(rr/amr%dr_JPa) + 1
+       ok = (ibin1 >= 1 .and. ibin1 <= amr%nr_JPa)
+    case (-1)
+       ibin1 = floor((z0 - amr%zmin)/amr%dz_JPa) + 1
+       if (ibin1 < 1)          ibin1 = 1
+       if (ibin1 > amr%nz_JPa) ibin1 = amr%nz_JPa
+       ok = .true.
+    end select
+  end subroutine amr_JPa_bin
+#endif
 
   !=========================================================================
   ! Line profile for an AMR leaf, dispatched by line%line_type to mirror the

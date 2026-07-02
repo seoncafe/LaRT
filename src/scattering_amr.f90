@@ -152,6 +152,9 @@ contains
 
     il = photon%icell_amr
     photon%nscatt_gas = photon%nscatt_gas + photon%wgt
+#ifdef CALCP
+    call add_to_Pa_amr(photon, il)
+#endif
 
     ! Sample scattering atom and scattering angle via procedure pointer do_resonance
     call do_resonance(photon, grid, uz, xfreq_atom, cost, sint)
@@ -331,6 +334,9 @@ contains
 
     il = photon%icell_amr
     photon%nscatt_gas = photon%nscatt_gas + photon%wgt
+#ifdef CALCP
+    call add_to_Pa_amr(photon, il)
+#endif
 
     call do_resonance(photon, grid, uz, xfreq_atom, cost, sint, S11, S22, S12, S33, S44)
     S12overS11 = S12 / S11
@@ -744,5 +750,38 @@ contains
       S44 = three_over_two  * photon%E3 * cost
     end if
   end subroutine do_resonance_HD_amr
+
+#ifdef CALCP
+!--- accumulate scattering rate P_alpha (one deposit per resonance scatter,
+!    no dust).  Binning is by the scattering POSITION (photon%x/y/z); the
+!    leaf index `il` supplies the local n_HI.  Mirrors add_to_Pa in
+!    scattering_car.f90.
+  subroutine add_to_Pa_amr(photon, il)
+  use define
+  type(photon_type), intent(in) :: photon
+  integer,           intent(in) :: il
+  integer  :: ib1, ib2
+  logical  :: ok
+  real(wp) :: rhokap
+  if (il < 1 .or. il > amr_grid%nleaf) return
+  if (amr_grid%rhokap(il) <= 0.0_wp) return
+  rhokap = amr_grid%rhokap(il) * amr_grid%Dfreq(il) / line%cross0
+  if (amr_grid%geometry_JPa == 3) then
+     !$OMP ATOMIC UPDATE
+     amr_grid%Pa(il) = amr_grid%Pa(il) + photon%wgt / rhokap
+     return
+  end if
+  call amr_JPa_bin(amr_grid, photon%x, photon%y, photon%z, ib1, ib2, ok)
+  if (.not. ok) return
+  select case (amr_grid%geometry_JPa)
+  case (2)
+     !$OMP ATOMIC UPDATE
+     amr_grid%P2(ib1, ib2) = amr_grid%P2(ib1, ib2) + photon%wgt / rhokap
+  case default   ! 1 and -1
+     !$OMP ATOMIC UPDATE
+     amr_grid%P1(ib1) = amr_grid%P1(ib1) + photon%wgt / rhokap
+  end select
+  end subroutine add_to_Pa_amr
+#endif
 
 end module scattering_amr_mod

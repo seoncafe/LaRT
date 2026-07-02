@@ -28,4 +28,4 @@ Detailed usage instructions are in preparation.
 
 ---
 
-Last updated: 2026-06-13
+Last updated: 2026-07-02

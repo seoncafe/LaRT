@@ -262,9 +262,12 @@ contains
   !    sphere   : rmax = xmax = ymax = zmax = max of all positive size parameters.
   !    cylinder : rmax = xmax = ymax = max of positive radial params; zmax unchanged.
   !    rectangle: rmax = -1 (undefined).
+  !    xy_periodic (slab) is excluded from the sphere case: the '' -> 'sphere'
+  !    default mapping above would otherwise silently inflate a 1 x 1 x nz slab
+  !    to an nz^3 sphere (rmax = xmax) and zero the density outside r > rmax.
   select case(trim(par%geometry))
   case ('sphere')
-     if (.not. par%use_amr_grid) then
+     if (.not. par%use_amr_grid .and. .not. par%xy_periodic) then
         r0 = maxval([par%rmax, par%xmax, par%ymax, par%zmax], &
                     mask=[par%rmax, par%xmax, par%ymax, par%zmax] > 0.0_wp)
         if (r0 > 0.0_wp) then

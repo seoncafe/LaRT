@@ -558,6 +558,28 @@ contains
       call MPI_ALLREDUCE(MPI_IN_PLACE, amr_grid%Jmu(1,1), amr_grid%nxfreq*size(amr_grid%Jmu,2), &
                           MPI_DOUBLE_PRECISION, MPI_SUM, MPI_COMM_WORLD, ierr)
 
+#ifdef CALCJ
+  select case (amr_grid%geometry_JPa)
+     case (3);     call reduce_mem(amr_grid%J)
+     case (2);     call reduce_mem(amr_grid%J2)
+     case default; call reduce_mem(amr_grid%J1)
+  end select
+#endif
+#ifdef CALCP
+  select case (amr_grid%geometry_JPa)
+     case (3);     call reduce_mem(amr_grid%Pa)
+     case (2);     call reduce_mem(amr_grid%P2)
+     case default; call reduce_mem(amr_grid%P1)
+  end select
+#endif
+#ifdef CALCPnew
+  select case (amr_grid%geometry_JPa)
+     case (3);     call reduce_mem(amr_grid%Pa_new)
+     case (2);     call reduce_mem(amr_grid%P2_new)
+     case default; call reduce_mem(amr_grid%P1_new)
+  end select
+#endif
+
   ! Copy reduced amr_grid spectra into grid pointers for write_output
   grid%Jout = amr_grid%Jout
   if (allocated(amr_grid%Jin))  grid%Jin  = amr_grid%Jin
@@ -601,6 +623,10 @@ contains
   type(grid_type), intent(inout) :: grid
   real(wp) :: area, norm_out, scale_factor, intensity_bin_unit
   integer  :: k, ierr
+#if defined (CALCJ) || defined (CALCP) || defined (CALCPnew)
+  real(wp) :: d2
+  integer  :: il, ir, iz
+#endif
 
   par%nscatt_dust = par%nscatt_dust / par%nphotons
   par%nscatt_gas  = par%nscatt_gas  / par%nphotons
@@ -665,6 +691,119 @@ contains
      if (associated(grid%Jabs2)) grid%Jabs2(:) = grid%Jabs2(:)/scale_factor
      if (associated(grid%Jmu))   grid%Jmu(:,:) = grid%Jmu(:,:)/scale_factor
   endif
+
+  !--- CALCJ / CALCP / CALCPnew : volume-weighted normalization on AMR leaves.
+  !    Operates on the module-global amr_grid (this routine takes a grid_type
+  !    argument only for the spectrum copy).  Mirrors the Cartesian convention:
+  !    the per-bin sum of leaf volumes (vol_*) replaces ncount_*, and d2 plays
+  !    the role of the Cartesian dVol's distance factor.  nadd is pre-folded.
+#if defined (CALCJ) || defined (CALCP) || defined (CALCPnew)
+  d2 = par%distance2cm**2
+#endif
+#ifdef CALCJ
+  select case (amr_grid%geometry_JPa)
+  case (3)
+     !--- xy_periodic (slab): luminosity is 1 photon/cm^2, so multiply by the
+     !--- slab area (Cartesian: J*(area/(fourpi*dVol*...)); d2 cancels here).
+     do il = 1, amr_grid%nleaf
+        if (amr_grid%vol_leaf(il) > 0.0_wp) then
+           if (par%xy_periodic) then
+              amr_grid%J(:,il) = amr_grid%J(:,il) * (amr_grid%xrange*amr_grid%yrange) / &
+                 (fourpi * amr_grid%vol_leaf(il) * par%nphotons * intensity_bin_unit)
+           else
+              amr_grid%J(:,il) = amr_grid%J(:,il) / &
+                 (fourpi * amr_grid%vol_leaf(il) * d2 * par%nphotons * intensity_bin_unit)
+           end if
+        end if
+     end do
+  case (2)
+     do iz = 1, amr_grid%nz_JPa
+     do ir = 1, amr_grid%nr_JPa
+        if (amr_grid%vol_cyl(ir,iz) > 0.0_wp) &
+           amr_grid%J2(:,ir,iz) = amr_grid%J2(:,ir,iz) / &
+              (fourpi * amr_grid%vol_cyl(ir,iz) * d2 * par%nphotons * intensity_bin_unit)
+     end do
+     end do
+  case (-1)
+     do iz = 1, amr_grid%nz_JPa
+        if (amr_grid%vol_plane(iz) > 0.0_wp) &
+           amr_grid%J1(:,iz) = amr_grid%J1(:,iz) * (amr_grid%xrange*amr_grid%yrange) / &
+              (amr_grid%vol_plane(iz) * fourpi * par%nphotons * intensity_bin_unit)
+     end do
+  case default   ! geometry_JPa == 1 (radial / sphere)
+     do ir = 1, amr_grid%nr_JPa
+        if (amr_grid%vol_sph(ir) > 0.0_wp) &
+           amr_grid%J1(:,ir) = amr_grid%J1(:,ir) / &
+              (fourpi * amr_grid%vol_sph(ir) * d2 * par%nphotons * intensity_bin_unit)
+     end do
+  end select
+#endif
+#ifdef CALCP
+  select case (amr_grid%geometry_JPa)
+  case (3)
+     do il = 1, amr_grid%nleaf
+        if (amr_grid%vol_leaf(il) > 0.0_wp) then
+           if (par%xy_periodic) then
+              amr_grid%Pa(il) = amr_grid%Pa(il) * (amr_grid%xrange*amr_grid%yrange) / &
+                 (amr_grid%vol_leaf(il) * par%nphotons)
+           else
+              amr_grid%Pa(il) = amr_grid%Pa(il) / (amr_grid%vol_leaf(il) * d2 * par%nphotons)
+           end if
+        end if
+     end do
+  case (2)
+     do iz = 1, amr_grid%nz_JPa
+     do ir = 1, amr_grid%nr_JPa
+        if (amr_grid%vol_cyl(ir,iz) > 0.0_wp) &
+           amr_grid%P2(ir,iz) = amr_grid%P2(ir,iz) / (amr_grid%vol_cyl(ir,iz) * d2 * par%nphotons)
+     end do
+     end do
+  case (-1)
+     do iz = 1, amr_grid%nz_JPa
+        if (amr_grid%vol_plane(iz) > 0.0_wp) &
+           amr_grid%P1(iz) = amr_grid%P1(iz) * (amr_grid%xrange*amr_grid%yrange) / &
+              (amr_grid%vol_plane(iz) * par%nphotons)
+     end do
+  case default   ! geometry_JPa == 1 (radial / sphere)
+     do ir = 1, amr_grid%nr_JPa
+        if (amr_grid%vol_sph(ir) > 0.0_wp) &
+           amr_grid%P1(ir) = amr_grid%P1(ir) / (amr_grid%vol_sph(ir) * d2 * par%nphotons)
+     end do
+  end select
+#endif
+#ifdef CALCPnew
+  select case (amr_grid%geometry_JPa)
+  case (3)
+     do il = 1, amr_grid%nleaf
+        if (amr_grid%vol_leaf(il) > 0.0_wp) then
+           if (par%xy_periodic) then
+              amr_grid%Pa_new(il) = amr_grid%Pa_new(il) * (amr_grid%xrange*amr_grid%yrange) / &
+                 (amr_grid%vol_leaf(il) * par%nphotons)
+           else
+              amr_grid%Pa_new(il) = amr_grid%Pa_new(il) / (amr_grid%vol_leaf(il) * d2 * par%nphotons)
+           end if
+        end if
+     end do
+  case (2)
+     do iz = 1, amr_grid%nz_JPa
+     do ir = 1, amr_grid%nr_JPa
+        if (amr_grid%vol_cyl(ir,iz) > 0.0_wp) &
+           amr_grid%P2_new(ir,iz) = amr_grid%P2_new(ir,iz) / (amr_grid%vol_cyl(ir,iz) * d2 * par%nphotons)
+     end do
+     end do
+  case (-1)
+     do iz = 1, amr_grid%nz_JPa
+        if (amr_grid%vol_plane(iz) > 0.0_wp) &
+           amr_grid%P1_new(iz) = amr_grid%P1_new(iz) * (amr_grid%xrange*amr_grid%yrange) / &
+              (amr_grid%vol_plane(iz) * par%nphotons)
+     end do
+  case default   ! geometry_JPa == 1 (radial / sphere)
+     do ir = 1, amr_grid%nr_JPa
+        if (amr_grid%vol_sph(ir) > 0.0_wp) &
+           amr_grid%P1_new(ir) = amr_grid%P1_new(ir) / (amr_grid%vol_sph(ir) * d2 * par%nphotons)
+     end do
+  end select
+#endif
 
   ! Peel-off observer array normalizations
   if (par%save_peeloff_2D) then

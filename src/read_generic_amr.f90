@@ -90,6 +90,7 @@ contains
     real(wp) :: x, y, z, nH, T, vx, vy, vz
     integer  :: lv, n, unit, ios
     real(wp) :: bl
+    character(len=512) :: linebuf
     character(len=:), allocatable :: resolved
 
     ! If `filename` carries no extension, try `.h5`, `.fits.gz`, `.fits`,
@@ -116,16 +117,47 @@ contains
       stop 'generic_amr_read: cannot open file'
     end if
 
-    read(unit, *) n, bl
+    !--- header: lines starting with '#' (and blank lines) are skipped.
+    !--- Accepts either the legacy single header line "<nleaf> <boxlen>"
+    !--- or keyword header lines "BOXLEN <value>" / "NLEAF <n>" in any order.
+    n  = 0
+    bl = -1.0_wp
+    do
+      read(unit, '(a)', iostat=ios) linebuf
+      if (ios /= 0) exit
+      linebuf = adjustl(linebuf)
+      if (len_trim(linebuf) == 0 .or. linebuf(1:1) == '#') cycle
+      if (linebuf(1:6) == 'BOXLEN' .or. linebuf(1:6) == 'boxlen') then
+        read(linebuf(7:), *, iostat=ios) bl
+        if (ios /= 0) stop 'generic_amr_read: cannot parse BOXLEN header'
+      else if (linebuf(1:5) == 'NLEAF' .or. linebuf(1:5) == 'nleaf') then
+        read(linebuf(6:), *, iostat=ios) n
+        if (ios /= 0) stop 'generic_amr_read: cannot parse NLEAF header'
+      else
+        !--- legacy header line: "<nleaf> <boxlen>"
+        read(linebuf, *, iostat=ios) n, bl
+        if (ios /= 0) stop 'generic_amr_read: cannot parse text header'
+      end if
+      if (n > 0 .and. bl > 0.0_wp) exit
+    end do
+    if (n <= 0 .or. bl <= 0.0_wp) &
+      stop 'generic_amr_read: text header must provide NLEAF and BOXLEN'
     nleaf       = n
     boxlen_phys = bl          ! in code units (kpc, pc, au, or cm) as written in the file
 
-    allocate(xleaf(n), yleaf(n), zleaf(n), leaf_level(n))
-    allocate(nH_cgs(n), T_cgs(n), vx_cgs(n), vy_cgs(n), vz_cgs(n))
+    allocate(xleaf(nleaf), yleaf(nleaf), zleaf(nleaf), leaf_level(nleaf))
+    allocate(nH_cgs(nleaf), T_cgs(nleaf), vx_cgs(nleaf), vy_cgs(nleaf), vz_cgs(nleaf))
 
-    do n = 1, nleaf
-      read(unit, *, iostat=ios) x, y, z, lv, nH, T, vx, vy, vz
+    !--- data rows (comment / blank lines allowed between rows)
+    n = 0
+    do while (n < nleaf)
+      read(unit, '(a)', iostat=ios) linebuf
       if (ios /= 0) exit
+      linebuf = adjustl(linebuf)
+      if (len_trim(linebuf) == 0 .or. linebuf(1:1) == '#') cycle
+      read(linebuf, *, iostat=ios) x, y, z, lv, nH, T, vx, vy, vz
+      if (ios /= 0) exit
+      n             = n + 1
       xleaf(n)      = x   ! code units; caller converts to cm via distance2cm
       yleaf(n)      = y
       zleaf(n)      = z
@@ -136,6 +168,10 @@ contains
       vy_cgs(n)     = vy
       vz_cgs(n)     = vz
     end do
+    if (n /= nleaf) then
+      write(6,'(a,i0,a,i0)') 'generic_amr_read: expected ', nleaf, ' rows, got ', n
+      stop 'generic_amr_read: truncated text file'
+    end if
     close(unit)
 
     ! Text format does not carry origin information; default to a centered
