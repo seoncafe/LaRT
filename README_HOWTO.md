@@ -30,6 +30,10 @@ Before compiling, edit the Makefile to set the preprocessor options. For usual p
 | `FINE_STRUCTURE=1` | Consider fine-structure levels of the n=2 state (much slower) |
 
 `CALCPnew=1`, `CALCJ=1`, and/or `CALCP=1` will require a large amount of RAM.
+As of 2026-07-02 these accumulators work on **both** the Cartesian and the AMR
+octree grids (position-binned, volume-weighted profiles; see the user manual,
+section "Mean Intensity and Scattering Rate").  For AMR radial or cylindrical
+binning, set `par%rmax > 0` explicitly in the input file.
 
 ### Compile and Run
 
