@@ -1191,7 +1191,7 @@ contains
      line%ratio_voigta_HD = (line%damping_D/line%damping) * line%ratio_Dfreq_HD
   case ('ly_beta')
      !-- H I Lyman-beta with 3p->2s fluorescent conversion (line_type = 8).
-     !-- Phase-0 validated atomic data (ly-beta_plan.md, section 8.1):
+     !-- Validated atomic data (ly-beta_plan.md, section 8.1):
      !--   lambda0(1s->3p)  = 1025.7222 A (vacuum)
      !--   f(1s->3p)        = 0.07910
      !--   A(3p->1s)        = 1.6725e8 s^-1  (Ly-beta re-emission)
@@ -1279,7 +1279,7 @@ contains
   !-- with y = nu/nu_LyA in (0,1), symmetric about y = 1/2.
   !-- Integral over (0,1) = 16.452 s^-1 = 2 x 8.226 s^-1 (2 photons per decay;
   !-- matches A_2gam = 8.229 s^-1 to fit accuracy). Used for the analytic
-  !-- J2gam output of the ly_beta conversion channel (Phase 1: no transport).
+  !-- J2gam output of the ly_beta conversion channel (no transport).
   !---
   implicit none
   real(kind=wp), intent(in) :: y

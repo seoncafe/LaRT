@@ -510,7 +510,7 @@ contains
 !--- edge of the grid: dust-only opacity rhokapD * par%R_Ha.
 !--- Dust opacity is frequency-independent, so no comoving-frame frequency
 !--- shifts are applied. Used by the peel-off attenuation of band-2 photons.
-!--- Phase 1a: plain Cartesian geometry only (no symmetry/periodicity; the
+!--- Plain Cartesian geometry only (no symmetry/periodicity; the
 !--- other geometries are rejected for ly_beta in setup.f90).
   use define
   implicit none

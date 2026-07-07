@@ -81,7 +81,7 @@ contains
   nph_tot = par%no_photons
 
   !--- Ly-beta (line_type = 8): the emergent two-photon spectrum is EXACTLY
-  !--- J2gam(y) = 2 * W_conv_per_photon * P(y) in Phase 1 (no band-3 transport),
+  !--- J2gam(y) = 2 * W_conv_per_photon * P(y) (no band-3 transport),
   !--- where P(y) is the normalized Nussbaumer & Schmutz (1984) fit. It is
   !--- computed analytically at write time with zero Monte Carlo variance.
   !--- The normalization is obtained numerically with a fine trapezoid rule

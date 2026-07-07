@@ -234,45 +234,45 @@ contains
   if (par%DGR == 0.0_wp)       par%save_Jabs = .false.
   if (par%core_skip_global)    par%core_skip = .true.
 
-  !--- Ly-beta fluorescence (line_id = 'ly_beta', line_type = 8): Phase 1a
+  !--- Ly-beta fluorescence (line_id = 'ly_beta', line_type = 8): grid/mode
   !--- restrictions, core-skip veto, dust re-defaults, and derived parameters.
   if (line%line_type == 8) then
-     !--- AMR grid is supported (Phase 1b). Clump / HEALPix / Stokes / fine
+     !--- Cartesian and AMR grids are supported. Clump / HEALPix / Stokes / fine
      !--- structure / 2-gamma transport / symmetry / atmosphere remain vetoed.
      if (par%use_clump_medium) then
-        if (mpar%p_rank == 0) write(*,'(a)') 'ly_beta: clump medium not yet supported (Phase 1a)'
+        if (mpar%p_rank == 0) write(*,'(a)') 'ly_beta: clump medium not yet supported'
         flush(6)
         call MPI_ABORT(MPI_COMM_WORLD, 1, ierr)
      endif
      if (par%nside > 0 .or. par%observer_located_inside) then
-        if (mpar%p_rank == 0) write(*,'(a)') 'ly_beta: inside-observer (HEALPix) not yet supported (Phase 1a)'
+        if (mpar%p_rank == 0) write(*,'(a)') 'ly_beta: inside-observer (HEALPix) not yet supported'
         flush(6)
         call MPI_ABORT(MPI_COMM_WORLD, 1, ierr)
      endif
      if (par%use_stokes) then
-        if (mpar%p_rank == 0) write(*,'(a)') 'ly_beta: Stokes polarization not yet supported (Phase 1a)'
+        if (mpar%p_rank == 0) write(*,'(a)') 'ly_beta: Stokes polarization not yet supported'
         flush(6)
         call MPI_ABORT(MPI_COMM_WORLD, 1, ierr)
      endif
      if (par%fine_structure) then
-        if (mpar%p_rank == 0) write(*,'(a)') 'ly_beta: fine structure not yet supported (Phase 1a)'
+        if (mpar%p_rank == 0) write(*,'(a)') 'ly_beta: fine structure not yet supported'
         flush(6)
         call MPI_ABORT(MPI_COMM_WORLD, 1, ierr)
      endif
      if (par%transport_2gamma) then
-        if (mpar%p_rank == 0) write(*,'(a)') 'ly_beta: transport_2gamma (Phase 2) not implemented'
+        if (mpar%p_rank == 0) write(*,'(a)') 'ly_beta: transport_2gamma not implemented'
         flush(6)
         call MPI_ABORT(MPI_COMM_WORLD, 1, ierr)
      endif
-     !--- Phase 1a supports only the plain Cartesian raytrace variant.
+     !--- Only the plain Cartesian raytrace variant is supported.
      if (par%xyz_symmetry .or. par%xy_symmetry .or. par%xy_periodic .or. par%Omega /= 0.0_wp) then
         if (mpar%p_rank == 0) write(*,'(a)') &
-           'ly_beta: xyz/xy symmetry, xy_periodic and shear not yet supported (Phase 1a)'
+           'ly_beta: xyz/xy symmetry, xy_periodic and shear not yet supported'
         flush(6)
         call MPI_ABORT(MPI_COMM_WORLD, 1, ierr)
      endif
      if (trim(par%geometry) == 'plane_atmosphere' .or. trim(par%geometry) == 'spherical_atmosphere') then
-        if (mpar%p_rank == 0) write(*,'(a)') 'ly_beta: atmosphere geometries not yet supported (Phase 1a)'
+        if (mpar%p_rank == 0) write(*,'(a)') 'ly_beta: atmosphere geometries not yet supported'
         flush(6)
         call MPI_ABORT(MPI_COMM_WORLD, 1, ierr)
      endif

@@ -455,16 +455,16 @@ public
      real(kind=wp) :: albedo        = 0.3253
      real(kind=wp) :: cext_dust     = 1.6059e-21
      real(kind=wp) :: DGR           = 0.0
-     !--- Ly-beta fluorescence (line_id = 'ly_beta', line_type = 8; Phase 1a).
+     !--- Ly-beta fluorescence (line_id = 'ly_beta', line_type = 8).
      !--- Band 2 = H-alpha (dust-only transport); band 3 = two-photon continuum
-     !--- (Phase 1: analytic tally only, no transport).
+     !--- (analytic tally only, no transport).
      integer       :: nxfreq_Ha    = 0            ! band-2 freq bins (0 -> inherit nxfreq)
      real(kind=wp) :: xfreq_max_Ha = 0.0_wp       ! band-2 |xfreq| range (0 -> inherit band 1)
      integer       :: ny_2gam      = 101          ! two-photon y bins over (0,1); 0 disables
      real(kind=wp) :: cext_dust_Ha = 3.801e-22_wp ! Draine 2003 R_V=3.1 at 6562 A [cm^2/H]
      real(kind=wp) :: albedo_Ha    = 0.6741_wp    ! Draine 2003 R_V=3.1 at 6562 A
      real(kind=wp) :: hgg_Ha       = 0.4967_wp    ! Draine 2003 R_V=3.1 at 6562 A
-     logical       :: transport_2gamma = .false.  ! reserved (Phase 2; fatal if .true.)
+     logical       :: transport_2gamma = .false.  ! reserved (fatal if .true.)
      real(kind=wp) :: R_Ha         = 0.0_wp       ! derived: cext_dust_Ha/cext_dust
      !--- Ly-beta per-band weight bookkeeping (not input parameters; accumulated
      !--- per rank during the run and MPI-reduced like nscatt_gas).
