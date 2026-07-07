@@ -26,6 +26,14 @@ contains
   integer :: i1,i2,i3
   integer(int64) :: icl_s
 
+  !--- band 2 (H-alpha, ly_beta line_type = 8): every interaction is a dust
+  !--- event (dust-only opacity along the ray, see raytrace_to_tau). The
+  !--- scatter_dust_Ha pointer selects the Cartesian or AMR band-2 dust routine.
+  if (photon%iband /= 1) then
+     call scatter_dust_Ha(photon,grid)
+     return
+  endif
+
   !--- AMR mode: use amr_grid arrays indexed by leaf index
   if (par%use_amr_grid) then
      i1 = photon%icell_amr
@@ -400,6 +408,8 @@ contains
           endif
        endif
        photon%inside = .false.
+       !--- ly_beta bookkeeping: band-1 dust-absorbed weight.
+       if (line%line_type == 8) par%W_abs1 = par%W_abs1 + photon%wgt
        if (par%save_all_photons) then
           !--- xfreq_ref is required to record the photon frequency when it is absorbed, measured in the lab frame.
           !--- (2020.09.27)
@@ -427,6 +437,8 @@ contains
            grid%Jabs(ix) = grid%Jabs(ix) + photon%wgt * (1.0_wp - par%albedo)
         endif
      endif
+     !--- ly_beta bookkeeping: band-1 dust-absorbed weight (reduced-weight scheme).
+     if (line%line_type == 8) par%W_abs1 = par%W_abs1 + photon%wgt * (1.0_wp - par%albedo)
      photon%wgt = photon%wgt * par%albedo
   endif
   if (par%save_peeloff) call peeling_dust_nostokes(photon,grid)
@@ -459,6 +471,80 @@ contains
   return
   end subroutine scatter_dust_nostokes
   !=====================================
+  subroutine scatter_dust_Ha_nostokes(photon,grid)
+  implicit none
+  !--- Band-2 (H-alpha, ly_beta line_type = 8) dust scattering event (Cartesian).
+  !--- Mirrors scatter_dust_nostokes with the band-2 dust properties
+  !--- (par%albedo_Ha, par%hgg_Ha) and band-2 tallies (Jabs_Ha, W_abs2,
+  !--- peel_Ha). photon%xfreq is the LAB-frame frequency in REFERENCE Doppler
+  !--- units (dust scattering is elastic) -> no fluid shift, no Dfreq scaling.
+  type(photon_type), intent(inout) :: photon
+  type(grid_type),   intent(inout) :: grid
+  ! local variables
+  real(kind=wp) :: cost,sint,phi,cosp,sinp
+  real(kind=wp) :: kx1,ky1,kz1,kr
+  integer :: ix
+
+  photon%nscatt_dust = photon%nscatt_dust + photon%wgt
+
+  !--- Add absorbed portion to Jabs_Ha.
+  if (.not. par%use_reduced_wgt) then
+     if (rand_number() > par%albedo_Ha) then
+       ! absorbed by dust.
+       if (par%save_Jabs .and. associated(grid%Jabs_Ha)) then
+          ix = floor((photon%xfreq - grid%xfreq_min_Ha)/grid%dxfreq_Ha)+1
+          if (ix >= 1 .and. ix <= grid%nxfreq_Ha) then
+             grid%Jabs_Ha(ix) = grid%Jabs_Ha(ix) + photon%wgt
+          endif
+       endif
+       photon%inside = .false.
+       par%W_abs2    = par%W_abs2 + photon%wgt
+       if (par%save_all_photons) then
+          photon%xfreq_ref = photon%xfreq
+          photon%wgt       = 0.0_wp
+       endif
+       return
+     endif
+  else
+     if (par%save_Jabs .and. associated(grid%Jabs_Ha)) then
+        ix = floor((photon%xfreq - grid%xfreq_min_Ha)/grid%dxfreq_Ha)+1
+        if (ix >= 1 .and. ix <= grid%nxfreq_Ha) then
+           grid%Jabs_Ha(ix) = grid%Jabs_Ha(ix) + photon%wgt * (1.0_wp - par%albedo_Ha)
+        endif
+     endif
+     par%W_abs2 = par%W_abs2 + photon%wgt * (1.0_wp - par%albedo_Ha)
+     photon%wgt = photon%wgt * par%albedo_Ha
+  endif
+  !--- Peel-off with the H-alpha HG phase function into peel_Ha
+  !--- (inside-observer path is rejected for ly_beta in setup.f90).
+  if (par%save_peeloff) call peeling_dust_Ha(photon,grid)
+
+  !--- Select a new cos(theta) from the Henyey-Greenstein Function.
+  cost = rand_henyey_greenstein(par%hgg_Ha)
+  sint = sqrt(1.0d0-cost**2)
+
+  ! New phi
+  phi  = twopi * rand_number()
+  cosp = cos(phi)
+  sinp = sin(phi)
+
+  ! New direction
+  if (abs(photon%kz) >= 0.99999999999_wp) then
+     photon%kx = sint*cosp
+     photon%ky = sint*sinp
+     photon%kz = cost
+  else
+     kx1 = photon%kx
+     ky1 = photon%ky
+     kz1 = photon%kz
+     kr  = sqrt(kx1*kx1 + ky1*ky1)
+     photon%kx = cost*kx1 + sint*(kz1*kx1*cosp - ky1*sinp)/kr
+     photon%ky = cost*ky1 + sint*(kz1*ky1*cosp + kx1*sinp)/kr
+     photon%kz = cost*kz1 - sint*cosp*kr
+  endif
+  return
+  end subroutine scatter_dust_Ha_nostokes
+  !=====================================
   subroutine scatter_resonance_nostokes(photon,grid)
   use clump_mod, only: cl_Dfreq, cl_Dfreq_ref
   implicit none
@@ -478,6 +564,8 @@ contains
   real(kind=wp) :: ux,uy,uxy,uz,E1,g_recoil
   real(kind=wp) :: vth_ratio
   real(kind=wp) :: xcrit_cell, xcrit_cell2
+  real(kind=wp) :: u1_fluid
+  logical :: converted
   integer :: i1,i2,i3
   integer :: ix
   real(kind=wp), parameter :: one_over_three  = 1.0_wp/3.0_wp, &
@@ -493,6 +581,16 @@ contains
 #endif
 
   call do_resonance(photon,grid, uz,xfreq_atom,cost,sint)
+
+  !--- ly_beta (line_type = 8): do_resonance8 sets photon%iband = 2 when the
+  !--- 3p->2s conversion branch fires (transmutation to the H-alpha band).
+  converted = (line%line_type == 8 .and. photon%iband == 2)
+  if (converted) then
+     par%W_conv = par%W_conv + photon%wgt
+#ifdef CALCP
+     call add_to_Pconv(photon,grid,i1,i2,i3)
+#endif
+  endif
 
   ! New phi
   phi  = twopi * rand_number()
@@ -552,7 +650,10 @@ contains
      photon%xfreq = xfreq_atom + uz*cost + (ux*cosp + uy*sinp)*sint
   endif
 
-  if (par%recoil) then
+  !--- Recoil is skipped for the conversion channel: the correction below is
+  !--- defined for band-1 (Ly-beta) re-emission; par%recoil defaults to .false.
+  !--- anyway. (Existing lines: converted is always .false. -> unchanged.)
+  if (par%recoil .and. .not. converted) then
      if (par%use_clump_medium .and. photon%icell_clump > 0) then
         if (line%line_type == 7 .and. line%selected_species_HD == 2) then
            g_recoil = line%g_recoil0_D / cl_Dfreq(int(photon%icell_clump, int64))
@@ -568,7 +669,15 @@ contains
      endif
      photon%xfreq = photon%xfreq - g_recoil * (1.0_wp - cost)
   endif
-  if (par%save_peeloff) call peeling_resonance_nostokes(photon,grid,xfreq_atom,[ux,uy,uz])
+  if (par%save_peeloff) then
+     if (converted) then
+        !--- direct fluorescent (H-alpha) peel of the newborn band-2 photon
+        !--- (inside-observer path is rejected for ly_beta in setup.f90).
+        call peeling_conversion_Ha(photon,grid,[ux,uy,uz])
+     else
+        call peeling_resonance_nostokes(photon,grid,xfreq_atom,[ux,uy,uz])
+     endif
+  endif
 
   ! New direction vector
   if (abs(photon%kz) >= 0.99999999999_wp) then
@@ -585,6 +694,22 @@ contains
      photon%kx = cost*kx1 + sint*(kz1*kx1*cosp - ky1*sinp)/kr
      photon%ky = cost*ky1 + sint*(kz1*ky1*cosp + kx1*sinp)/kr
      photon%kz = cost*kz1 - sint*cosp*kr
+  endif
+
+  !--- Band transmutation (ly_beta conversion): the H-alpha photon is emitted
+  !--- at line center in the ATOM frame (plan section 8.4), so the emitted
+  !--- frequency is the atom-velocity projection onto the NEW direction:
+  !---   x_com = photon%xfreq - xfreq_atom = u_atom . k_new  (local Doppler units)
+  !--- Transform to the GLOBAL (lab) frame in REFERENCE Doppler units, exactly
+  !--- mirroring the band-1 escape transformation (add local fluid velocity
+  !--- along k_new, then rescale by Dfreq_local/Dfreq_ref). v_th is identical
+  !--- for both bands, so the numerical Doppler-unit scale carries over.
+  !--- Band 2 NEVER updates xfreq again (dust scattering is elastic).
+  if (converted) then
+     u1_fluid = grid%vfx(i1,i2,i3)*photon%kx + grid%vfy(i1,i2,i3)*photon%ky + &
+                grid%vfz(i1,i2,i3)*photon%kz
+     photon%xfreq = (photon%xfreq - xfreq_atom + u1_fluid) * &
+                    (grid%Dfreq(i1,i2,i3) / grid%Dfreq_ref)
   endif
   return
   end subroutine scatter_resonance_nostokes
@@ -620,6 +745,41 @@ contains
      endif
   endif
   end subroutine add_to_Pa
+
+  subroutine add_to_Pconv(photon,grid,icell,jcell,kcell)
+  !--- Ly-beta (line_type = 8) conversion-rate map: mirrors add_to_Pa (same
+  !--- per-atom-rate convention, same binning, same guards), but accumulates
+  !--- into the P_conv arrays at conversion events only.
+  !--- Expectation: P_conv/Pa -> P_down(2) = 0.11834.
+  use define
+  type(photon_type), intent(in)    :: photon
+  type(grid_type),   intent(inout) :: grid
+  integer,           intent(in)    :: icell,jcell,kcell
+  real(kind=wp)                    :: rhokap
+  if (icell > 0 .and. icell <= grid%nx .and. jcell > 0 .and. jcell <= grid%ny .and. kcell > 0 .and. kcell <= grid%nz) then
+     if (grid%rhokap(icell,jcell,kcell) > 0.0_wp) then
+        !--- Convert rhokap into density unit * distance2cm. (number/cm^3) * distance2cm.
+        rhokap = grid%rhokap(icell,jcell,kcell) * grid%Dfreq(icell,jcell,kcell)/line%cross0
+        select case (grid%geometry_JPa)
+        case (3)
+           !$OMP ATOMIC UPDATE
+           grid%Pc(icell,jcell,kcell)                = grid%Pc(icell,jcell,kcell) + photon%wgt / rhokap
+        case (2)
+           !--- guard: corner cells can have cylindrical radius > rmax (ind_cyl > nr)
+           if (grid%ind_cyl(icell,jcell) >= 1 .and. grid%ind_cyl(icell,jcell) <= grid%nr) then
+           !$OMP ATOMIC UPDATE
+           grid%Pc2(grid%ind_cyl(icell,jcell),kcell) = grid%Pc2(grid%ind_cyl(icell,jcell),kcell) + photon%wgt / rhokap
+           endif
+        case (1)
+           !$OMP ATOMIC UPDATE
+           grid%Pc1(grid%ind_sph(icell,jcell,kcell)) = grid%Pc1(grid%ind_sph(icell,jcell,kcell)) + photon%wgt / rhokap
+        case (-1)
+           !$OMP ATOMIC UPDATE
+           grid%Pc1(kcell)                           = grid%Pc1(kcell) + photon%wgt / rhokap
+        end select
+     endif
+  endif
+  end subroutine add_to_Pconv
 #endif
 
   !=====================================

@@ -89,6 +89,11 @@ public
      integer       :: icell_amr   = 0       ! AMR leaf cell index (AMR mode only)
      integer       :: icell_clump = 0       ! current/owner clump index (0 = vacuum; clump mode only;
                                             !  overlap path: set to opacity-sampled owner at scatter time)
+     !--- photon band index (ly_beta fluorescence, line_type = 8):
+     !--- 1 = resonance band (Ly-beta; existing machinery; default for all lines)
+     !--- 2 = H-alpha band (dust-only opacity; xfreq is the LAB-frame frequency
+     !---     in REFERENCE Doppler units from birth and is never updated again)
+     integer       :: iband       = 1
      real(kind=wp) :: xfreq
      real(kind=wp) :: xfreq_ref
      real(kind=wp) :: wgt
@@ -141,6 +146,14 @@ public
      real(kind=wp), pointer :: Jmu(:,:)       => null()
      real(kind=wp), pointer :: rhokapD(:,:,:) => null()
      real(kind=wp), pointer :: Jabs(:)        => null()
+     !--- Ly-beta fluorescence (line_type = 8): band-2 (H-alpha) spectral grid
+     !--- and escaped/absorbed spectra. The band-2 axis is in H-alpha Doppler
+     !--- units (v_th identical to band 1, so the velocity range maps 1:1).
+     integer                :: nxfreq_Ha = 0
+     real(kind=wp)          :: xfreq_min_Ha = 0.0_wp, xfreq_max_Ha = 0.0_wp
+     real(kind=wp)          :: dxfreq_Ha = 0.0_wp, dwave_Ha = 0.0_wp
+     real(kind=wp), pointer :: Jout_Ha(:)     => null()
+     real(kind=wp), pointer :: Jabs_Ha(:)     => null()
      !--- for exoplanet atmosphere model.
      integer(int8), pointer :: mask(:,:,:)    => null()
      real(kind=wp), pointer :: Jabs2(:)       => null()
@@ -174,6 +187,11 @@ public
      real(kind=wp), pointer :: P1(:)          => null()
      ! 2D profiles (z and radial profiles for a cylindrically symmetric case)
      real(kind=wp), pointer :: P2(:,:)        => null()
+     !--- Ly-beta (line_type = 8) conversion-rate maps: same shapes, binning,
+     !--- and normalization as Pa/P1/P2, accumulated at conversion events only.
+     real(kind=dp), pointer :: Pc(:,:,:)      => null()
+     real(kind=wp), pointer :: Pc1(:)         => null()
+     real(kind=wp), pointer :: Pc2(:,:)       => null()
 #endif
 #ifdef CALCPnew
      real(kind=dp), pointer :: Pa_new(:,:,:)  => null()
@@ -437,6 +455,24 @@ public
      real(kind=wp) :: albedo        = 0.3253
      real(kind=wp) :: cext_dust     = 1.6059e-21
      real(kind=wp) :: DGR           = 0.0
+     !--- Ly-beta fluorescence (line_id = 'ly_beta', line_type = 8; Phase 1a).
+     !--- Band 2 = H-alpha (dust-only transport); band 3 = two-photon continuum
+     !--- (Phase 1: analytic tally only, no transport).
+     integer       :: nxfreq_Ha    = 0            ! band-2 freq bins (0 -> inherit nxfreq)
+     real(kind=wp) :: xfreq_max_Ha = 0.0_wp       ! band-2 |xfreq| range (0 -> inherit band 1)
+     integer       :: ny_2gam      = 101          ! two-photon y bins over (0,1); 0 disables
+     real(kind=wp) :: cext_dust_Ha = 3.801e-22_wp ! Draine 2003 R_V=3.1 at 6562 A [cm^2/H]
+     real(kind=wp) :: albedo_Ha    = 0.6741_wp    ! Draine 2003 R_V=3.1 at 6562 A
+     real(kind=wp) :: hgg_Ha       = 0.4967_wp    ! Draine 2003 R_V=3.1 at 6562 A
+     logical       :: transport_2gamma = .false.  ! reserved (Phase 2; fatal if .true.)
+     real(kind=wp) :: R_Ha         = 0.0_wp       ! derived: cext_dust_Ha/cext_dust
+     !--- Ly-beta per-band weight bookkeeping (not input parameters; accumulated
+     !--- per rank during the run and MPI-reduced like nscatt_gas).
+     real(kind=wp) :: W_conv = 0.0_wp   ! total 3p->2s conversion weight
+     real(kind=wp) :: W_esc1 = 0.0_wp   ! band-1 (Ly-beta) escaped weight
+     real(kind=wp) :: W_abs1 = 0.0_wp   ! band-1 (Ly-beta) dust-absorbed weight
+     real(kind=wp) :: W_esc2 = 0.0_wp   ! band-2 (H-alpha) escaped weight
+     real(kind=wp) :: W_abs2 = 0.0_wp   ! band-2 (H-alpha) dust-absorbed weight
      character(len=128) :: scatt_mat_file = ''
      character(len=128) :: line_prof_file = ''
      integer            :: line_prof_file_type = 0
@@ -509,6 +545,9 @@ public
      real(kind=wp), pointer :: tau_dust(:,:)  => null()
      real(kind=wp), pointer :: scatt_dust(:,:,:) => null()
      real(kind=wp), pointer :: scatt(:,:,:)      => null()
+     !--- Ly-beta (line_type = 8): band-2 (H-alpha) peel-off cube
+     !--- peel_Ha(nxfreq_Ha, nxim, nyim); direct fluorescent + dust-scattered peel.
+     real(kind=wp), pointer :: peel_Ha(:,:,:)    => null()
      real(kind=wp), pointer :: direc(:,:,:)      => null()
      real(kind=wp), pointer :: direc0(:,:,:)     => null()
      real(kind=wp), pointer :: I(:,:,:)       => null()
@@ -599,6 +638,9 @@ public
      real(kind=wp) :: delE_Hz(3)   = [0.0_wp,     0.0_wp, 0.0_wp]
      !-- to define multiple downward transitions followed by each upward transition.
      type(branch_type), allocatable :: b(:)
+     !-- For line_type = 8 ('ly_beta'): vacuum wavelength [um] of the 3p->2s
+     !-- H-alpha fluorescent transition (band 2).
+     real(kind=wp) :: wavelength0_Ha  = 0.0_wp
      !-- For line_type = 7 ('ly_alpha_HD'): atomic data of the secondary species (deuterium).
      !-- These are populated only when line_id = 'ly_alpha_HD'; otherwise unused.
      real(kind=wp) :: wavelength0_D    = 0.0_wp     ! D Lyα rest wavelength [um]
@@ -712,6 +754,8 @@ public
 
   procedure(raytrace_edge), pointer :: raytrace_to_edge         => null()
   procedure(raytrace_edge), pointer :: raytrace_to_edge_tau_gas => null()
+  !--- Ly-beta (line_type = 8): band-2 (H-alpha) dust-only tau-to-edge raytrace.
+  procedure(raytrace_edge), pointer :: raytrace_to_edge_Ha      => null()
   abstract interface
      subroutine raytrace_edge(photon,grid,tau_out)
      import
@@ -757,6 +801,8 @@ public
 
   procedure(scatter_routine), pointer :: scatter_dust      => null()
   procedure(scatter_routine), pointer :: scatter_resonance => null()
+  !--- Ly-beta (line_type = 8): band-2 (H-alpha) dust-only scattering routine.
+  procedure(scatter_routine), pointer :: scatter_dust_Ha   => null()
   abstract interface
      subroutine scatter_routine(photon,grid)
      import
@@ -777,12 +823,26 @@ public
   procedure(peel_simple_routine), pointer :: peeling_direct        => null()
   procedure(peel_simple_routine), pointer :: peeling_dust_stokes   => null()
   procedure(peel_simple_routine), pointer :: peeling_dust_nostokes => null()
+  !--- Ly-beta (line_type = 8): band-2 (H-alpha) dust-scattered peel (photon,grid).
+  procedure(peel_simple_routine), pointer :: peeling_dust_Ha       => null()
   abstract interface
      subroutine peel_simple_routine(photon,grid)
      import
      type(photon_type), intent(in) :: photon
      type(grid_type),   intent(in) :: grid
      end subroutine peel_simple_routine
+  end interface
+
+  !--- Ly-beta (line_type = 8): band-2 (H-alpha) direct fluorescent peel of the
+  !--- newborn H-alpha photon at a conversion event (photon,grid,vel_atom).
+  procedure(peel_conversion_routine), pointer :: peeling_conversion_Ha => null()
+  abstract interface
+     subroutine peel_conversion_routine(photon,grid,vel_atom)
+     import
+     type(photon_type), intent(in) :: photon
+     type(grid_type),   intent(in) :: grid
+     real(kind=wp),     intent(in) :: vel_atom(3)
+     end subroutine peel_conversion_routine
   end interface
 
   procedure(peel_resonance_routine), pointer :: peeling_resonance_stokes   => null()

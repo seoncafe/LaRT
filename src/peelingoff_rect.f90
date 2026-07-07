@@ -689,6 +689,186 @@ contains
   enddo
   end subroutine peeling_resonance_nostokes_outside
   !--------------------------------------------------
+  subroutine peeling_conversion_Ha_outside(photon,grid,vel_atom)
+  !---------------------------------------------------------------------------
+  ! Direct fluorescent peel of the newborn H-alpha photon at a ly_beta
+  ! (line_type = 8) conversion event. Mirrors peeling_resonance_nostokes_outside
+  ! with these band-2 differences:
+  !  - the H-alpha photon is emitted at line center in the ATOM frame, so the
+  !    frequency toward the observer carries NO xfreq_atom term: it is the atom
+  !    velocity projection onto the observer direction (+ fluid velocity),
+  !    transformed to the lab frame in REFERENCE Doppler units;
+  !  - the frequency bin uses the band-2 (H-alpha) axis;
+  !  - the sightline attenuation is dust-only (photon%iband = 2 already at
+  !    call time, so peel_raytrace_to_edge selects the band-2 raytrace);
+  !  - no recoil; deposits into observer%peel_Ha.
+  ! The dipole phase function uses photon%E1/E2 set by do_resonance8 (channel 2).
+  !---------------------------------------------------------------------------
+  use random
+  implicit none
+  type(photon_type), intent(in) :: photon
+  type(grid_type),   intent(in) :: grid
+  real(kind=wp),     intent(in) :: vel_atom(3)
+  ! local variables
+  type (photon_type) :: pobs
+  real(kind=wp) :: r2,r
+  real(kind=wp) :: wgt,peel,tau
+  real(kind=wp) :: cost,cost2,sint,cosp,sinp,rho1,rho
+  real(kind=wp) :: kx,ky,kz
+  real(kind=wp) :: xfreq_ref, xfreq, u1
+  real(kind=wp) :: xx,yy,zz,rr,r_dot_k,det
+  integer       :: ix,iy,ixf
+  integer       :: i
+
+  do i=1,par%nobs
+    pobs    = photon
+    pobs%kx = (observer(i)%x-photon%x)
+    pobs%ky = (observer(i)%y-photon%y)
+    pobs%kz = (observer(i)%z-photon%z)
+    r2      = pobs%kx*pobs%kx + pobs%ky*pobs%ky + pobs%kz*pobs%kz
+    r       = sqrt(r2)
+    pobs%kx = pobs%kx/r
+    pobs%ky = pobs%ky/r
+    pobs%kz = pobs%kz/r
+
+    !---------------------------------------------------
+    !-- Check the photon is blocked by the star or not.
+    !-- Skip if the ray is blocked.
+    if (trim(par%source_geometry) == 'stellar_illumination') then
+       xx      = pobs%x
+       yy      = pobs%y
+       zz      = pobs%z + par%distance_star_to_planet
+       rr      = sqrt(xx**2 + yy**2 + zz**2)
+       r_dot_k = xx*pobs%kx + yy*pobs%ky + zz*pobs%kz
+       det     = r_dot_k**2 - (rr**2 - par%stellar_radius**2)
+       if (r_dot_k < 0.0_wp .and. det >= 0.0_wp) cycle
+    endif
+    !---------------------------------------------------
+
+    !--- Transform the peeling-off vector to the observer's frame.
+    kx = observer(i)%rmatrix(1,1)*pobs%kx + observer(i)%rmatrix(1,2)*pobs%ky + observer(i)%rmatrix(1,3)*pobs%kz
+    ky = observer(i)%rmatrix(2,1)*pobs%kx + observer(i)%rmatrix(2,2)*pobs%ky + observer(i)%rmatrix(2,3)*pobs%kz
+    kz = observer(i)%rmatrix(3,1)*pobs%kx + observer(i)%rmatrix(3,2)*pobs%ky + observer(i)%rmatrix(3,3)*pobs%kz
+
+    !--- Location in TAN image.
+    ix = floor(atan2(-kx,kz)*rad2deg/observer(i)%dxim+observer(i)%nxim/2.0_wp) + 1
+    iy = floor(atan2(-ky,kz)*rad2deg/observer(i)%dyim+observer(i)%nyim/2.0_wp) + 1
+
+    if (ix >= 1 .and. ix <= observer(i)%nxim .and. iy >= 1 .and. iy <= observer(i)%nyim) then
+       cost  = photon%kx * pobs%kx + photon%ky * pobs%ky + photon%kz * pobs%kz
+       cost2 = cost**2
+       sint  = sqrt(1.0_wp - cost2)
+       rho1  = sqrt(1.0_wp - photon%kz**2) * sint
+
+       !--- Calculate azimuthal scattering angle toward the observer.
+       if (rho1 == 0.0_wp) then
+          cosp  = 1.0_wp
+          sinp  = 0.0_wp
+       else
+          rho   = 1.0_wp/rho1
+          cosp  = rho * ( cost*photon%kz -pobs%kz)
+          sinp  = rho * (photon%kx*pobs%ky - pobs%kx*photon%ky)
+       endif
+       !--- H-alpha frequency toward the observer: atom-velocity projection only
+       !--- (emission at H-alpha line center in the atom frame; no xfreq_atom).
+       xfreq = (vel_atom(1)*cosp + vel_atom(2)*sinp)*sint + vel_atom(3)*cost
+
+       !--- xfreq_ref = lab (observer) frame frequency in REFERENCE Doppler units.
+       u1 = grid%vfx(pobs%icell,pobs%jcell,pobs%kcell)*pobs%kx + &
+            grid%vfy(pobs%icell,pobs%jcell,pobs%kcell)*pobs%ky + &
+            grid%vfz(pobs%icell,pobs%jcell,pobs%kcell)*pobs%kz
+       xfreq_ref = (xfreq + u1) * (grid%Dfreq(photon%icell,photon%jcell,photon%kcell) / grid%Dfreq_ref)
+
+       !--- frequency bin on the band-2 (H-alpha) axis
+       ixf = floor((xfreq_ref - grid%xfreq_min_Ha)/grid%dxfreq_Ha)+1
+
+       !--- dust-only sightline attenuation (pobs%iband = 2, copied from photon).
+       pobs%xfreq = xfreq_ref
+       call peel_raytrace_to_edge(pobs, grid, tau)
+       peel = three_over_four * photon%E1 * (cost2 + 1.0_wp) + photon%E2
+       wgt  = peel/(fourpi*r2) * exp(-tau) * photon%wgt
+
+       !--- 3D spectral image (band-2 cube)
+       if (associated(observer(i)%peel_Ha) .and. ixf >= 1 .and. ixf <= grid%nxfreq_Ha) then
+          !$OMP ATOMIC UPDATE
+          observer(i)%peel_Ha(ixf,ix,iy) = observer(i)%peel_Ha(ixf,ix,iy) + wgt
+       endif
+    endif
+  enddo
+  end subroutine peeling_conversion_Ha_outside
+  !--------------------------------------------------
+  subroutine peeling_dust_Ha_outside(photon,grid)
+  !---------------------------------------------------------------------------
+  ! Band-2 (H-alpha) dust-scattering peel. Mirrors peeling_dust_nostokes_outside
+  ! with the H-alpha HG phase function (par%hgg_Ha) and the band-2 frequency
+  ! axis. photon%xfreq is already the LAB-frame frequency in REFERENCE Doppler
+  ! units (dust scattering is elastic) -> no fluid shift, no Dfreq scaling.
+  ! Deposits into observer%peel_Ha with dust-only sightline attenuation.
+  !---------------------------------------------------------------------------
+  implicit none
+  type(photon_type),   intent(in)    :: photon
+  type(grid_type),     intent(in)    :: grid
+  ! local variables
+  type (photon_type) :: pobs
+  real(kind=wp) :: r2,r,kx,ky,kz
+  real(kind=wp) :: cosa,wgt,peel,tau
+  real(kind=wp) :: xx,yy,zz,rr,r_dot_k,det
+  integer       :: ix,iy,ixf
+  integer       :: i
+
+  do i=1,par%nobs
+    pobs    = photon
+    pobs%kx = (observer(i)%x-photon%x)
+    pobs%ky = (observer(i)%y-photon%y)
+    pobs%kz = (observer(i)%z-photon%z)
+    r2      = pobs%kx*pobs%kx + pobs%ky*pobs%ky + pobs%kz*pobs%kz
+    r       = sqrt(r2)
+    pobs%kx = pobs%kx/r
+    pobs%ky = pobs%ky/r
+    pobs%kz = pobs%kz/r
+
+    !---------------------------------------------------
+    !-- Check the photon is blocked by the star or not.
+    !-- Skip if the ray is blocked.
+    if (trim(par%source_geometry) == 'stellar_illumination') then
+       xx      = pobs%x
+       yy      = pobs%y
+       zz      = pobs%z + par%distance_star_to_planet
+       rr      = sqrt(xx**2 + yy**2 + zz**2)
+       r_dot_k = xx*pobs%kx + yy*pobs%ky + zz*pobs%kz
+       det     = r_dot_k**2 - (rr**2 - par%stellar_radius**2)
+       if (r_dot_k < 0.0_wp .and. det >= 0.0_wp) cycle
+    endif
+    !---------------------------------------------------
+
+    !--- Transform the peeling-off vector to the observer's frame.
+    kx = observer(i)%rmatrix(1,1)*pobs%kx + observer(i)%rmatrix(1,2)*pobs%ky + observer(i)%rmatrix(1,3)*pobs%kz
+    ky = observer(i)%rmatrix(2,1)*pobs%kx + observer(i)%rmatrix(2,2)*pobs%ky + observer(i)%rmatrix(2,3)*pobs%kz
+    kz = observer(i)%rmatrix(3,1)*pobs%kx + observer(i)%rmatrix(3,2)*pobs%ky + observer(i)%rmatrix(3,3)*pobs%kz
+
+    !--- Location in TAN image.
+    ix = floor(atan2(-kx,kz)*rad2deg/observer(i)%dxim+observer(i)%nxim/2.0_wp) + 1
+    iy = floor(atan2(-ky,kz)*rad2deg/observer(i)%dyim+observer(i)%nyim/2.0_wp) + 1
+
+    if (ix >= 1 .and. ix <= observer(i)%nxim .and. iy >= 1 .and. iy <= observer(i)%nyim) then
+       !--- frequency bin on the band-2 (H-alpha) axis; xfreq already lab-frame.
+       ixf = floor((photon%xfreq - grid%xfreq_min_Ha)/grid%dxfreq_Ha)+1
+
+       call peel_raytrace_to_edge(pobs, grid, tau)
+       cosa = photon%kx*pobs%kx+photon%ky*pobs%ky+photon%kz*pobs%kz
+       peel = (1.0_wp - par%hgg_Ha**2)/((1.0_wp + par%hgg_Ha**2)-2.0_wp*par%hgg_Ha*cosa)**1.5_wp/fourpi
+       !--- albedo_Ha was already multiplied before this routine is called.
+       wgt  = peel/r2 * exp(-tau) * photon%wgt
+
+       !--- 3D spectral image (band-2 cube)
+       if (associated(observer(i)%peel_Ha) .and. ixf >= 1 .and. ixf <= grid%nxfreq_Ha) then
+          !$OMP ATOMIC UPDATE
+          observer(i)%peel_Ha(ixf,ix,iy) = observer(i)%peel_Ha(ixf,ix,iy) + wgt
+       endif
+    endif
+  enddo
+  end subroutine peeling_dust_Ha_outside
+  !--------------------------------------------------
   subroutine peel_raytrace_to_edge(pobs, grid, tau)
   !---------------------------------------------------------------------------
   ! Mode-aware tau-to-edge raytrace used by every peel-off routine in this
@@ -717,6 +897,9 @@ contains
      else
         call raytrace_to_edge_clump_capped(pobs, grid, tau, tau_max=tau_huge_clump)
      end if
+  else if (pobs%iband /= 1) then
+     !--- band 2 (H-alpha, ly_beta line_type = 8): dust-only sightline opacity.
+     call raytrace_to_edge_Ha(pobs, grid, tau)
   else
      call raytrace_to_edge(pobs, grid, tau)
   end if

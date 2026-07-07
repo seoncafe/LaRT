@@ -505,6 +505,80 @@ contains
   return
   end subroutine raytrace_to_edge_car
 
+  subroutine raytrace_to_edge_car_dust_Ha(photon0,grid,tau)
+!--- Band-2 (H-alpha, ly_beta line_type = 8) sightline optical depth to the
+!--- edge of the grid: dust-only opacity rhokapD * par%R_Ha.
+!--- Dust opacity is frequency-independent, so no comoving-frame frequency
+!--- shifts are applied. Used by the peel-off attenuation of band-2 photons.
+!--- Phase 1a: plain Cartesian geometry only (no symmetry/periodicity; the
+!--- other geometries are rejected for ly_beta in setup.f90).
+  use define
+  implicit none
+
+  type(photon_type), intent(in) :: photon0
+  type(grid_type),   intent(in) :: grid
+  real(kind=wp),    intent(out) :: tau
+
+! local variables
+  real(kind=wp), parameter :: tau_huge = 745.2_wp
+  integer       :: icell,jcell,kcell
+  integer       :: istep,jstep,kstep
+  real(kind=wp) :: xp,yp,zp,kx,ky,kz
+  real(kind=wp) :: d
+  real(kind=wp) :: tx,ty,tz,delx,dely,delz
+  real(kind=wp) :: rhokap
+  integer       :: idx_min
+  logical       :: out_of_grid
+
+  tau = 0.0_wp
+  if (par%DGR <= 0.0_wp) return
+
+!--- (xp,yp,zp) and (icell,jcell,kcell) = the photon coordinates and cell indices
+  xp = photon0%x
+  yp = photon0%y
+  zp = photon0%z
+  kx = photon0%kx
+  ky = photon0%ky
+  kz = photon0%kz
+  icell = photon0%icell
+  jcell = photon0%jcell
+  kcell = photon0%kcell
+
+  d = 0.0_wp
+  call setup_traversal_car(grid, xp, yp, zp, kx, ky, kz, icell, jcell, kcell, &
+                            istep, jstep, kstep, tx, ty, tz, delx, dely, delz, out_of_grid)
+  if (out_of_grid) return
+
+  !--- integrate through grid
+  do while(.true.)
+     rhokap = grid%rhokapD(icell,jcell,kcell) * par%R_Ha
+
+     idx_min = minloc([tx,ty,tz], dim=1)
+
+     if (idx_min == 1) then
+        tau   = tau + (tx - d) * rhokap
+        d     = tx
+        icell = icell + istep
+        if (icell < 1 .or. icell > grid%nx) exit
+        tx    = tx + delx
+     else if (idx_min == 2) then
+        tau   = tau + (ty - d) * rhokap
+        d     = ty
+        jcell = jcell + jstep
+        if (jcell < 1 .or. jcell > grid%ny) exit
+        ty    = ty + dely
+     else
+        tau   = tau + (tz - d) * rhokap
+        d     = tz
+        kcell = kcell + kstep
+        if (kcell < 1 .or. kcell > grid%nz) exit
+        tz    = tz + delz
+     endif
+     if (tau >= tau_huge) exit
+  enddo
+  return
+  end subroutine raytrace_to_edge_car_dust_Ha
+
   subroutine raytrace_to_edge_car_xyzsym(photon0,grid,tau)
 !--- Find the cumulative optical depth to the edge of grid.
 !--- Note that photon0.(x0,y0,z0) and photon0.(icell0,jcell0,kcell0) do not change.
@@ -1407,11 +1481,22 @@ contains
 !--- integrate through grid
   do while(photon%inside)
 
-     rhokapH = grid%rhokap(icell,jcell,kcell)*calc_voigt(grid,photon%xfreq,icell,jcell,kcell)
-     if (par%DGR > 0.0_wp) then
-        rhokap = rhokapH + grid%rhokapD(icell,jcell,kcell)
+     if (photon%iband == 1) then
+        rhokapH = grid%rhokap(icell,jcell,kcell)*calc_voigt(grid,photon%xfreq,icell,jcell,kcell)
+        if (par%DGR > 0.0_wp) then
+           rhokap = rhokapH + grid%rhokapD(icell,jcell,kcell)
+        else
+           rhokap = rhokapH
+        endif
      else
-        rhokap = rhokapH
+        !--- band 2 (H-alpha, ly_beta line_type = 8): dust-only opacity,
+        !--- scaled from the band-1 wavelength to 6563 A by par%R_Ha.
+        rhokapH = 0.0_wp
+        if (par%DGR > 0.0_wp) then
+           rhokap = grid%rhokapD(icell,jcell,kcell) * par%R_Ha
+        else
+           rhokap = 0.0_wp
+        endif
      endif
 
      idx_min = minloc([tx,ty,tz], dim=1)
@@ -1488,14 +1573,16 @@ contains
      endif
 
 #ifdef CALCJ
-     call add_to_J(photon,grid,iold,jold,kold,del)
+     if (photon%iband == 1) call add_to_J(photon,grid,iold,jold,kold,del)
 #endif
 #ifdef CALCPnew
-     call add_to_Pnew(photon,grid,iold,jold,kold,dtauH)
+     if (photon%iband == 1) call add_to_Pnew(photon,grid,iold,jold,kold,dtauH)
 #endif
 
      u2 = grid%vfx(icell,jcell,kcell)*kx + grid%vfy(icell,jcell,kcell)*ky + grid%vfz(icell,jcell,kcell)*kz
-     photon%xfreq = (photon%xfreq + u1) * grid%Dfreq(iold,jold,kold)/grid%Dfreq(icell,jcell,kcell) - u2
+     !--- band 2 (ly_beta H-alpha) carries a LAB-frame frequency: no comoving shifts.
+     if (photon%iband == 1) &
+        photon%xfreq = (photon%xfreq + u1) * grid%Dfreq(iold,jold,kold)/grid%Dfreq(icell,jcell,kcell) - u2
 
      iold = icell
      jold = jcell
@@ -1511,23 +1598,37 @@ contains
   endif
 
 #ifdef CALCJ
-  call add_to_J(photon,grid,icell,jcell,kcell,del)
+  if (photon%iband == 1) call add_to_J(photon,grid,icell,jcell,kcell,del)
 #endif
 #ifdef CALCPnew
-  call add_to_Pnew(photon,grid,icell,jcell,kcell,dtauH)
+  if (photon%iband == 1) call add_to_Pnew(photon,grid,icell,jcell,kcell,dtauH)
 #endif
 
   ! if photon escapes from the system, then transform the frequency from the fluid rest frame to the lab frame.
   ! comment added on 2017-04-28.
   if (.not. photon%inside) then
-     u1 = grid%vfx(icell,jcell,kcell)*kx + grid%vfy(icell,jcell,kcell)*ky + grid%vfz(icell,jcell,kcell)*kz
-     photon%xfreq = photon%xfreq + u1
-     photon%xfreq_ref = photon%xfreq * (grid%Dfreq(icell,jcell,kcell) / grid%Dfreq_ref)
-     ix = floor((photon%xfreq_ref - grid%xfreq_min)/grid%dxfreq)+1
-     if (ix >= 1 .and. ix <= grid%nxfreq) then
-        !$OMP ATOMIC UPDATE
-        grid%Jout(ix) = grid%Jout(ix) + photon%wgt
-        if (par%save_Jmu) call add_to_Jmu(photon, grid, ix)
+     if (photon%iband == 1) then
+        u1 = grid%vfx(icell,jcell,kcell)*kx + grid%vfy(icell,jcell,kcell)*ky + grid%vfz(icell,jcell,kcell)*kz
+        photon%xfreq = photon%xfreq + u1
+        photon%xfreq_ref = photon%xfreq * (grid%Dfreq(icell,jcell,kcell) / grid%Dfreq_ref)
+        ix = floor((photon%xfreq_ref - grid%xfreq_min)/grid%dxfreq)+1
+        if (ix >= 1 .and. ix <= grid%nxfreq) then
+           !$OMP ATOMIC UPDATE
+           grid%Jout(ix) = grid%Jout(ix) + photon%wgt
+           if (par%save_Jmu) call add_to_Jmu(photon, grid, ix)
+        endif
+        if (line%line_type == 8) par%W_esc1 = par%W_esc1 + photon%wgt
+     else
+        !--- band 2 (H-alpha) escape: xfreq is already the lab-frame frequency
+        !--- in REFERENCE Doppler units (set at conversion), so no fluid shift
+        !--- and no Dfreq rescaling are applied here.
+        photon%xfreq_ref = photon%xfreq
+        ix = floor((photon%xfreq_ref - grid%xfreq_min_Ha)/grid%dxfreq_Ha)+1
+        if (ix >= 1 .and. ix <= grid%nxfreq_Ha) then
+           !$OMP ATOMIC UPDATE
+           grid%Jout_Ha(ix) = grid%Jout_Ha(ix) + photon%wgt
+        endif
+        par%W_esc2 = par%W_esc2 + photon%wgt
      endif
   endif
 

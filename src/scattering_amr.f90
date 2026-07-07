@@ -20,9 +20,11 @@ module scattering_amr_mod
 
   public :: scatter_dust_nostokes_amr
   public :: scatter_dust_stokes_amr
+  public :: scatter_dust_Ha_amr
   public :: scatter_resonance_nostokes_amr
   public :: scatter_resonance_stokes_amr
   public :: do_resonance1_amr
+  public :: do_resonance8_amr
   public :: do_resonance2_amr
   public :: do_resonance4_amr
   public :: do_resonance5_amr
@@ -135,6 +137,78 @@ contains
   end subroutine scatter_dust_nostokes_amr
 
   !=========================================================================
+  ! AMR band-2 (H-alpha, ly_beta line_type = 8) dust scattering event.
+  ! Mirrors scatter_dust_nostokes_amr with the band-2 dust properties
+  ! (par%albedo_Ha, par%hgg_Ha) and band-2 tallies (Jabs_Ha, W_abs2, peel_Ha).
+  ! photon%xfreq is the LAB-frame frequency in REFERENCE Doppler units (dust
+  ! scattering is elastic) -> no fluid shift, no Dfreq scaling.  The band-2
+  ! dust peel is done via the peeling_dust_Ha procedure pointer (peelingoff_amr).
+  !=========================================================================
+  subroutine scatter_dust_Ha_amr(photon, grid)
+    use define
+    implicit none
+    type(photon_type), intent(inout) :: photon
+    type(grid_type),   intent(inout) :: grid
+
+    integer  :: il, ix
+    real(wp) :: cost, sint, phi, cosp, sinp
+    real(wp) :: kx1, ky1, kz1, kr
+
+    il = photon%icell_amr
+    photon%nscatt_dust = photon%nscatt_dust + photon%wgt
+
+    !--- Add absorbed portion to Jabs_Ha.
+    if (.not. par%use_reduced_wgt) then
+      if (rand_number() > par%albedo_Ha) then
+        if (par%save_Jabs .and. associated(amr_grid%Jabs_Ha)) then
+          ix = floor((photon%xfreq - amr_grid%xfreq_min_Ha) / amr_grid%dxfreq_Ha) + 1
+          if (ix >= 1 .and. ix <= amr_grid%nxfreq_Ha) then
+            amr_grid%Jabs_Ha(ix) = amr_grid%Jabs_Ha(ix) + photon%wgt
+          end if
+        end if
+        photon%inside = .false.
+        par%W_abs2    = par%W_abs2 + photon%wgt
+        return
+      end if
+    else
+      if (par%save_Jabs .and. associated(amr_grid%Jabs_Ha)) then
+        ix = floor((photon%xfreq - amr_grid%xfreq_min_Ha) / amr_grid%dxfreq_Ha) + 1
+        if (ix >= 1 .and. ix <= amr_grid%nxfreq_Ha) then
+          amr_grid%Jabs_Ha(ix) = amr_grid%Jabs_Ha(ix) + photon%wgt * (1.0_wp - par%albedo_Ha)
+        end if
+      end if
+      par%W_abs2 = par%W_abs2 + photon%wgt * (1.0_wp - par%albedo_Ha)
+      photon%wgt = photon%wgt * par%albedo_Ha
+    end if
+
+    if (par%save_peeloff) call peeling_dust_Ha(photon, grid)
+
+    !--- Henyey-Greenstein with the band-2 asymmetry parameter.
+    if (par%hgg_Ha == 0.0_wp) then
+      cost = 2.0_wp * rand_number() - 1.0_wp
+    else
+      cost = (1.0_wp + par%hgg_Ha**2 - &
+              ((1.0_wp - par%hgg_Ha**2) / (1.0_wp - par%hgg_Ha + 2.0_wp*par%hgg_Ha*rand_number()))**2) &
+              / (2.0_wp * par%hgg_Ha)
+    end if
+    sint = sqrt(max(0.0_wp, 1.0_wp - cost**2))
+    phi  = twopi * rand_number()
+    cosp = cos(phi);  sinp = sin(phi)
+
+    kx1 = photon%kx;  ky1 = photon%ky;  kz1 = photon%kz
+    if (abs(kz1) >= 0.99999999999_wp) then
+      photon%kx = sint * cosp
+      photon%ky = sint * sinp
+      photon%kz = cost
+    else
+      kr        = sqrt(kx1**2 + ky1**2)
+      photon%kx = cost*kx1 + sint*(kz1*kx1*cosp - ky1*sinp)/kr
+      photon%ky = cost*ky1 + sint*(kz1*ky1*cosp + kx1*sinp)/kr
+      photon%kz = cost*kz1 - sint*cosp*kr
+    end if
+  end subroutine scatter_dust_Ha_amr
+
+  !=========================================================================
   ! AMR resonance scattering (no Stokes).
   !=========================================================================
   subroutine scatter_resonance_nostokes_amr(photon, grid)
@@ -149,6 +223,8 @@ contains
     real(wp) :: kx1, ky1, kz1, kr
     real(wp) :: g_recoil
     real(wp) :: xcrit_cell, xcrit_cell2
+    real(wp) :: u1_fluid
+    logical  :: converted
 
     il = photon%icell_amr
     photon%nscatt_gas = photon%nscatt_gas + photon%wgt
@@ -158,6 +234,16 @@ contains
 
     ! Sample scattering atom and scattering angle via procedure pointer do_resonance
     call do_resonance(photon, grid, uz, xfreq_atom, cost, sint)
+
+    !--- ly_beta (line_type = 8): do_resonance8_amr sets photon%iband = 2 when
+    !--- the 3p->2s conversion branch fires (transmutation to the H-alpha band).
+    converted = (line%line_type == 8 .and. photon%iband == 2)
+    if (converted) then
+       par%W_conv = par%W_conv + photon%wgt
+#ifdef CALCP
+       call add_to_Pconv_amr(photon, il)
+#endif
+    end if
 
     phi  = twopi * rand_number()
     cosp = cos(phi);  sinp = sin(phi)
@@ -186,7 +272,9 @@ contains
        uy = uy / line%ratio_Dfreq_HD
     endif
     photon%xfreq = xfreq_atom + uz*cost + (ux*cosp + uy*sinp)*sint
-    if (par%recoil) then
+    !--- Recoil is skipped for the conversion channel (defined for band-1
+    !--- re-emission; par%recoil defaults to .false. anyway).
+    if (par%recoil .and. .not. converted) then
       if (line%line_type == 7 .and. line%selected_species_HD == 2) then
          g_recoil = line%g_recoil0_D / amr_grid%Dfreq(il)
       else
@@ -195,7 +283,15 @@ contains
       photon%xfreq = photon%xfreq - g_recoil * (1.0_wp - cost)
     end if
 
-    if (par%save_peeloff) call peeling_resonance_nostokes(photon, grid, xfreq_atom, [ux, uy, uz])
+    if (par%save_peeloff) then
+      if (converted) then
+        !--- direct fluorescent (H-alpha) peel of the newborn band-2 photon
+        !--- (inside-observer path is rejected for ly_beta in setup.f90).
+        call peeling_conversion_Ha(photon, grid, [ux, uy, uz])
+      else
+        call peeling_resonance_nostokes(photon, grid, xfreq_atom, [ux, uy, uz])
+      end if
+    end if
 
     ! New direction vector
     kx1 = photon%kx;  ky1 = photon%ky;  kz1 = photon%kz
@@ -208,6 +304,19 @@ contains
       photon%kx = cost*kx1 + sint*(kz1*kx1*cosp - ky1*sinp)/kr
       photon%ky = cost*ky1 + sint*(kz1*ky1*cosp + kx1*sinp)/kr
       photon%kz = cost*kz1 - sint*cosp*kr
+    end if
+
+    !--- Band transmutation (ly_beta conversion): the H-alpha photon is emitted
+    !--- at line center in the ATOM frame, so x_com = photon%xfreq - xfreq_atom
+    !--- = u_atom . k_new (local Doppler units). Transform to the GLOBAL (lab)
+    !--- frame in REFERENCE Doppler units, mirroring the band-1 escape transform
+    !--- (add local fluid velocity along k_new, then rescale by Dfreq/Dfreq_ref).
+    !--- v_th is identical for both bands, so the Doppler-unit scale carries over.
+    !--- Band 2 NEVER updates xfreq again (dust scattering is elastic).
+    if (converted) then
+      u1_fluid = amr_grid%vfx(il)*photon%kx + amr_grid%vfy(il)*photon%ky + amr_grid%vfz(il)*photon%kz
+      photon%xfreq = (photon%xfreq - xfreq_atom + u1_fluid) * &
+                     (amr_grid%Dfreq(il) / amr_grid%Dfreq_ref)
     end if
   end subroutine scatter_resonance_nostokes_amr
 
@@ -465,6 +574,55 @@ contains
       S44 = three_over_two  * photon%E3 * cost
     end if
   end subroutine do_resonance1_amr
+
+  !=========================================================================
+  ! AMR do_resonance8: Ly-beta multiband fluorescence (line_type = 8).
+  ! Upward machinery identical to do_resonance1_amr (single upper level, Voigt
+  ! with damping = A_tot(3p)).  The downward channel is sampled:
+  !   idown = 1 : 3p -> 1s, normal Ly-beta re-emission (caller's frequency path).
+  !   idown = 2 : 3p -> 2s, CONVERSION to H-alpha: signalled by photon%iband = 2.
+  ! Mirrors line_mod::do_resonance8 exactly, reading voigt_a from the amr leaf.
+  !=========================================================================
+  subroutine do_resonance8_amr(photon, grid, uz, xfreq_atom, cost, sint, &
+                                S11, S22, S12, S33, S44)
+    use define
+    implicit none
+    type(photon_type), intent(inout) :: photon
+    type(grid_type),   intent(in)    :: grid
+    real(wp),          intent(out)   :: uz, xfreq_atom, cost, sint
+    real(wp), optional, intent(out)  :: S11, S22, S12, S33, S44
+
+    integer  :: il, idown
+    real(wp) :: cost2
+
+    il = photon%icell_amr
+    uz         = rand_resonance_vz(photon%xfreq, amr_grid%voigt_a(il))
+    xfreq_atom = photon%xfreq - uz
+
+    !--- Select the downward channel (only two -> direct comparison, no alias).
+    if (rand_number() < line%b(1)%P_down(2)) then
+      idown = 2
+      photon%iband = 2
+    else
+      idown = 1
+    end if
+
+    photon%E1 = line%b(1)%E1(idown)
+    photon%E2 = line%b(1)%E2(idown)
+    photon%E3 = line%b(1)%E3(idown)
+
+    cost  = rand_resonance(photon%E1)
+    cost2 = cost**2
+    sint  = sqrt(1.0_wp - cost2)
+
+    if (present(S44)) then
+      S22 = three_over_four * photon%E1 * (cost2 + 1.0_wp)
+      S11 = S22 + photon%E2
+      S12 = three_over_four * photon%E1 * (cost2 - 1.0_wp)
+      S33 = three_over_two  * photon%E1 * cost
+      S44 = three_over_two  * photon%E3 * cost
+    end if
+  end subroutine do_resonance8_amr
 
   !=========================================================================
   ! AMR do_resonance2: two-line resonance (CII, Ca II H&K, etc.)
@@ -782,6 +940,36 @@ contains
      amr_grid%P1(ib1) = amr_grid%P1(ib1) + photon%wgt / rhokap
   end select
   end subroutine add_to_Pa_amr
+
+!--- Ly-beta (line_type = 8) conversion-rate map: mirrors add_to_Pa_amr (same
+!    per-atom-rate convention, same position binning), accumulated at 3p->2s
+!    conversion events only.  Expectation: P_conv/Pa -> P_down(2) = 0.11834.
+  subroutine add_to_Pconv_amr(photon, il)
+  use define
+  type(photon_type), intent(in) :: photon
+  integer,           intent(in) :: il
+  integer  :: ib1, ib2
+  logical  :: ok
+  real(wp) :: rhokap
+  if (il < 1 .or. il > amr_grid%nleaf) return
+  if (amr_grid%rhokap(il) <= 0.0_wp) return
+  rhokap = amr_grid%rhokap(il) * amr_grid%Dfreq(il) / line%cross0
+  if (amr_grid%geometry_JPa == 3) then
+     !$OMP ATOMIC UPDATE
+     amr_grid%Pc(il) = amr_grid%Pc(il) + photon%wgt / rhokap
+     return
+  end if
+  call amr_JPa_bin(amr_grid, photon%x, photon%y, photon%z, ib1, ib2, ok)
+  if (.not. ok) return
+  select case (amr_grid%geometry_JPa)
+  case (2)
+     !$OMP ATOMIC UPDATE
+     amr_grid%Pc2(ib1, ib2) = amr_grid%Pc2(ib1, ib2) + photon%wgt / rhokap
+  case default   ! 1 and -1
+     !$OMP ATOMIC UPDATE
+     amr_grid%Pc1(ib1) = amr_grid%Pc1(ib1) + photon%wgt / rhokap
+  end select
+  end subroutine add_to_Pconv_amr
 #endif
 
 end module scattering_amr_mod

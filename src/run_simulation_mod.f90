@@ -86,6 +86,8 @@ contains
                  !--- Force photon to scatter at optical depth tau before edge of grid
                  call raytrace_to_edge(photon,grid,tau0)
                  call add_escaped_fraction_to_Jout(photon,grid,tau0)
+                 !--- ly_beta bookkeeping: direct (unscattered) band-1 escape.
+                 if (line%line_type == 8) par%W_esc1 = par%W_esc1 + photon%wgt * exp(-tau0)
                  wgt1       = 1.0_wp - exp(-tau0)
                  photon%wgt = photon%wgt * wgt1
                  !--- tau0 = 0 & wgt1 = 0 occurs when photons are generated at locations where rho = 0. (2025.10.11)
@@ -162,6 +164,8 @@ contains
            !--- Force photon to scatter at optical depth tau before edge of grid
            call raytrace_to_edge(photon,grid,tau0)
            call add_escaped_fraction_to_Jout(photon,grid,tau0)
+           !--- ly_beta bookkeeping: direct (unscattered) band-1 escape.
+           if (line%line_type == 8) par%W_esc1 = par%W_esc1 + photon%wgt * exp(-tau0)
            wgt1       = 1.0_wp - exp(-tau0)
            photon%wgt = photon%wgt * wgt1
            !tau        = -log(1.0_wp - rand_number()*wgt1)

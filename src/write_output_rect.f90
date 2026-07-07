@@ -46,9 +46,10 @@ contains
 !+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
   subroutine write_output_basic(filename,grid)
   use define
-#if defined (CALCJ) || defined (CALCP) || defined (CALCPnew)
+  use line_mod, only: twophoton_dAdy
+  !--- amr_grid is used unconditionally for the ly_beta (line_type = 8) AMR
+  !--- band-2/P_conv sections (and under CALC* for the Jx/Pa AMR sections).
   use octree_mod, only: amr_grid
-#endif
   implicit none
   character(len=*), intent(in)    :: filename
   type(grid_type),  intent(inout) :: grid
@@ -63,6 +64,11 @@ contains
   real(real64)       :: nscatt_gas1, nscatt_dust1, nscatt_tot1
   real(real64)       :: raccept1, fluxfac1
   real(real64), allocatable :: arr_1D(:), arr_2D(:,:), arr_3D(:,:,:), arr_4D(:,:,:,:)
+  !--- ly_beta (line_type = 8): analytic two-photon output (plan section 8.3)
+  real(real64), allocatable :: J2gam(:)
+  real(real64)       :: dy_2gam, A_norm2g, y2g, h2g, f2g, Wconv_pp
+  integer            :: i2g
+  integer, parameter :: nfine2g = 10001
 
   !--- check the previous FITS output.
   merge_ok = par%out_merge
@@ -73,6 +79,35 @@ contains
 
   exetime = par%exetime
   nph_tot = par%no_photons
+
+  !--- Ly-beta (line_type = 8): the emergent two-photon spectrum is EXACTLY
+  !--- J2gam(y) = 2 * W_conv_per_photon * P(y) in Phase 1 (no band-3 transport),
+  !--- where P(y) is the normalized Nussbaumer & Schmutz (1984) fit. It is
+  !--- computed analytically at write time with zero Monte Carlo variance.
+  !--- The normalization is obtained numerically with a fine trapezoid rule
+  !--- (analytic integral = 16.452 s^-1; used only as a sanity anchor).
+  dy_2gam = 0.0_wp
+  if (line%line_type == 8 .and. par%ny_2gam > 0) then
+     allocate(J2gam(par%ny_2gam))
+     dy_2gam  = 1.0_wp/par%ny_2gam
+     h2g      = 1.0_wp/(nfine2g - 1)
+     A_norm2g = 0.0_wp
+     do i2g = 1, nfine2g
+        y2g = (i2g - 1)*h2g
+        f2g = twophoton_dAdy(y2g)
+        if (i2g == 1 .or. i2g == nfine2g) f2g = 0.5_wp*f2g
+        A_norm2g = A_norm2g + f2g
+     enddo
+     A_norm2g = A_norm2g * h2g
+     if (abs(A_norm2g - 16.452_wp) > 0.05_wp .and. mpar%p_rank == 0) then
+        write(*,'(a,es14.6)') 'WARNING: two-photon fit normalization deviates from 16.452: ', A_norm2g
+     endif
+     Wconv_pp = par%W_conv/dble(par%nphotons)
+     do i2g = 1, par%ny_2gam
+        y2g        = (i2g - 0.5_wp)*dy_2gam
+        J2gam(i2g) = 2.0_wp * Wconv_pp * twophoton_dAdy(y2g)/A_norm2g
+     enddo
+  endif
   if (merge_ok) then
      !--- make a backup file.
      if (par%save_backup) then
@@ -291,6 +326,96 @@ contains
         endif
      endif
 #endif
+
+     !--- Ly-beta (line_type = 8) sections: read/accumulate in the same order
+     !--- as they are written below (after all pre-existing sections).
+     if (line%line_type == 8) then
+        if (par%use_amr_grid) then
+           if (associated(amr_grid%Jout_Ha)) then
+              if (.not. allocated(arr_1D)) allocate(arr_1D, source=amr_grid%Jout_Ha)
+              call io_move_to_next_section(iofh0,status)
+              call io_read_image(iofh0,arr_1D,status)
+              amr_grid%Jout_Ha = (arr_1D * nph1 + amr_grid%Jout_Ha * nph2)/nph_tot
+              if (allocated(arr_1D)) deallocate(arr_1D)
+           endif
+           if (associated(amr_grid%Jabs_Ha)) then
+              if (.not. allocated(arr_1D)) allocate(arr_1D, source=amr_grid%Jabs_Ha)
+              call io_move_to_next_section(iofh0,status)
+              call io_read_image(iofh0,arr_1D,status)
+              amr_grid%Jabs_Ha = (arr_1D * nph1 + amr_grid%Jabs_Ha * nph2)/nph_tot
+              if (allocated(arr_1D)) deallocate(arr_1D)
+           endif
+        else
+           if (associated(grid%Jout_Ha)) then
+              if (.not. allocated(arr_1D)) allocate(arr_1D, source=grid%Jout_Ha)
+              call io_move_to_next_section(iofh0,status)
+              call io_read_image(iofh0,arr_1D,status)
+              grid%Jout_Ha = (arr_1D * nph1 + grid%Jout_Ha * nph2)/nph_tot
+              if (allocated(arr_1D)) deallocate(arr_1D)
+           endif
+           if (associated(grid%Jabs_Ha)) then
+              if (.not. allocated(arr_1D)) allocate(arr_1D, source=grid%Jabs_Ha)
+              call io_move_to_next_section(iofh0,status)
+              call io_read_image(iofh0,arr_1D,status)
+              grid%Jabs_Ha = (arr_1D * nph1 + grid%Jabs_Ha * nph2)/nph_tot
+              if (allocated(arr_1D)) deallocate(arr_1D)
+           endif
+        endif
+        if (allocated(J2gam)) then
+           if (.not. allocated(arr_1D)) allocate(arr_1D, source=J2gam)
+           call io_move_to_next_section(iofh0,status)
+           call io_read_image(iofh0,arr_1D,status)
+           J2gam = (arr_1D * nph1 + J2gam * nph2)/nph_tot
+           if (allocated(arr_1D)) deallocate(arr_1D)
+        endif
+#ifdef CALCP
+        if (par%use_amr_grid) then
+           if (associated(amr_grid%Pc)) then
+              if (.not. allocated(arr_1D)) allocate(arr_1D, source=amr_grid%Pc)
+              call io_move_to_next_section(iofh0,status)
+              call io_read_image(iofh0,arr_1D,status)
+              amr_grid%Pc = (arr_1D * nph1 + amr_grid%Pc * nph2)/nph_tot
+              if (allocated(arr_1D)) deallocate(arr_1D)
+           endif
+           if (associated(amr_grid%Pc1)) then
+              if (.not. allocated(arr_1D)) allocate(arr_1D, source=amr_grid%Pc1)
+              call io_move_to_next_section(iofh0,status)
+              call io_read_image(iofh0,arr_1D,status)
+              amr_grid%Pc1 = (arr_1D * nph1 + amr_grid%Pc1 * nph2)/nph_tot
+              if (allocated(arr_1D)) deallocate(arr_1D)
+           endif
+           if (associated(amr_grid%Pc2)) then
+              if (.not. allocated(arr_2D)) allocate(arr_2D, source=amr_grid%Pc2)
+              call io_move_to_next_section(iofh0,status)
+              call io_read_image(iofh0,arr_2D,status)
+              amr_grid%Pc2 = (arr_2D * nph1 + amr_grid%Pc2 * nph2)/nph_tot
+              if (allocated(arr_2D)) deallocate(arr_2D)
+           endif
+        else
+           if (associated(grid%Pc)) then
+              if (.not. allocated(arr_3D)) allocate(arr_3D, source=grid%Pc)
+              call io_move_to_next_section(iofh0,status)
+              call io_read_image(iofh0,arr_3D,status)
+              grid%Pc = (arr_3D * nph1 + grid%Pc * nph2)/nph_tot
+              if (allocated(arr_3D)) deallocate(arr_3D)
+           endif
+           if (associated(grid%Pc1)) then
+              if (.not. allocated(arr_1D)) allocate(arr_1D, source=grid%Pc1)
+              call io_move_to_next_section(iofh0,status)
+              call io_read_image(iofh0,arr_1D,status)
+              grid%Pc1 = (arr_1D * nph1 + grid%Pc1 * nph2)/nph_tot
+              if (allocated(arr_1D)) deallocate(arr_1D)
+           endif
+           if (associated(grid%Pc2)) then
+              if (.not. allocated(arr_2D)) allocate(arr_2D, source=grid%Pc2)
+              call io_move_to_next_section(iofh0,status)
+              call io_read_image(iofh0,arr_2D,status)
+              grid%Pc2 = (arr_2D * nph1 + grid%Pc2 * nph2)/nph_tot
+              if (allocated(arr_2D)) deallocate(arr_2D)
+           endif
+        endif
+#endif
+     endif
      call io_close(iofh0,status)
   endif
 
@@ -511,6 +636,92 @@ contains
      endif
   endif
 #endif
+
+  !--- Ly-beta fluorescence (line_type = 8): band-2 (H-alpha) spectra +
+  !--- analytic two-photon spectrum (+ conversion-rate maps under CALCP).
+  !--- These sections are appended AFTER all pre-existing sections so the
+  !--- out_merge sequential reads of older sections stay untouched.
+  if (line%line_type == 8) then
+     !--- band-2 (H-alpha) escaped spectrum: Cartesian uses grid%Jout_Ha, AMR
+     !--- uses the amr_grid module global (mirrors the Pa_AMR write pattern).
+     if ((par%use_amr_grid .and. associated(amr_grid%Jout_Ha)) .or. &
+         (.not. par%use_amr_grid .and. associated(grid%Jout_Ha))) then
+        if (par%use_amr_grid) then
+           call io_append_image(iofh,amr_grid%Jout_Ha,status,bitpix=par%out_bitpix)
+        else
+           call io_append_image(iofh,grid%Jout_Ha,status,bitpix=par%out_bitpix)
+        endif
+        call io_put_keyword(iofh,'EXTNAME','Jout_Ha', 'escaped H-alpha spectrum (band 2)',status)
+        call io_put_keyword(iofh,'nxfreq_Ha', grid%nxfreq_Ha,   'No. of band-2 frequency bins',status)
+        call io_put_keyword(iofh,'Xfreq1_Ha', grid%xfreq_min_Ha,'band-2 Xfreq_min',status)
+        call io_put_keyword(iofh,'Xfreq2_Ha', grid%xfreq_max_Ha,'band-2 Xfreq_max',status)
+        call io_put_keyword(iofh,'Dxfreq_Ha', grid%dxfreq_Ha,   'band-2 Dxfreq',status)
+        call io_put_keyword(iofh,'Dwave_Ha',  grid%dwave_Ha,    'band-2 Dwavelength (angstrom)',status)
+        call io_put_keyword(iofh,'lambda0_Ha', line%wavelength0_Ha*1e4_wp, 'H-alpha rest wavelength (angstrom)',status)
+        call io_put_keyword(iofh,'W_esc1', par%W_esc1/dble(par%nphotons), 'band-1 escaped weight/photon (this run)',status)
+        call io_put_keyword(iofh,'W_abs1', par%W_abs1/dble(par%nphotons), 'band-1 dust-absorbed weight/photon (this run)',status)
+        call io_put_keyword(iofh,'W_conv', par%W_conv/dble(par%nphotons), 'conversion weight/photon (this run)',status)
+        call io_put_keyword(iofh,'W_esc2', par%W_esc2/dble(par%nphotons), 'band-2 escaped weight/photon (this run)',status)
+        call io_put_keyword(iofh,'W_abs2', par%W_abs2/dble(par%nphotons), 'band-2 dust-absorbed weight/photon (this run)',status)
+     endif
+     if ((par%use_amr_grid .and. associated(amr_grid%Jabs_Ha)) .or. &
+         (.not. par%use_amr_grid .and. associated(grid%Jabs_Ha))) then
+        if (par%use_amr_grid) then
+           call io_append_image(iofh,amr_grid%Jabs_Ha,status,bitpix=par%out_bitpix)
+        else
+           call io_append_image(iofh,grid%Jabs_Ha,status,bitpix=par%out_bitpix)
+        endif
+        call io_put_keyword(iofh,'EXTNAME','Jabs_Ha', 'dust-absorbed H-alpha spectrum (band 2)',status)
+        call io_put_keyword(iofh,'nxfreq_Ha', grid%nxfreq_Ha,   'No. of band-2 frequency bins',status)
+        call io_put_keyword(iofh,'Xfreq1_Ha', grid%xfreq_min_Ha,'band-2 Xfreq_min',status)
+        call io_put_keyword(iofh,'Dxfreq_Ha', grid%dxfreq_Ha,   'band-2 Dxfreq',status)
+        call io_put_keyword(iofh,'lambda0_Ha', line%wavelength0_Ha*1e4_wp, 'H-alpha rest wavelength (angstrom)',status)
+     endif
+     if (allocated(J2gam)) then
+        call io_append_image(iofh,J2gam,status,bitpix=par%out_bitpix)
+        call io_put_keyword(iofh,'EXTNAME','J2gam', 'two-photon spectrum (analytic, per unit y per photon)',status)
+        call io_put_keyword(iofh,'ny_2gam', par%ny_2gam, 'No. of y bins over (0,1)',status)
+        call io_put_keyword(iofh,'dy_2gam', dy_2gam,     'y bin width; y = nu/nu_LyA at bin centers',status)
+        !--- effective (merge-consistent) conversion weight per photon:
+        !--- J2gam = 2 * Wconv_pp * P(y) with Integral(P dy) = 1.
+        call io_put_keyword(iofh,'Wconv_pp', sum(J2gam)*dy_2gam/2.0_wp, &
+                            'conversion weight per source photon (merged)',status)
+     endif
+#ifdef CALCP
+     if (par%use_amr_grid) then
+        !--- AMR conversion-rate maps: per-leaf (P_conv_AMR) or radial/cyl profile.
+        if (associated(amr_grid%Pc)) then
+           call io_append_image(iofh,amr_grid%Pc,status,bitpix=par%out_bitpix)
+           call io_put_keyword(iofh,'EXTNAME','P_conv_AMR','conversion rate per atom per leaf (ly_beta)',status)
+           call put_amr_JPa_axes(iofh,status)
+        endif
+        if (associated(amr_grid%Pc1)) then
+           call io_append_image(iofh,amr_grid%Pc1,status,bitpix=par%out_bitpix)
+           call io_put_keyword(iofh,'EXTNAME','P_conv_1D', 'conversion rate per atom (ly_beta)',status)
+           call put_amr_JPa_axes(iofh,status)
+        endif
+        if (associated(amr_grid%Pc2)) then
+           call io_append_image(iofh,amr_grid%Pc2,status,bitpix=par%out_bitpix)
+           call io_put_keyword(iofh,'EXTNAME','P_conv_2D', 'conversion rate per atom (ly_beta)',status)
+           call put_amr_JPa_axes(iofh,status)
+        endif
+     else
+        if (associated(grid%Pc)) then
+           call io_append_image(iofh,grid%Pc,status,bitpix=par%out_bitpix)
+           call io_put_keyword(iofh,'EXTNAME','P_conv_3D', 'conversion rate per atom (ly_beta)',status)
+        endif
+        if (associated(grid%Pc1)) then
+           call io_append_image(iofh,grid%Pc1,status,bitpix=par%out_bitpix)
+           call io_put_keyword(iofh,'EXTNAME','P_conv_1D', 'conversion rate per atom (ly_beta)',status)
+        endif
+        if (associated(grid%Pc2)) then
+           call io_append_image(iofh,grid%Pc2,status,bitpix=par%out_bitpix)
+           call io_put_keyword(iofh,'EXTNAME','P_conv_2D', 'conversion rate per atom (ly_beta)',status)
+        endif
+     endif
+#endif
+     if (allocated(J2gam)) deallocate(J2gam)
+  endif
 
   !--- close the FITS file.
   call io_close(iofh,status)
@@ -850,6 +1061,15 @@ contains
         if (allocated(arr_3D)) deallocate(arr_3D)
      endif
 
+     !--- ly_beta band-2 (H-alpha) peel cube (written after ScatDust below).
+     if (associated(obs%peel_Ha)) then
+        if (.not. allocated(arr_3D)) allocate(arr_3D, source=obs%peel_Ha)
+        call io_move_to_next_section(iofh0,status)
+        call io_read_image(iofh0,arr_3D,status)
+        obs%peel_Ha = (arr_3D * nph1 + obs%peel_Ha * nph2)/nph_tot
+        if (allocated(arr_3D)) deallocate(arr_3D)
+     endif
+
      call io_close(iofh0,status)
   endif
 
@@ -943,6 +1163,38 @@ contains
   if (par%save_dust_scattered) then
      call io_append_image(iofh,obs%scatt_dust,status,bitpix=par%out_bitpix)
      call io_put_keyword(iofh,'EXTNAME','ScatDust','J(freq,x,y) (intensity)',status)
+  endif
+
+  !--- ly_beta band-2 (H-alpha) peel cube: peel_Ha(nxfreq_Ha, nxim, nyim).
+  !--- Spectral axis in H-alpha Doppler units; wavelength WCS mirrors the
+  !--- band-1 'Scattered' cube using the band-2 grid + lambda0_Ha.
+  if (associated(obs%peel_Ha)) then
+     call io_append_image(iofh,obs%peel_Ha,status,bitpix=par%out_bitpix)
+     call io_put_keyword(iofh,'EXTNAME','peel_Ha','H-alpha J(freq,x,y) (intensity, band 2)',status)
+     cd1_1  = -grid%dwave_Ha
+     crpix1 = 1.0_wp
+     !--- wavelength at pixel 1: xfreq_Ha(1) -> velocity -> wavelength (Angstrom)
+     crval1 = (-(grid%xfreq_min_Ha + 0.5_wp*grid%dxfreq_Ha) * &
+               (grid%dwave_Ha/grid%dxfreq_Ha)) + line%wavelength0_Ha*1e4_wp
+     call io_put_keyword(iofh,'CTYPE1'  ,'WAVE'    ,'vacuum wavelength (FITS WCS)', status)
+     call io_put_keyword(iofh,'CUNIT1'  ,'Angstrom','wavelength unit', status)
+     call io_put_keyword(iofh,'CRPIX1'  ,crpix1    ,'reference pixel for spectral axis', status)
+     call io_put_keyword(iofh,'CRVAL1'  ,crval1    ,'wavelength at CRPIX1 (Angstrom)', status)
+     call io_put_keyword(iofh,'CD1_1'   ,cd1_1     ,'wavelength step (Angstrom/pixel)', status)
+     call io_put_keyword(iofh,'CTYPE2'  ,'RA--TAN' ,'Coordinate Type',status)
+     call io_put_keyword(iofh,'CRPIX2'  ,crpix2    ,'Reference Pixel in X',status)
+     call io_put_keyword(iofh,'CRVAL2'  ,crval2    ,'R.A. (Degree)',status)
+     call io_put_keyword(iofh,'CD2_2'   ,cd2_2     ,'Degree / Pixel',status)
+     call io_put_keyword(iofh,'CTYPE3'  ,'DEC-TAN' ,'Coordinate Type',status)
+     call io_put_keyword(iofh,'CRPIX3'  ,crpix3    ,'Reference Pixel in Y',status)
+     call io_put_keyword(iofh,'CRVAL3'  ,crval3    ,'Dec  (Degree)',status)
+     call io_put_keyword(iofh,'CD3_3'   ,cd3_3     ,'Degree / Pixel',status)
+     call io_put_keyword(iofh,'nxfreq_Ha', grid%nxfreq_Ha,   'No. of band-2 frequency bins',status)
+     call io_put_keyword(iofh,'Xfreq1_Ha', grid%xfreq_min_Ha,'band-2 Xfreq_min',status)
+     call io_put_keyword(iofh,'Xfreq2_Ha', grid%xfreq_max_Ha,'band-2 Xfreq_max',status)
+     call io_put_keyword(iofh,'Dxfreq_Ha', grid%dxfreq_Ha,   'band-2 Dxfreq',status)
+     call io_put_keyword(iofh,'Dwave_Ha',  grid%dwave_Ha,    'band-2 Dwavelength (angstrom)',status)
+     call io_put_keyword(iofh,'lambda0_Ha', line%wavelength0_Ha*1e4_wp, 'H-alpha rest wavelength (angstrom)',status)
   endif
 
   if (associated(obs%radial_I)) then

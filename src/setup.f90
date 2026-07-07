@@ -234,6 +234,78 @@ contains
   if (par%DGR == 0.0_wp)       par%save_Jabs = .false.
   if (par%core_skip_global)    par%core_skip = .true.
 
+  !--- Ly-beta fluorescence (line_id = 'ly_beta', line_type = 8): Phase 1a
+  !--- restrictions, core-skip veto, dust re-defaults, and derived parameters.
+  if (line%line_type == 8) then
+     !--- AMR grid is supported (Phase 1b). Clump / HEALPix / Stokes / fine
+     !--- structure / 2-gamma transport / symmetry / atmosphere remain vetoed.
+     if (par%use_clump_medium) then
+        if (mpar%p_rank == 0) write(*,'(a)') 'ly_beta: clump medium not yet supported (Phase 1a)'
+        flush(6)
+        call MPI_ABORT(MPI_COMM_WORLD, 1, ierr)
+     endif
+     if (par%nside > 0 .or. par%observer_located_inside) then
+        if (mpar%p_rank == 0) write(*,'(a)') 'ly_beta: inside-observer (HEALPix) not yet supported (Phase 1a)'
+        flush(6)
+        call MPI_ABORT(MPI_COMM_WORLD, 1, ierr)
+     endif
+     if (par%use_stokes) then
+        if (mpar%p_rank == 0) write(*,'(a)') 'ly_beta: Stokes polarization not yet supported (Phase 1a)'
+        flush(6)
+        call MPI_ABORT(MPI_COMM_WORLD, 1, ierr)
+     endif
+     if (par%fine_structure) then
+        if (mpar%p_rank == 0) write(*,'(a)') 'ly_beta: fine structure not yet supported (Phase 1a)'
+        flush(6)
+        call MPI_ABORT(MPI_COMM_WORLD, 1, ierr)
+     endif
+     if (par%transport_2gamma) then
+        if (mpar%p_rank == 0) write(*,'(a)') 'ly_beta: transport_2gamma (Phase 2) not implemented'
+        flush(6)
+        call MPI_ABORT(MPI_COMM_WORLD, 1, ierr)
+     endif
+     !--- Phase 1a supports only the plain Cartesian raytrace variant.
+     if (par%xyz_symmetry .or. par%xy_symmetry .or. par%xy_periodic .or. par%Omega /= 0.0_wp) then
+        if (mpar%p_rank == 0) write(*,'(a)') &
+           'ly_beta: xyz/xy symmetry, xy_periodic and shear not yet supported (Phase 1a)'
+        flush(6)
+        call MPI_ABORT(MPI_COMM_WORLD, 1, ierr)
+     endif
+     if (trim(par%geometry) == 'plane_atmosphere' .or. trim(par%geometry) == 'spherical_atmosphere') then
+        if (mpar%p_rank == 0) write(*,'(a)') 'ly_beta: atmosphere geometries not yet supported (Phase 1a)'
+        flush(6)
+        call MPI_ABORT(MPI_COMM_WORLD, 1, ierr)
+     endif
+     !--- Core-skip must be DISABLED: every skipped core scattering would carry
+     !--- the 11.8% conversion chance, so core-skip systematically underproduces
+     !--- H-alpha and overestimates Ly-beta escape. The destruction probability
+     !--- caps the scattering count at ~8 anyway, so no acceleration is needed.
+     if (par%core_skip .or. par%core_skip_global) then
+        if (mpar%p_rank == 0) write(*,'(a)') &
+           'NOTE: ly_beta forces core_skip = .false. (core-skip would bias the conversion rate).'
+     endif
+     par%core_skip        = .false.
+     par%core_skip_global = .false.
+     !--- Re-default the BAND-1 dust constants to the Draine (2003, R_V=3.1)
+     !--- Ly-beta values, unless the user set them in the namelist (detected by
+     !--- comparison against the compiled-in ly_alpha defaults).
+     if (par%albedo == 0.3253_wp .and. par%hgg == 0.6761_wp .and. &
+         par%cext_dust == 1.6059e-21_wp) then
+        par%albedo    = 0.2804_wp
+        par%hgg       = 0.6483_wp
+        par%cext_dust = 2.047e-21_wp
+        if (mpar%p_rank == 0) write(*,'(a)') &
+           'NOTE: ly_beta re-defaults band-1 dust constants to Draine 1026A values'// &
+           ' (cext=2.047e-21, albedo=0.2804, hgg=0.6483).'
+     endif
+     if (par%cext_dust_Ha <= 0.0_wp .or. par%cext_dust <= 0.0_wp) then
+        par%R_Ha = 0.0_wp
+     else
+        par%R_Ha = par%cext_dust_Ha / par%cext_dust
+     endif
+     if (par%ny_2gam < 0) par%ny_2gam = 0
+  endif
+
   !--- Jmu setup (escaped spectrum binned by mu = cos(theta_z))
   if (par%save_Jmu) then
      if (par%nmu < 1) then
@@ -664,6 +736,9 @@ contains
   case (7)
      calc_voigt      => calc_voigt_HD
      do_resonance    => do_resonance_HD
+  case (8)
+     calc_voigt      => calc_voigt1
+     do_resonance    => do_resonance8
   case default
      calc_voigt      => calc_voigt1
      do_resonance    => do_resonance1
@@ -741,6 +816,8 @@ contains
      raytrace_to_dist         => raytrace_to_dist_amr
      raytrace_to_dist_tau_gas => raytrace_to_dist_tau_gas_amr
      raytrace_to_dist_column  => raytrace_to_dist_column_amr
+     !--- Ly-beta (line_type = 8): band-2 (H-alpha) dust-only tau-to-edge raytrace.
+     raytrace_to_edge_Ha      => raytrace_to_edge_amr_dust_Ha
      ! Scattering routines use amr_grid data (Stokes or nostokes)
      if (par%use_stokes) then
         scatter_dust      => scatter_dust_stokes_amr
@@ -757,6 +834,7 @@ contains
      case (5);   do_resonance => do_resonance5_amr
      case (6);   do_resonance => do_resonance6_amr
      case (7);   do_resonance => do_resonance_HD_amr
+     case (8);   do_resonance => do_resonance8_amr
      case default; do_resonance => do_resonance1_amr
      end select
      ! Photon loop
@@ -793,10 +871,15 @@ contains
         peeling_dust_stokes        => peeling_dust_stokes_amr
         peeling_resonance_nostokes => peeling_resonance_nostokes_amr
         peeling_resonance_stokes   => peeling_resonance_stokes_amr
+        !--- Ly-beta (line_type = 8): band-2 (H-alpha) dust + conversion peel.
+        peeling_dust_Ha            => peeling_dust_Ha_amr
+        peeling_conversion_Ha      => peeling_conversion_Ha_amr
         observer_create            => observer_create_outside
         observer_destroy           => observer_destroy_outside
         make_sightline_tau         => make_sightline_tau_outside_amr
      endif
+     !--- Ly-beta (line_type = 8): band-2 (H-alpha) dust-only scattering (AMR).
+     scatter_dust_Ha => scatter_dust_Ha_amr
      return
   end if
 
@@ -852,6 +935,8 @@ contains
      scatter_dust      => scatter_dust_nostokes
      scatter_resonance => scatter_resonance_nostokes
   endif
+  !--- Ly-beta (line_type = 8): band-2 (H-alpha) dust-only scattering (Cartesian).
+  scatter_dust_Ha => scatter_dust_Ha_nostokes
 
   !--- procedure pointer for simulation run
   if (par%use_master_slave) then
@@ -864,6 +949,8 @@ contains
   raytrace_to_dist         => raytrace_to_dist_car
   raytrace_to_dist_tau_gas => raytrace_to_dist_tau_gas_car
   raytrace_to_dist_column  => raytrace_to_dist_column_car
+  !--- Ly-beta (line_type = 8): band-2 (H-alpha) dust-only tau-to-edge raytrace.
+  raytrace_to_edge_Ha      => raytrace_to_edge_car_dust_Ha
 
   if (par%observer_located_inside) then
      peeling_direct             => peeling_direct_inside
@@ -889,6 +976,9 @@ contains
      peeling_dust_nostokes      => peeling_dust_nostokes_outside
      peeling_resonance_stokes   => peeling_resonance_stokes_outside
      peeling_resonance_nostokes => peeling_resonance_nostokes_outside
+     !--- Ly-beta (line_type = 8): band-2 (H-alpha) dust + conversion peel.
+     peeling_dust_Ha            => peeling_dust_Ha_outside
+     peeling_conversion_Ha      => peeling_conversion_Ha_outside
      observer_create            => observer_create_outside
      observer_destroy           => observer_destroy_outside
      output_reduce              => output_reduce_outside

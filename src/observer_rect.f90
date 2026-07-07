@@ -303,6 +303,12 @@ contains
      if (par%save_peeloff_3D) then
         call create_mem(observer(i)%scatt, [par%nxfreq,par%nxim,par%nyim])
         call create_mem(observer(i)%direc, [par%nxfreq,par%nxim,par%nyim])
+        !--- Ly-beta (line_type = 8): band-2 (H-alpha) peel cube.
+        !--- par%nxfreq_Ha is finalized in car_setup_freq_grid / amr_setup_freq_grid
+        !--- (grid_init runs before observer_create in main.f90).
+        if (line%line_type == 8) then
+           call create_mem(observer(i)%peel_Ha, [par%nxfreq_Ha,par%nxim,par%nyim])
+        endif
         if (par%save_direc0) then
            call create_mem(observer(i)%direc0,[par%nxfreq,par%nxim,par%nyim])
         endif
@@ -340,6 +346,7 @@ contains
   do i=1, par%nobs
      if (associated(observer(i)%scatt_dust))  deallocate(observer(i)%scatt_dust)
      if (associated(observer(i)%scatt))  deallocate(observer(i)%scatt)
+     if (associated(observer(i)%peel_Ha)) deallocate(observer(i)%peel_Ha)
      if (associated(observer(i)%direc))  deallocate(observer(i)%direc)
      if (associated(observer(i)%direc0)) deallocate(observer(i)%direc0)
 

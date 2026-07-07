@@ -1,0 +1,31 @@
+&parameters
+ par%line_id     = 'ly_beta'
+ par%no_photons  = 1e5
+ par%temperature = 1.0e4
+ par%taumax      = 1.0e4
+ !--- tau_dust(center->edge, band 1) = N_HI * cext_dust * DGR ~ 2.2e-3 * DGR
+ !--- DGR = 100 gives tau_dust ~ 0.22 (band 1) and ~ 0.04 (band 2, R_Ha = 0.186):
+ !--- a clearly visible dust-absorption signature in both bands.
+ par%DGR         = 100.0
+ par%Vexp        = 0.0
+ par%xyz_symmetry    = .false.
+ par%comoving_source = .false.
+ par%save_all        = .false.
+ par%recoil          = .false.
+ par%source_geometry = 'point'
+ par%spectral_type   = 'monochromatic'
+ par%xfreq0          = 0.0
+ par%nx = 101
+ par%ny = 101
+ par%nz = 101
+ par%nxfreq = 121
+ par%rmax   = 1.0
+ par%nprint = 1000000
+ par%save_peeloff = .true.
+ par%nxim = 51
+ par%nyim = 51
+ par%distance = 1000.0
+ par%nobs = 1
+ par%alpha(1) = 0.0
+ par%beta(1)  = 0.0
+/

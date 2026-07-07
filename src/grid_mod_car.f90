@@ -1159,6 +1159,13 @@ contains
   !--- Jin(xfreq)     = input spectrum (intensity unit)
   !--- Jout(xfreq)    = escaped spectrum (intensity unit)
   call create_mem(grid%Jout, [grid%nxfreq])
+  !--- Ly-beta (line_type = 8): band-2 (H-alpha) escaped/absorbed spectra.
+  if (line%line_type == 8) then
+     call create_mem(grid%Jout_Ha, [grid%nxfreq_Ha])
+     if (par%DGR > 0.0_wp .and. par%save_Jabs) then
+        call create_mem(grid%Jabs_Ha, [grid%nxfreq_Ha])
+     endif
+  endif
   if (par%save_Jin) then
      call create_mem(grid%Jin,  [grid%nxfreq])
   endif
@@ -1386,6 +1393,19 @@ contains
      case default
         call create_mem(grid%P1, [grid%nr])
   end select
+  !--- Ly-beta (line_type = 8): conversion-rate maps mirror Pa/P1/P2.
+  if (line%line_type == 8) then
+     select case (grid%geometry_JPa)
+        case (3)
+           call create_mem(grid%Pc, [grid%nx,grid%ny,grid%nz])
+        case (2)
+           call create_mem(grid%Pc2, [grid%nr,grid%nz])
+        case (-1)
+           call create_mem(grid%Pc1, [grid%nz])
+        case default
+           call create_mem(grid%Pc1, [grid%nr])
+     end select
+  endif
 #endif
 #ifdef CALCPnew
   select case (grid%geometry_JPa)
@@ -1490,6 +1510,25 @@ contains
   endif
   call MPI_BARRIER(mpar%hostcomm, ierr)
 
+  !--- Ly-beta fluorescence (line_type = 8): band-2 (H-alpha) frequency grid.
+  !--- Defaults inherit the band-1 grid: same number of bins and the same
+  !--- Doppler-unit range (v_th is identical for both bands, so the velocity
+  !--- range maps 1:1).
+  if (line%line_type == 8) then
+     grid%nxfreq_Ha = par%nxfreq_Ha
+     if (grid%nxfreq_Ha <= 0) grid%nxfreq_Ha = grid%nxfreq
+     par%nxfreq_Ha  = grid%nxfreq_Ha
+     if (par%xfreq_max_Ha > 0.0_wp) then
+        grid%xfreq_max_Ha =  par%xfreq_max_Ha
+        grid%xfreq_min_Ha = -par%xfreq_max_Ha
+     else
+        grid%xfreq_min_Ha = grid%xfreq_min
+        grid%xfreq_max_Ha = grid%xfreq_max
+     endif
+     grid%dxfreq_Ha = (grid%xfreq_max_Ha - grid%xfreq_min_Ha)/grid%nxfreq_Ha
+     grid%dwave_Ha  = vtherm_total(par%temperature)/speedc * (line%wavelength0_Ha * 1e4_wp) * grid%dxfreq_Ha
+  endif
+
   !--- Compute line photon fraction for 'continuum+gaussian' spectral type.
   if (trim(par%spectral_type) == 'continuum+gaussian' .and. par%EW_line > 0.0_wp) then
      block
@@ -1523,6 +1562,8 @@ contains
   if (associated(grid%Jabs))  deallocate(grid%Jabs)
   if (associated(grid%Jabs2)) deallocate(grid%Jabs2)
   if (associated(grid%Jmu))   deallocate(grid%Jmu)
+  if (associated(grid%Jout_Ha)) deallocate(grid%Jout_Ha)
+  if (associated(grid%Jabs_Ha)) deallocate(grid%Jabs_Ha)
 
 #ifdef CALCJ
   if (associated(grid%J))    deallocate(grid%J)
@@ -1534,6 +1575,9 @@ contains
   if (associated(grid%Pa))   deallocate(grid%Pa)
   if (associated(grid%P1))   deallocate(grid%P1)
   if (associated(grid%P2))   deallocate(grid%P2)
+  if (associated(grid%Pc))   deallocate(grid%Pc)
+  if (associated(grid%Pc1))  deallocate(grid%Pc1)
+  if (associated(grid%Pc2))  deallocate(grid%Pc2)
 #endif
 
 #ifdef CALCPnew

@@ -22,6 +22,16 @@ contains
   if (par%DGR > 0.0_wp .and. par%save_Jabs) then
      call reduce_mem(grid%Jabs)
   endif
+  !--- Ly-beta fluorescence (line_type = 8): band-2 spectra + weight bookkeeping.
+  if (line%line_type == 8) then
+     if (associated(grid%Jout_Ha)) call reduce_mem(grid%Jout_Ha)
+     if (associated(grid%Jabs_Ha)) call reduce_mem(grid%Jabs_Ha)
+     call MPI_ALLREDUCE(MPI_IN_PLACE, par%W_conv, 1, MPI_DOUBLE_PRECISION, MPI_SUM, MPI_COMM_WORLD, ierr)
+     call MPI_ALLREDUCE(MPI_IN_PLACE, par%W_esc1, 1, MPI_DOUBLE_PRECISION, MPI_SUM, MPI_COMM_WORLD, ierr)
+     call MPI_ALLREDUCE(MPI_IN_PLACE, par%W_abs1, 1, MPI_DOUBLE_PRECISION, MPI_SUM, MPI_COMM_WORLD, ierr)
+     call MPI_ALLREDUCE(MPI_IN_PLACE, par%W_esc2, 1, MPI_DOUBLE_PRECISION, MPI_SUM, MPI_COMM_WORLD, ierr)
+     call MPI_ALLREDUCE(MPI_IN_PLACE, par%W_abs2, 1, MPI_DOUBLE_PRECISION, MPI_SUM, MPI_COMM_WORLD, ierr)
+  endif
   if (trim(par%geometry) == 'plane_atmosphere' .or. trim(par%geometry) == 'spherical_atmosphere') then
      call reduce_mem(grid%Jabs2)
   endif
@@ -51,6 +61,12 @@ contains
   case default
      call reduce_mem(grid%P1)
   end select
+  !--- Ly-beta (line_type = 8) conversion-rate maps.
+  if (line%line_type == 8) then
+     if (associated(grid%Pc))  call reduce_mem(grid%Pc)
+     if (associated(grid%Pc2)) call reduce_mem(grid%Pc2)
+     if (associated(grid%Pc1)) call reduce_mem(grid%Pc1)
+  endif
 #endif
 #ifdef CALCPnew
   select case (grid%geometry_JPa)
@@ -85,6 +101,9 @@ contains
      do k=1,par%nobs
         call reduce_mem(observer(k)%scatt)
         call reduce_mem(observer(k)%direc)
+        if (associated(observer(k)%peel_Ha)) then
+           call reduce_mem(observer(k)%peel_Ha)
+        endif
         if (par%save_direc0) then
            call reduce_mem(observer(k)%direc0)
         endif
@@ -130,6 +149,7 @@ contains
   real(kind=wp) :: dVol, area
   real(kind=wp) :: scale_factor
   real(kind=wp) :: intensity_bin_unit
+  real(kind=wp) :: intensity_bin_unit_Ha, nph
   integer       :: i,j,k,ierr
 
   !--- slightly modified, 2020.09.16
@@ -191,6 +211,23 @@ contains
         grid%Jabs(:) = grid%Jabs(:)/(par%nphotons*intensity_bin_unit*twopi*area)
      endif
   endif
+  !--- Ly-beta fluorescence (line_type = 8): band-2 (H-alpha) spectra.
+  !--- Same nphotons/area conventions as band 1, but with the band-2 bin unit
+  !--- (dxfreq_Ha / dwave_Ha), so band ratios are luminosity ratios per unit
+  !--- bandwidth. xy_periodic is rejected for ly_beta in setup.f90, so the
+  !--- sphere/box `area` computed above always applies here.
+  intensity_bin_unit_Ha = intensity_bin_unit
+  if (line%line_type == 8) then
+     if (par%intensity_unit == 1) then
+        intensity_bin_unit_Ha = grid%dwave_Ha
+     else
+        intensity_bin_unit_Ha = grid%dxfreq_Ha
+     endif
+     if (associated(grid%Jout_Ha)) &
+        grid%Jout_Ha(:) = grid%Jout_Ha(:)/(par%nphotons*intensity_bin_unit_Ha*twopi*area)
+     if (associated(grid%Jabs_Ha)) &
+        grid%Jabs_Ha(:) = grid%Jabs_Ha(:)/(par%nphotons*intensity_bin_unit_Ha*twopi*area)
+  endif
   if (trim(par%geometry) == 'plane_atmosphere' .or. trim(par%geometry) == 'spherical_atmosphere') then
      if (par%xy_periodic) then
         ! slab geometry
@@ -222,6 +259,10 @@ contains
      if (associated(grid%Jabs))  grid%Jabs(:)  = grid%Jabs(:) /scale_factor
      if (associated(grid%Jabs2)) grid%Jabs2(:) = grid%Jabs2(:)/scale_factor
      if (associated(grid%Jmu))   grid%Jmu(:,:) = grid%Jmu(:,:)/scale_factor
+     !--- ly_beta band 2: divide by the same band-1 continuum level so the
+     !--- H-alpha-to-continuum ratio stays meaningful.
+     if (associated(grid%Jout_Ha)) grid%Jout_Ha(:) = grid%Jout_Ha(:)/scale_factor
+     if (associated(grid%Jabs_Ha)) grid%Jabs_Ha(:) = grid%Jabs_Ha(:)/scale_factor
   endif
 
 #ifdef CALCJ
@@ -294,6 +335,35 @@ contains
         if (grid%ncount_plane(k) > 0) grid%P1(k) = grid%P1(k)/grid%ncount_plane(k) * (area/(dVol*par%nphotons))
      enddo
   end select
+  !--- Ly-beta (line_type = 8) conversion-rate maps: identical normalization
+  !--- to Pa/P1/P2 (per-atom rate). Expectation: P_conv/Pa -> 0.11834.
+  if (line%line_type == 8) then
+     select case (grid%geometry_JPa)
+     case (3)
+        if (par%xy_periodic) then
+           grid%Pc(:,:,:) = grid%Pc(:,:,:)*(area/(dVol*par%nphotons))
+        else
+           grid%Pc(:,:,:) = grid%Pc(:,:,:)/(dVol*par%nphotons)
+        endif
+        if (par%xyz_symmetry) then
+           grid%Pc(:,:,:)  = grid%Pc(:,:,:) / grid%ncount3D(:,:,:)
+        endif
+     case (2)
+        do k=1,grid%nz
+        do j=1,grid%nr
+           if (grid%ncount_cyl(j,k) > 0) grid%Pc2(j,k) = grid%Pc2(j,k)/grid%ncount_cyl(j,k) / (dVol * par%nphotons)
+        enddo
+        enddo
+     case (1)
+        do k=1,grid%nr
+           if (grid%ncount_sph(k) > 0) grid%Pc1(k) = grid%Pc1(k)/ grid%ncount_sph(k) / (dVol * par%nphotons)
+        enddo
+     case (-1)
+        do k=1,grid%nz
+           if (grid%ncount_plane(k) > 0) grid%Pc1(k) = grid%Pc1(k)/grid%ncount_plane(k) * (area/(dVol*par%nphotons))
+        enddo
+     end select
+  endif
 #endif
 
 #ifdef CALCPnew
@@ -352,6 +422,11 @@ contains
         observer(k)%scatt(:,:,:)  = observer(k)%scatt(:,:,:) / scale_factor
         observer(k)%direc(:,:,:)  = observer(k)%direc(:,:,:) / scale_factor
 
+        !--- ly_beta band-2 (H-alpha) peel cube: same convention, band-2 bin unit.
+        if (associated(observer(k)%peel_Ha)) then
+           observer(k)%peel_Ha(:,:,:) = observer(k)%peel_Ha(:,:,:) / &
+              (par%no_photons*observer(k)%steradian_pix*intensity_bin_unit_Ha * par%distance2cm**2)
+        endif
         if (par%save_direc0) then
            observer(k)%direc0(:,:,:) = observer(k)%direc0(:,:,:)/ scale_factor
         endif
@@ -365,6 +440,23 @@ contains
            observer(k)%V(:,:,:) = observer(k)%V(:,:,:) / scale_factor
         endif
      enddo
+  endif
+
+  !--- Ly-beta fluorescence: per-band weight bookkeeping (per source photon).
+  !--- Conservation: band1_esc + band1_abs + conv = 1 ; band2_esc + band2_abs = conv.
+  if (line%line_type == 8 .and. mpar%p_rank == 0) then
+     nph = dble(par%nphotons)
+     write(*,'(a)')        '--- ly_beta bookkeeping (weights per source photon) ---'
+     write(*,'(a,es14.6)') '  band-1 (Ly-beta) escaped        : ', par%W_esc1/nph
+     write(*,'(a,es14.6)') '  band-1 (Ly-beta) dust-absorbed  : ', par%W_abs1/nph
+     write(*,'(a,es14.6)') '  conversions (3p->2s)            : ', par%W_conv/nph
+     write(*,'(a,es14.6)') '  band-2 (H-alpha) escaped        : ', par%W_esc2/nph
+     write(*,'(a,es14.6)') '  band-2 (H-alpha) dust-absorbed  : ', par%W_abs2/nph
+     write(*,'(a,es14.6)') '  band1_esc + band1_abs + conv (=1)     : ', &
+                           (par%W_esc1 + par%W_abs1 + par%W_conv)/nph
+     write(*,'(a,es14.6)') '  band2_esc + band2_abs (= conv)        : ', &
+                           (par%W_esc2 + par%W_abs2)/nph
+     write(*,'(a)')        '--------------------------------------------------------'
   endif
 
   end subroutine output_normalize_outside
@@ -557,6 +649,20 @@ contains
   if (allocated(amr_grid%Jmu)) &
       call MPI_ALLREDUCE(MPI_IN_PLACE, amr_grid%Jmu(1,1), amr_grid%nxfreq*size(amr_grid%Jmu,2), &
                           MPI_DOUBLE_PRECISION, MPI_SUM, MPI_COMM_WORLD, ierr)
+  !--- Ly-beta fluorescence (line_type = 8): band-2 spectra + weight bookkeeping.
+  if (line%line_type == 8) then
+     if (associated(amr_grid%Jout_Ha)) &
+         call MPI_ALLREDUCE(MPI_IN_PLACE, amr_grid%Jout_Ha(1), amr_grid%nxfreq_Ha, &
+                            MPI_DOUBLE_PRECISION, MPI_SUM, MPI_COMM_WORLD, ierr)
+     if (associated(amr_grid%Jabs_Ha)) &
+         call MPI_ALLREDUCE(MPI_IN_PLACE, amr_grid%Jabs_Ha(1), amr_grid%nxfreq_Ha, &
+                            MPI_DOUBLE_PRECISION, MPI_SUM, MPI_COMM_WORLD, ierr)
+     call MPI_ALLREDUCE(MPI_IN_PLACE, par%W_conv, 1, MPI_DOUBLE_PRECISION, MPI_SUM, MPI_COMM_WORLD, ierr)
+     call MPI_ALLREDUCE(MPI_IN_PLACE, par%W_esc1, 1, MPI_DOUBLE_PRECISION, MPI_SUM, MPI_COMM_WORLD, ierr)
+     call MPI_ALLREDUCE(MPI_IN_PLACE, par%W_abs1, 1, MPI_DOUBLE_PRECISION, MPI_SUM, MPI_COMM_WORLD, ierr)
+     call MPI_ALLREDUCE(MPI_IN_PLACE, par%W_esc2, 1, MPI_DOUBLE_PRECISION, MPI_SUM, MPI_COMM_WORLD, ierr)
+     call MPI_ALLREDUCE(MPI_IN_PLACE, par%W_abs2, 1, MPI_DOUBLE_PRECISION, MPI_SUM, MPI_COMM_WORLD, ierr)
+  endif
 
 #ifdef CALCJ
   select case (amr_grid%geometry_JPa)
@@ -571,6 +677,12 @@ contains
      case (2);     call reduce_mem(amr_grid%P2)
      case default; call reduce_mem(amr_grid%P1)
   end select
+  !--- Ly-beta (line_type = 8) conversion-rate maps.
+  if (line%line_type == 8) then
+     if (associated(amr_grid%Pc))  call reduce_mem(amr_grid%Pc)
+     if (associated(amr_grid%Pc2)) call reduce_mem(amr_grid%Pc2)
+     if (associated(amr_grid%Pc1)) call reduce_mem(amr_grid%Pc1)
+  endif
 #endif
 #ifdef CALCPnew
   select case (amr_grid%geometry_JPa)
@@ -585,6 +697,11 @@ contains
   if (allocated(amr_grid%Jin))  grid%Jin  = amr_grid%Jin
   if (allocated(amr_grid%Jabs)) grid%Jabs = amr_grid%Jabs
   if (allocated(amr_grid%Jmu))  grid%Jmu  = amr_grid%Jmu
+  !--- Ly-beta (line_type = 8): point grid band-2 pointers at reduced amr_grid data.
+  if (line%line_type == 8) then
+     if (associated(amr_grid%Jout_Ha)) grid%Jout_Ha => amr_grid%Jout_Ha
+     if (associated(amr_grid%Jabs_Ha)) grid%Jabs_Ha => amr_grid%Jabs_Ha
+  endif
 
   ! Peel-off observer array reductions (same as output_reduce_outside)
   if (par%save_peeloff_2D) then
@@ -604,6 +721,7 @@ contains
      do k = 1, par%nobs
         call reduce_mem(observer(k)%scatt)
         call reduce_mem(observer(k)%direc)
+        if (associated(observer(k)%peel_Ha)) call reduce_mem(observer(k)%peel_Ha)
         if (par%save_direc0)         call reduce_mem(observer(k)%direc0)
         if (par%save_dust_scattered) call reduce_mem(observer(k)%scatt_dust)
         if (par%use_stokes) then
@@ -622,6 +740,7 @@ contains
   implicit none
   type(grid_type), intent(inout) :: grid
   real(wp) :: area, norm_out, scale_factor, intensity_bin_unit
+  real(wp) :: intensity_bin_unit_Ha, norm_out_Ha
   integer  :: k, ierr
 #if defined (CALCJ) || defined (CALCP) || defined (CALCPnew)
   real(wp) :: d2
@@ -672,6 +791,21 @@ contains
   if (associated(grid%Jmu)) &
       grid%Jmu(:,:) = grid%Jmu(:,:) * par%nmu / norm_out
 
+  !--- Ly-beta (line_type = 8): band-2 (H-alpha) spectra. Same nphotons/area
+  !--- convention as band 1, but with the band-2 bin unit so band ratios are
+  !--- luminosity ratios per unit bandwidth (mirrors output_normalize_outside).
+  intensity_bin_unit_Ha = intensity_bin_unit
+  if (line%line_type == 8) then
+     if (par%intensity_unit == 1) then
+        intensity_bin_unit_Ha = grid%dwave_Ha
+     else
+        intensity_bin_unit_Ha = grid%dxfreq_Ha
+     end if
+     norm_out_Ha = norm_out * (intensity_bin_unit_Ha / intensity_bin_unit)
+     if (associated(grid%Jout_Ha)) grid%Jout_Ha(:) = grid%Jout_Ha(:) / norm_out_Ha
+     if (associated(grid%Jabs_Ha)) grid%Jabs_Ha(:) = grid%Jabs_Ha(:) / norm_out_Ha
+  end if
+
   ! Continuum normalization (same logic as output_normalize_outside)
   if ((trim(par%spectral_type) == 'continuum' .or. &
        trim(par%spectral_type) == 'continuum+gaussian') .and. par%continuum_normalize) then
@@ -690,6 +824,9 @@ contains
      if (associated(grid%Jabs))  grid%Jabs(:)  = grid%Jabs(:) /scale_factor
      if (associated(grid%Jabs2)) grid%Jabs2(:) = grid%Jabs2(:)/scale_factor
      if (associated(grid%Jmu))   grid%Jmu(:,:) = grid%Jmu(:,:)/scale_factor
+     !--- ly_beta band 2: divide by the same band-1 continuum level.
+     if (associated(grid%Jout_Ha)) grid%Jout_Ha(:) = grid%Jout_Ha(:)/scale_factor
+     if (associated(grid%Jabs_Ha)) grid%Jabs_Ha(:) = grid%Jabs_Ha(:)/scale_factor
   endif
 
   !--- CALCJ / CALCP / CALCPnew : volume-weighted normalization on AMR leaves.
@@ -770,6 +907,41 @@ contains
            amr_grid%P1(ir) = amr_grid%P1(ir) / (amr_grid%vol_sph(ir) * d2 * par%nphotons)
      end do
   end select
+  !--- Ly-beta (line_type = 8) conversion-rate maps: identical per-atom-rate
+  !--- volume-weighted normalization as Pa (expectation P_conv/Pa -> 0.11834).
+  if (line%line_type == 8) then
+     select case (amr_grid%geometry_JPa)
+     case (3)
+        do il = 1, amr_grid%nleaf
+           if (amr_grid%vol_leaf(il) > 0.0_wp) then
+              if (par%xy_periodic) then
+                 amr_grid%Pc(il) = amr_grid%Pc(il) * (amr_grid%xrange*amr_grid%yrange) / &
+                    (amr_grid%vol_leaf(il) * par%nphotons)
+              else
+                 amr_grid%Pc(il) = amr_grid%Pc(il) / (amr_grid%vol_leaf(il) * d2 * par%nphotons)
+              end if
+           end if
+        end do
+     case (2)
+        do iz = 1, amr_grid%nz_JPa
+        do ir = 1, amr_grid%nr_JPa
+           if (amr_grid%vol_cyl(ir,iz) > 0.0_wp) &
+              amr_grid%Pc2(ir,iz) = amr_grid%Pc2(ir,iz) / (amr_grid%vol_cyl(ir,iz) * d2 * par%nphotons)
+        end do
+        end do
+     case (-1)
+        do iz = 1, amr_grid%nz_JPa
+           if (amr_grid%vol_plane(iz) > 0.0_wp) &
+              amr_grid%Pc1(iz) = amr_grid%Pc1(iz) * (amr_grid%xrange*amr_grid%yrange) / &
+                 (amr_grid%vol_plane(iz) * par%nphotons)
+        end do
+     case default   ! geometry_JPa == 1 (radial / sphere)
+        do ir = 1, amr_grid%nr_JPa
+           if (amr_grid%vol_sph(ir) > 0.0_wp) &
+              amr_grid%Pc1(ir) = amr_grid%Pc1(ir) / (amr_grid%vol_sph(ir) * d2 * par%nphotons)
+        end do
+     end select
+  endif
 #endif
 #ifdef CALCPnew
   select case (amr_grid%geometry_JPa)
@@ -826,6 +998,11 @@ contains
         scale_factor = par%no_photons * observer(k)%steradian_pix * intensity_bin_unit * par%distance2cm**2
         observer(k)%scatt(:,:,:) = observer(k)%scatt(:,:,:) / scale_factor
         observer(k)%direc(:,:,:) = observer(k)%direc(:,:,:) / scale_factor
+        !--- ly_beta band-2 (H-alpha) peel cube: same convention, band-2 bin unit.
+        if (associated(observer(k)%peel_Ha)) then
+           observer(k)%peel_Ha(:,:,:) = observer(k)%peel_Ha(:,:,:) / &
+              (par%no_photons * observer(k)%steradian_pix * intensity_bin_unit_Ha * par%distance2cm**2)
+        endif
         if (par%save_direc0) &
             observer(k)%direc0(:,:,:) = observer(k)%direc0(:,:,:) / scale_factor
         if (par%save_dust_scattered) &
@@ -838,6 +1015,22 @@ contains
         end if
      end do
   end if
+
+  !--- Ly-beta fluorescence: per-band weight bookkeeping (per source photon).
+  !--- Conservation: band1_esc + band1_abs + conv = 1 ; band2_esc + band2_abs = conv.
+  if (line%line_type == 8 .and. mpar%p_rank == 0) then
+     write(*,'(a)')        '--- ly_beta bookkeeping (weights per source photon) ---'
+     write(*,'(a,es14.6)') '  band-1 (Ly-beta) escaped        : ', par%W_esc1/dble(par%nphotons)
+     write(*,'(a,es14.6)') '  band-1 (Ly-beta) dust-absorbed  : ', par%W_abs1/dble(par%nphotons)
+     write(*,'(a,es14.6)') '  conversions (3p->2s)            : ', par%W_conv/dble(par%nphotons)
+     write(*,'(a,es14.6)') '  band-2 (H-alpha) escaped        : ', par%W_esc2/dble(par%nphotons)
+     write(*,'(a,es14.6)') '  band-2 (H-alpha) dust-absorbed  : ', par%W_abs2/dble(par%nphotons)
+     write(*,'(a,es14.6)') '  band1_esc + band1_abs + conv (=1)     : ', &
+                           (par%W_esc1 + par%W_abs1 + par%W_conv)/dble(par%nphotons)
+     write(*,'(a,es14.6)') '  band2_esc + band2_abs (= conv)        : ', &
+                           (par%W_esc2 + par%W_abs2)/dble(par%nphotons)
+     write(*,'(a)')        '--------------------------------------------------------'
+  endif
   end subroutine output_normalize_amr
 !--------------------------------------------------------------
 end module output_sum_rect

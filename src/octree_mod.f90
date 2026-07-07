@@ -82,6 +82,15 @@ module octree_mod
     real(wp), allocatable :: Jabs(:)  ! absorbed by dust spectrum
     real(wp), allocatable :: Jmu(:,:) ! escaped spectrum binned by mu = cos(theta_z)
 
+    ! ------ Ly-beta (line_type = 8): band-2 (H-alpha) spectral grid + spectra ------
+    ! Band-2 axis is in H-alpha Doppler units (v_th identical to band 1, so the
+    ! velocity range maps 1:1).  Mirrors the Cartesian grid_type Ha members.
+    integer  :: nxfreq_Ha    = 0
+    real(wp) :: xfreq_min_Ha = 0.0_wp, xfreq_max_Ha = 0.0_wp
+    real(wp) :: dxfreq_Ha    = 0.0_wp, dwave_Ha     = 0.0_wp
+    real(wp), pointer :: Jout_Ha(:) => null()  ! escaped H-alpha spectrum (band 2)
+    real(wp), pointer :: Jabs_Ha(:) => null()  ! dust-absorbed H-alpha spectrum (band 2)
+
     ! ------ CALCJ / CALCP / CALCPnew : mean-intensity & scattering-rate maps ------
     ! Per-leaf storage (the natural AMR counterpart of the Cartesian (i,j,k) arrays).
     ! geometry_JPa: 3 = per-leaf 3D, 2 = cylinder (r,z), 1 = sphere (radial),
@@ -114,6 +123,11 @@ module octree_mod
     real(dp), pointer :: Pa(:)   => null()    ! (nleaf) geom 3
     real(wp), pointer :: P1(:)   => null()    ! (nr) geom 1 / (nz) geom -1
     real(wp), pointer :: P2(:,:) => null()    ! (nr,nz) geom 2
+    !--- Ly-beta (line_type = 8) conversion-rate maps: same shapes/binning/
+    !--- normalization as Pa/P1/P2, accumulated at 3p->2s conversion events only.
+    real(dp), pointer :: Pc(:)   => null()    ! (nleaf) geom 3
+    real(wp), pointer :: Pc1(:)  => null()    ! (nr) geom 1 / (nz) geom -1
+    real(wp), pointer :: Pc2(:,:) => null()   ! (nr,nz) geom 2
 #endif
 #ifdef CALCPnew
     real(dp), pointer :: Pa_new(:)   => null()
@@ -588,6 +602,13 @@ contains
        if (save_jmu .and. present(nmu)) then
           allocate(amr_grid%Jmu(n, nmu), source=0.0_wp)
        endif
+    endif
+    !--- Ly-beta (line_type = 8): band-2 (H-alpha) escaped/absorbed spectra.
+    !--- nxfreq_Ha is finalized in amr_setup_freq_grid (called before this).
+    if (line%line_type == 8) then
+       allocate(amr_grid%Jout_Ha(amr_grid%nxfreq_Ha), source=0.0_wp)
+       if (save_jabs .and. use_dust) &
+          allocate(amr_grid%Jabs_Ha(amr_grid%nxfreq_Ha), source=0.0_wp)
     endif
   end subroutine amr_alloc_output
 

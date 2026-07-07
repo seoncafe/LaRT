@@ -10,6 +10,19 @@ gamma) direction); the routine collects them all into a list of
 PeelObservation objects, and provides a plotting method to compare each
 observer's spatially-averaged spectrum with the Jmu(mu = cos(beta)) curve.
 
+Ly-beta multiband output (`par%line_id = 'ly_beta'`) adds the H-alpha /
+two-photon daughter sections produced by Ly-beta destruction:
+``Jout_Ha`` / ``Jabs_Ha`` (H-alpha escape / dust-absorbed spectra),
+``J2gam`` (two-photon continuum vs. y = nu/nu_Lya), ``peel_Ha`` (H-alpha
+peel-off cube, one per observer), and ``P_conv_*`` (Ly-beta -> H-alpha
+conversion-rate profiles, CALCP builds).  A per-incident-photon photon
+budget (``lyb_budget``: esc1/abs1/conv/esc2/abs2) is reconstructed from
+the ``Jout_Ha`` header weights.  All these fields are ``None`` for a
+non-ly_beta file, so existing behavior is unchanged.  The plotting
+helpers ``plot_spectrum``, ``plot_peeling_map`` and
+``plot_peeling_spectrum`` gain a ``band=`` keyword ('lyb' default, 'ha',
+or (spectrum only) '2gam'); ``plot_lyb_budget`` draws the budget bars.
+
 Usage (module):
     from read_lart import read_lart
     out = read_lart('t1tau2.in')
@@ -68,6 +81,9 @@ class PeelObservation:
     scatt:     np.ndarray
     direc:     np.ndarray
     direc0:    Optional[np.ndarray] = None
+    # H-alpha peel-off cube (par%line_id='ly_beta'); single combined cube
+    # with no scattered/direct split.  None for non-ly_beta observers.
+    ha:        Optional[np.ndarray] = None
     header:    dict = field(default_factory=dict)
     # HEALPix-specific (only meaningful when kind == 'heal'):
     kind:      str  = 'rect'
@@ -127,9 +143,10 @@ class PeelObservation:
             Velocity grid -- typically pass ``LaRTOutput.velocity``.
         order : {0, 1, 2}
             Moment order (default 1).
-        component : {'all', 'scatt', 'direct'}
+        component : {'all', 'scatt', 'direct', 'ha'}
             Which spectrum to integrate.  ``'all'`` (default) is
-            scattered + direct, matching ``self.cube``.
+            scattered + direct, matching ``self.cube``.  ``'ha'`` selects
+            the H-alpha (``peel_Ha``) cube for ly_beta runs.
         vel_range : (lo, hi), optional
             Restrict integration to ``lo <= v <= hi`` (km/s).  Either
             bound may be None to leave it unbounded.
@@ -146,9 +163,16 @@ class PeelObservation:
             cube = self.scatt
         elif component == 'direct':
             cube = self.direc
+        elif component == 'ha':
+            if self.ha is None:
+                raise ValueError(
+                    "component='ha' requested but this observer has no "
+                    "H-alpha (peel_Ha) cube -- run with par%line_id='ly_beta' "
+                    "and par%save_peeloff.")
+            cube = self.ha
         else:
-            raise ValueError(f"component must be 'all', 'scatt', or "
-                             f"'direct', got {component!r}")
+            raise ValueError(f"component must be 'all', 'scatt', 'direct', "
+                             f"or 'ha', got {component!r}")
         if order not in (0, 1, 2):
             raise ValueError(f"order must be 0, 1, or 2, got {order}")
 
@@ -648,6 +672,27 @@ class LaRTOutput:
     z_JPa:       Optional[np.ndarray] = None       # z bin centers
     z_JPa_edges: Optional[np.ndarray] = None
     jpa_header:  dict = field(default_factory=dict)
+    # --- Ly-beta multiband daughter output (par%line_id='ly_beta') ---
+    # All None for a non-ly_beta file.  Jout_Ha / Jabs_Ha are the H-alpha
+    # escape / dust-absorbed spectra on their own frequency grid
+    # (xfreq_Ha / velocity_Ha / wavelength_Ha).  J2gam is the two-photon
+    # continuum vs. y_2gam (= nu / nu_Lya).  Pconv* are the Ly-beta ->
+    # H-alpha conversion-rate profiles (CALCP builds), sharing the CALCJ
+    # r_JPa / z_JPa bin axes.  lyb_budget is a per-incident-photon dict
+    # (esc1/abs1/conv/esc2/abs2).
+    Jout_Ha:     Optional[np.ndarray] = None
+    Jabs_Ha:     Optional[np.ndarray] = None
+    xfreq_Ha:    Optional[np.ndarray] = None
+    wavelength_Ha: Optional[np.ndarray] = None
+    velocity_Ha: Optional[np.ndarray] = None
+    J2gam:       Optional[np.ndarray] = None
+    y_2gam:      Optional[np.ndarray] = None
+    Pconv1:      Optional[np.ndarray] = None
+    Pconv2:      Optional[np.ndarray] = None
+    Pconv3D:     Optional[np.ndarray] = None
+    Pconv_leaf:  Optional[np.ndarray] = None
+    lyb_budget:  Optional[dict] = None
+    lyb_header:  dict = field(default_factory=dict)
     # --- Peel-off observers (optional) ---
     peelings:    List[PeelObservation] = field(default_factory=list)
     # --- Metadata ---
@@ -695,11 +740,31 @@ class LaRTOutput:
         if self.peelings:
             lines.append(f"peelings : {len(self.peelings)} observer(s)")
             for i, p in enumerate(self.peelings, 1):
+                ha_tag = '  +Ha' if p.ha is not None else ''
                 lines.append(f"   #{i:02d}: alpha={p.alpha:+6.1f} "
                              f"beta={p.beta:+6.1f} gamma={p.gamma:+6.1f}  "
-                             f"mu={p.mu:+.4f}  ({os.path.basename(p.file_name)})")
+                             f"mu={p.mu:+.4f}  ({os.path.basename(p.file_name)})"
+                             f"{ha_tag}")
         else:
             lines.append("peelings : (none)")
+        # Ly-beta multiband daughter sections (par%line_id='ly_beta')
+        lyb_bits = [n for n in ('Jout_Ha', 'Jabs_Ha', 'J2gam')
+                    if getattr(self, n) is not None]
+        pconv_bits = [n for n in ('Pconv1', 'Pconv2', 'Pconv3D', 'Pconv_leaf')
+                      if getattr(self, n) is not None]
+        if lyb_bits or pconv_bits or self.lyb_budget is not None:
+            present = list(lyb_bits)
+            if pconv_bits:
+                present.append('P_conv(' + ','.join(pconv_bits) + ')')
+            lines.append("ly_beta  : " + (', '.join(present) if present
+                                          else '(sections absent)'))
+            b = self.lyb_budget
+            if b is not None:
+                lines.append(
+                    "  budget : "
+                    f"esc1={b['esc1']:.4g} abs1={b['abs1']:.4g} "
+                    f"conv={b['conv']:.4g} | esc2={b['esc2']:.4g} "
+                    f"abs2={b['abs2']:.4g}")
         return '\n'.join(lines)
 
     # ------------------------------------------------------------------
@@ -707,6 +772,7 @@ class LaRTOutput:
     # ------------------------------------------------------------------
     def plot_spectrum(self,
                       ax=None,
+                      band: str = 'lyb',
                       components=('Jout', 'Jin'),
                       x: str = 'velocity',
                       log: bool = False,
@@ -731,10 +797,18 @@ class LaRTOutput:
         ----------
         ax : matplotlib.axes.Axes, optional
             Existing axes to draw on; created if None.
+        band : {'lyb', 'ha', '2gam'}
+            Which output band to draw (default ``'lyb'``, the primary
+            Ly-beta/Ly-alpha spectrum -- unchanged behavior).  ``'ha'``
+            plots the H-alpha daughter spectrum ``Jout_Ha`` (and
+            ``Jabs_Ha`` if present) vs. ``velocity_Ha``; ``'2gam'`` plots
+            the two-photon continuum ``J2gam`` vs. ``y_2gam``.  The 'ha'
+            and '2gam' bands ignore ``components``/``x`` and use their own
+            axes.  Both require a ``par%line_id='ly_beta'`` run.
         components : tuple of str, optional
             Subset of {'Jout', 'Jin', 'Jabs', 'Jabs2'} to plot.  Components
             that are not present in the file are silently skipped.
-            Default ``('Jout', 'Jin')``.
+            Default ``('Jout', 'Jin')``.  Only used for ``band='lyb'``.
         x : {'velocity', 'xfreq', 'wavelength'}
             Quantity for the x-axis (default 'velocity', km/s).
         log : bool
@@ -753,6 +827,15 @@ class LaRTOutput:
         -------
         ax : matplotlib.axes.Axes
         """
+        if band not in ('lyb', 'ha', '2gam'):
+            raise ValueError(f"band must be 'lyb', 'ha', or '2gam', got "
+                             f"{band!r}")
+        if band != 'lyb':
+            return self._plot_spectrum_daughter(
+                band, ax=ax, log=log, xlim=xlim, ylim=ylim,
+                xmin=xmin, xmax=xmax, ymin=ymin, ymax=ymax,
+                colors=colors, title=title, show=show, savefig=savefig,
+                **plot_kwargs)
         if self.xfreq is None:
             raise RuntimeError(
                 "Spectrum table not available -- this LaRT output has no "
@@ -808,6 +891,124 @@ class LaRTOutput:
         ax.grid(alpha=0.3)
         if savefig is not None:
             ax.figure.savefig(savefig)
+        if show:
+            plt.show()
+        return ax
+
+    # ------------------------------------------------------------------
+    # Plotting: Ly-beta daughter spectra (H-alpha / two-photon)
+    # ------------------------------------------------------------------
+    def _plot_spectrum_daughter(self, band, ax=None, log=False,
+                                xlim=None, ylim=None,
+                                xmin=None, xmax=None, ymin=None, ymax=None,
+                                colors=None, title=None,
+                                show=False, savefig=None, **plot_kwargs):
+        """Dedicated plotter for ``band='ha'`` / ``'2gam'`` used by
+        :meth:`plot_spectrum` (see there for the parameters)."""
+        import matplotlib.pyplot as plt
+        xlim_eff = _resolve_lim(xlim, xmin, xmax)
+        ylim_eff = _resolve_lim(ylim, ymin, ymax)
+        cmap = {'Jout_Ha': 'tab:blue', 'Jabs_Ha': 'tab:red',
+                'J2gam': 'tab:green'}
+        if colors:
+            cmap.update(colors)
+        if ax is None:
+            _, ax = plt.subplots(figsize=(7.0, 4.0))
+
+        if band == 'ha':
+            if self.Jout_Ha is None:
+                raise RuntimeError(
+                    "No H-alpha spectrum (Jout_Ha) in this output -- run "
+                    "with par%line_id='ly_beta'.")
+            if self.velocity_Ha is not None:
+                xvals, xlabel = self.velocity_Ha, r'velocity [km s$^{-1}$]'
+            else:  # no band-1 velocity axis to derive vth: fall back to xfreq
+                xvals = (self.xfreq_Ha if self.xfreq_Ha is not None
+                         else np.arange(len(self.Jout_Ha)))
+                xlabel = r'$x_{\rm H\alpha}$'
+            ax.plot(xvals, self.Jout_Ha, color=cmap['Jout_Ha'],
+                    label=r'H$\alpha$ (escaped)', **plot_kwargs)
+            if self.Jabs_Ha is not None:
+                ax.plot(xvals, self.Jabs_Ha, color=cmap['Jabs_Ha'],
+                        ls='--', alpha=0.8,
+                        label=r'H$\alpha$ (dust abs.)', **plot_kwargs)
+            ax.set_xlabel(xlabel)
+            ax.set_ylabel(r'$J_{\rm H\alpha}$')
+        else:  # '2gam'
+            if self.J2gam is None:
+                raise RuntimeError(
+                    "No two-photon spectrum (J2gam) in this output -- run "
+                    "with par%line_id='ly_beta'.")
+            xvals = (self.y_2gam if self.y_2gam is not None
+                     else np.arange(len(self.J2gam)))
+            ax.plot(xvals, self.J2gam, color=cmap['J2gam'],
+                    label=r'2$\gamma$ continuum', **plot_kwargs)
+            ax.set_xlabel(r'$y=\nu/\nu_{\rm Ly\alpha}$')
+            ax.set_ylabel(r'$J_{2\gamma}(y)$')
+
+        if log:
+            ax.set_yscale('log')
+        if xlim_eff is not None:
+            ax.set_xlim(*xlim_eff)
+        if ylim_eff is not None:
+            ax.set_ylim(*ylim_eff)
+        if title is not None:
+            ax.set_title(title)
+        ax.legend(loc='best')
+        ax.grid(alpha=0.3)
+        if savefig is not None:
+            ax.figure.savefig(savefig)
+        if show:
+            plt.show()
+        return ax
+
+    # ------------------------------------------------------------------
+    # Plotting: Ly-beta destruction photon budget (bar chart)
+    # ------------------------------------------------------------------
+    def plot_lyb_budget(self, ax=None, show: bool = False,
+                        savefig: Optional[str] = None):
+        r"""Bar chart of the Ly-beta destruction photon budget.
+
+        Draws the five per-incident-photon fractions in ``self.lyb_budget``
+        (``esc1`` Ly-beta escape, ``abs1`` Ly-beta dust absorption, ``conv``
+        conversion to H-alpha + 2-photon, ``esc2`` H-alpha escape, ``abs2``
+        H-alpha dust absorption).  Raises if ``lyb_budget`` is None (i.e.
+        the run was not ``par%line_id='ly_beta'``).
+
+        Returns
+        -------
+        ax : matplotlib.axes.Axes
+        """
+        if self.lyb_budget is None:
+            raise RuntimeError(
+                "No Ly-beta budget available -- run with "
+                "par%line_id='ly_beta'.")
+        import matplotlib.pyplot as plt
+        b = self.lyb_budget
+        keys   = ['esc1', 'abs1', 'conv', 'esc2', 'abs2']
+        labels = [r'Ly$\beta$ esc', r'Ly$\beta$ dust abs', 'conv',
+                  r'H$\alpha$ esc', r'H$\alpha$ dust abs']
+        vals   = [b[k] for k in keys]
+        colors = ['tab:blue', 'tab:red', 'tab:purple',
+                  'tab:green', 'tab:orange']
+        if ax is None:
+            _, ax = plt.subplots(figsize=(7.0, 4.0))
+        xpos = np.arange(len(keys))
+        bars = ax.bar(xpos, vals, color=colors)
+        for rect, v in zip(bars, vals):
+            ax.annotate(f'{v:.3g}',
+                        xy=(rect.get_x() + rect.get_width()/2.0, v),
+                        xytext=(0, 3), textcoords='offset points',
+                        ha='center', va='bottom', fontsize=9)
+        ax.set_xticks(xpos)
+        ax.set_xticklabels(labels, rotation=20, ha='right')
+        ax.set_ylabel('fraction of incident photons')
+        ax.set_ylim(0, max(1.0, max(vals) * 1.15))
+        ax.set_title(os.path.basename(self.fits_file), fontsize=10)
+        ax.grid(axis='y', alpha=0.3)
+        ax.figure.tight_layout()
+        if savefig is not None:
+            ax.figure.savefig(savefig, dpi=150)
         if show:
             plt.show()
         return ax
@@ -1484,6 +1685,7 @@ class LaRTOutput:
     # ------------------------------------------------------------------
     def plot_peeling_map(self,
                          observer: Optional[int] = None,
+                         band: str = 'lyb',
                          component: str = 'all',
                          vel_range: Optional[Tuple[float, float]] = None,
                          vel_min:   Optional[float] = None,
@@ -1513,8 +1715,14 @@ class LaRTOutput:
         observer : int, optional
             Index into ``self.peelings``.  If None (default), every
             peel-off observer is drawn as a subplot panel.
+        band : {'lyb', 'ha'}
+            Which peel-off cube to map (default ``'lyb'``, the primary
+            band -- unchanged behavior).  ``'ha'`` uses the H-alpha
+            ``peel.ha`` cube with the ``velocity_Ha`` axis (forces
+            ``component='ha'``); requires a ``par%line_id='ly_beta'`` run.
         component : {'all', 'scatt', 'direct'}
-            Which part of the peel-off cube to use.
+            Which part of the peel-off cube to use (ignored when
+            ``band='ha'``).
         vel_range : (lo, hi), optional
             Restrict integration to ``lo <= v <= hi`` (km/s).
         vel_min, vel_max : float, optional
@@ -1544,10 +1752,25 @@ class LaRTOutput:
         """
         if not self.peelings:
             raise RuntimeError("No peel-off observers were found for this run.")
-        if self.velocity is None:
-            raise RuntimeError(
-                "velocity grid not available -- the FITS Spectrum table "
-                "has no 'velocity' column.")
+        if band not in ('lyb', 'ha'):
+            raise ValueError(f"band must be 'lyb' or 'ha', got {band!r}")
+        if band == 'ha':
+            if self.velocity_Ha is None:
+                raise RuntimeError(
+                    "band='ha' requires the velocity_Ha axis -- run with "
+                    "par%line_id='ly_beta'.")
+            if any(p.ha is None for p in self.peelings):
+                raise RuntimeError(
+                    "band='ha' requires an H-alpha (peel_Ha) cube on every "
+                    "peel-off observer -- run with par%line_id='ly_beta'.")
+            vel_axis = self.velocity_Ha
+            component = 'ha'
+        else:
+            if self.velocity is None:
+                raise RuntimeError(
+                    "velocity grid not available -- the FITS Spectrum table "
+                    "has no 'velocity' column.")
+            vel_axis = self.velocity
 
         vel_range_eff = _resolve_vel_range_for_peeling(
             self, vel_range, vel_min, vel_max, wav_min, wav_max)
@@ -1595,7 +1818,7 @@ class LaRTOutput:
             return Normalize(vmin=lo, vmax=hi)
 
         def _moment0(peel):
-            return peel.velocity_moment_map(self.velocity, order=0,
+            return peel.velocity_moment_map(vel_axis, order=0,
                                             component=component,
                                             vel_range=vel_range_eff)
 
@@ -1740,6 +1963,7 @@ class LaRTOutput:
     # ------------------------------------------------------------------
     def plot_peeling_spectrum(self,
                               observer: Optional[int] = None,
+                              band: str = 'lyb',
                               x: str = 'velocity',
                               component: str = 'all',
                               mode: str = 'sum',
@@ -1767,10 +1991,16 @@ class LaRTOutput:
             Index into ``self.peelings``.  If None (default), every
             observer is drawn -- on a single set of axes (``ax`` given
             or only one observer) or as a grid of subplots otherwise.
+        band : {'lyb', 'ha'}
+            Which peel-off cube to integrate (default ``'lyb'``, the
+            primary band -- unchanged behavior).  ``'ha'`` uses the
+            H-alpha ``peel.ha`` cube on the ``velocity_Ha`` axis (forces
+            ``component='ha'``, ``x='velocity'``); requires a
+            ``par%line_id='ly_beta'`` run.
         x : {'velocity', 'xfreq', 'wavelength'}
-            X-axis quantity.
+            X-axis quantity (ignored when ``band='ha'``).
         component : {'all', 'scatt', 'direct'}
-            Which cube to use.
+            Which cube to use (ignored when ``band='ha'``).
         mode : {'sum', 'mean'}
             Spatial reduction over the (y, x) image axes.  ``'sum'``
             (default) integrates over pixels; ``'mean'`` returns the
@@ -1799,9 +2029,21 @@ class LaRTOutput:
         """
         if not self.peelings:
             raise RuntimeError("No peel-off observers were found for this run.")
+        if band not in ('lyb', 'ha'):
+            raise ValueError(f"band must be 'lyb' or 'ha', got {band!r}")
         if mode not in ('sum', 'mean'):
             raise ValueError(f"mode must be 'sum' or 'mean', got {mode!r}")
-        if component not in ('all', 'scatt', 'direct'):
+        if band == 'ha':
+            if self.velocity_Ha is None:
+                raise RuntimeError(
+                    "band='ha' requires the velocity_Ha axis -- run with "
+                    "par%line_id='ly_beta'.")
+            if any(p.ha is None for p in self.peelings):
+                raise RuntimeError(
+                    "band='ha' requires an H-alpha (peel_Ha) cube on every "
+                    "peel-off observer -- run with par%line_id='ly_beta'.")
+            component = 'ha'
+        elif component not in ('all', 'scatt', 'direct'):
             raise ValueError(f"component must be 'all', 'scatt', or "
                              f"'direct', got {component!r}")
         if yscale not in ('linear', 'log'):
@@ -1809,7 +2051,10 @@ class LaRTOutput:
 
         import matplotlib.pyplot as plt
 
-        xvals, xlabel, _, _ = _x_axis_pick(self, x)
+        if band == 'ha':
+            xvals, xlabel = self.velocity_Ha, r'velocity [km s$^{-1}$]'
+        else:
+            xvals, xlabel, _, _ = _x_axis_pick(self, x)
         xlim_eff = _resolve_lim(xlim, xmin, xmax)
         ylim_eff = _resolve_lim(ylim, ymin, ymax)
 
@@ -1844,6 +2089,8 @@ class LaRTOutput:
                 cube = peel.cube
             elif component == 'scatt':
                 cube = peel.scatt
+            elif component == 'ha':
+                cube = peel.ha
             else:
                 cube = peel.direc
             mask = _annulus_mask(peel)
@@ -2593,6 +2840,12 @@ def _read_peel_observation(fname: str) -> Optional[PeelObservation]:
     direct0 = lf.section('Direct0')
     direc0 = (np.asarray(direct0.data)
               if direct0 is not None and direct0.data is not None else None)
+    # H-alpha peel-off cube (par%line_id='ly_beta'): single combined cube,
+    # same file as Scattered/Direct.  None when absent.
+    peel_ha_sec = lf.section('peel_Ha')
+    ha_cube = (np.asarray(peel_ha_sec.data)
+               if peel_ha_sec is not None and peel_ha_sec.data is not None
+               else None)
     # Build a header-ish dict for backwards-compat callers that use
     # ``po.header['KEY']``.  Provide case-variant aliases for the few
     # mixed-case keywords that LaRT writes (alpha/beta/gamma/nphotons).
@@ -2630,6 +2883,7 @@ def _read_peel_observation(fname: str) -> Optional[PeelObservation]:
             scatt     = scatt,
             direc     = direc,
             direc0    = direc0,
+            ha        = ha_cube,
             header    = hdr,
             kind      = 'heal',
             nside     = nside_val,
@@ -2658,6 +2912,7 @@ def _read_peel_observation(fname: str) -> Optional[PeelObservation]:
         scatt     = scatt,
         direc     = direc,
         direc0    = direc0,
+        ha        = ha_cube,
         header    = hdr,
         kind      = 'rect',
     )
@@ -2814,6 +3069,13 @@ def _read_JPa(lf, params: dict) -> dict:
         ('Pa_1D', 'P1'), ('Pa_2D', 'P2'), ('Pa_3D', 'Pa3D'), ('Pa_AMR', 'Pa_leaf'),
         ('Pa_1D_new', 'P1_new'), ('Pa_2D_new', 'P2_new'),
         ('Pa_3D_new', 'Pa3D_new'), ('Pa_AMR_new', 'Pa_leaf_new'),
+        # Ly-beta -> H-alpha conversion-rate profiles (CALCP builds,
+        # par%line_id='ly_beta').  These carry the same geom_JPa / nr / dr /
+        # nz / zmin / dz axis keywords as the Pa sections; when a Pa section
+        # already set geometry_JPa the axis block is skipped and the shared
+        # r_JPa / z_JPa axes apply.  No '_new' variant exists for P_conv.
+        ('P_conv_1D', 'Pconv1'), ('P_conv_2D', 'Pconv2'),
+        ('P_conv_3D', 'Pconv3D'), ('P_conv_AMR', 'Pconv_leaf'),
     ]
     out: dict = {}
     for sec_name, field_name in name_map:
@@ -2852,6 +3114,66 @@ def _read_JPa(lf, params: dict) -> dict:
                     # offset that is not reconstructed here).
                     out['r_JPa_edges'] = np.arange(nbin + 1) * (rmax/nbin)
                     out['r_JPa']       = (np.arange(nbin) + 0.5) * (rmax/nbin)
+    return out
+
+
+def _read_lyb(lf, xfreq, velocity) -> dict:
+    """Load the Ly-beta multiband daughter sections (par%line_id='ly_beta').
+
+    Reads ``Jout_Ha`` / ``Jabs_Ha`` (H-alpha escape / dust-absorbed spectra)
+    and ``J2gam`` (two-photon continuum), reconstructs the H-alpha
+    frequency / velocity / wavelength axes and the two-photon ``y`` axis,
+    and builds the per-incident-photon photon budget from the ``Jout_Ha``
+    header weights.  Returns a dict of LaRTOutput field values (empty when
+    the file has no ``Jout_Ha`` section, i.e. a non-ly_beta run).
+    """
+    out: dict = {}
+    sec = lf.section('Jout_Ha')
+    if sec is None or sec.data is None:
+        return out
+    jout_ha = np.asarray(sec.data).ravel()
+    out['Jout_Ha']   = jout_ha
+    out['lyb_header'] = dict(sec.attrs)
+    n  = _attr_scalar(sec.attr('nxfreq_Ha'), int) or jout_ha.shape[0]
+    dx = _attr_scalar(sec.attr('Dxfreq_Ha'))
+    x1 = _attr_scalar(sec.attr('Xfreq1_Ha'))
+    dw = _attr_scalar(sec.attr('Dwave_Ha'))
+    l0 = _attr_scalar(sec.attr('lambda0_Ha'))
+    if dx is not None and x1 is not None:
+        xfreq_Ha = x1 + (np.arange(n) + 0.5) * dx
+        out['xfreq_Ha'] = xfreq_Ha
+        # velocity axis: reuse the band-1 thermal scaling vth (km/s per x).
+        if (velocity is not None and xfreq is not None
+                and len(velocity) >= 2 and len(xfreq) >= 2):
+            vth = ((float(velocity[-1]) - float(velocity[0]))
+                   / (float(xfreq[-1]) - float(xfreq[0])))
+            out['velocity_Ha'] = xfreq_Ha * vth
+        if dw is not None and l0 is not None and dx:
+            out['wavelength_Ha'] = l0 + (xfreq_Ha / dx) * dw
+    # Per-incident-photon photon budget.  The five W_* header weights are
+    # already stored as per-incident-photon fractions (NOT divided by
+    # nphotons); normalize defensively by the incident total so the result
+    # is correct regardless of storage convention.
+    w = {k: _attr_scalar(sec.attr(k))
+         for k in ('W_esc1', 'W_abs1', 'W_conv', 'W_esc2', 'W_abs2')}
+    if all(v is not None for v in w.values()):
+        total = w['W_esc1'] + w['W_abs1'] + w['W_conv']
+        if total > 0:
+            out['lyb_budget'] = {
+                'esc1': w['W_esc1'] / total, 'abs1': w['W_abs1'] / total,
+                'conv': w['W_conv'] / total, 'esc2': w['W_esc2'] / total,
+                'abs2': w['W_abs2'] / total}
+    sec = lf.section('Jabs_Ha')
+    if sec is not None and sec.data is not None:
+        out['Jabs_Ha'] = np.asarray(sec.data).ravel()
+    sec = lf.section('J2gam')
+    if sec is not None and sec.data is not None:
+        j2 = np.asarray(sec.data).ravel()
+        out['J2gam'] = j2
+        ny = _attr_scalar(sec.attr('ny_2gam'), int) or j2.shape[0]
+        dy = _attr_scalar(sec.attr('dy_2gam'))
+        if dy is not None:
+            out['y_2gam'] = (np.arange(ny) + 0.5) * dy
     return out
 
 
@@ -2971,6 +3293,9 @@ def read_lart(name: str) -> LaRTOutput:
     # CALCJ / CALCP / CALCPnew sections (optional)
     jpa_fields = _read_JPa(lf, params)
 
+    # Ly-beta multiband daughter sections (par%line_id='ly_beta'; optional)
+    lyb_fields = _read_lyb(lf, xfreq, velocity)
+
     # Peel-off observers (optional)
     peelings: List[PeelObservation] = []
     for fname in _peel_file_list(fits_file):
@@ -3001,6 +3326,7 @@ def read_lart(name: str) -> LaRTOutput:
         jmu_header = jmu_hdr_d,
         params = params,
         **jpa_fields,
+        **lyb_fields,
     )
 
 

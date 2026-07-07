@@ -58,6 +58,7 @@ module raytrace_amr_mod
 
   public :: raytrace_to_tau_amr
   public :: raytrace_to_edge_amr
+  public :: raytrace_to_edge_amr_dust_Ha
   public :: raytrace_to_edge_tau_gas_amr
   public :: raytrace_to_edge_column_amr
   public :: raytrace_to_dist_amr
@@ -106,11 +107,22 @@ contains
       icell = amr_grid%icell_of_leaf(il)
       call amr_cell_exit(icell, x, y, z, kx, ky, kz, t_exit, iface)
 
-      rhokapH = amr_grid%rhokap(il) * amr_line_profile(il, photon%xfreq)
-      if (par%DGR > 0.0_wp .and. associated(amr_grid%rhokapD)) then
-        rhokap = rhokapH + amr_grid%rhokapD(il)
+      if (photon%iband == 1) then
+        rhokapH = amr_grid%rhokap(il) * amr_line_profile(il, photon%xfreq)
+        if (par%DGR > 0.0_wp .and. associated(amr_grid%rhokapD)) then
+          rhokap = rhokapH + amr_grid%rhokapD(il)
+        else
+          rhokap = rhokapH
+        end if
       else
-        rhokap = rhokapH
+        !--- band 2 (H-alpha, ly_beta line_type = 8): dust-only opacity, scaled
+        !--- from the band-1 wavelength to 6563 A by par%R_Ha (0 when DGR==0).
+        rhokapH = 0.0_wp
+        if (par%DGR > 0.0_wp .and. associated(amr_grid%rhokapD)) then
+          rhokap = amr_grid%rhokapD(il) * par%R_Ha
+        else
+          rhokap = 0.0_wp
+        end if
       end if
 
       if (tau + t_exit * rhokap >= tau_in) then
@@ -121,10 +133,12 @@ contains
           d_step = t_exit
         end if
 #ifdef CALCJ
+        if (photon%iband == 1) &
         call add_to_J_amr(photon, il, x + 0.5_wp*d_step*kx, &
                           y + 0.5_wp*d_step*ky, z + 0.5_wp*d_step*kz, d_step)
 #endif
 #ifdef CALCPnew
+        if (photon%iband == 1) &
         call add_to_Pnew_amr(photon, il, x + 0.5_wp*d_step*kx, &
                              y + 0.5_wp*d_step*ky, z + 0.5_wp*d_step*kz, d_step * rhokapH)
 #endif
@@ -143,10 +157,12 @@ contains
       y   = y + t_exit * ky
       z   = z + t_exit * kz
 #ifdef CALCJ
+      if (photon%iband == 1) &
       call add_to_J_amr(photon, il, x - 0.5_wp*t_exit*kx, &
                         y - 0.5_wp*t_exit*ky, z - 0.5_wp*t_exit*kz, t_exit)
 #endif
 #ifdef CALCPnew
+      if (photon%iband == 1) &
       call add_to_Pnew_amr(photon, il, x - 0.5_wp*t_exit*kx, &
                            y - 0.5_wp*t_exit*ky, z - 0.5_wp*t_exit*kz, t_exit * rhokapH)
 #endif
@@ -191,12 +207,15 @@ contains
       Df_old = amr_grid%Dfreq(il)
       Df_new = amr_grid%Dfreq(il_new)
       u2     = amr_grid%vfx(il_new)*kx + amr_grid%vfy(il_new)*ky + amr_grid%vfz(il_new)*kz
-      if (reflected) then
-        ! Lab-frame frequency invariant: xfreq_lab = xfreq + u1 (old kx,ky,kz)
-        ! After reflection, recompute u1 with new direction; same cell -> Df ratio = 1.
-        photon%xfreq = (photon%xfreq + u1) - u2
-      else
-        photon%xfreq = (photon%xfreq + u1) * Df_old / Df_new - u2
+      !--- band 2 (ly_beta H-alpha) carries a LAB-frame frequency: no comoving shifts.
+      if (photon%iband == 1) then
+        if (reflected) then
+          ! Lab-frame frequency invariant: xfreq_lab = xfreq + u1 (old kx,ky,kz)
+          ! After reflection, recompute u1 with new direction; same cell -> Df ratio = 1.
+          photon%xfreq = (photon%xfreq + u1) - u2
+        else
+          photon%xfreq = (photon%xfreq + u1) * Df_old / Df_new - u2
+        end if
       end if
       u1 = u2
 
@@ -209,16 +228,30 @@ contains
     photon%icell_amr = il
 
     if (.not. photon%inside) then
-      ! Photon escaped: convert frequency to lab frame and record
-      u1 = amr_grid%vfx(il)*kx + amr_grid%vfy(il)*ky + amr_grid%vfz(il)*kz
-      photon%xfreq     = photon%xfreq + u1
-      xfreq_ref        = photon%xfreq * (amr_grid%Dfreq(il) / amr_grid%Dfreq_ref)
-      photon%xfreq_ref = xfreq_ref
-      ix = floor((xfreq_ref - amr_grid%xfreq_min) / amr_grid%dxfreq) + 1
-      if (ix >= 1 .and. ix <= amr_grid%nxfreq) then
-        !$OMP ATOMIC UPDATE
-        amr_grid%Jout(ix) = amr_grid%Jout(ix) + photon%wgt
-        if (par%save_Jmu) call add_to_Jmu_amr(photon, ix)
+      if (photon%iband == 1) then
+        ! Photon escaped: convert frequency to lab frame and record
+        u1 = amr_grid%vfx(il)*kx + amr_grid%vfy(il)*ky + amr_grid%vfz(il)*kz
+        photon%xfreq     = photon%xfreq + u1
+        xfreq_ref        = photon%xfreq * (amr_grid%Dfreq(il) / amr_grid%Dfreq_ref)
+        photon%xfreq_ref = xfreq_ref
+        ix = floor((xfreq_ref - amr_grid%xfreq_min) / amr_grid%dxfreq) + 1
+        if (ix >= 1 .and. ix <= amr_grid%nxfreq) then
+          !$OMP ATOMIC UPDATE
+          amr_grid%Jout(ix) = amr_grid%Jout(ix) + photon%wgt
+          if (par%save_Jmu) call add_to_Jmu_amr(photon, ix)
+        end if
+        if (line%line_type == 8) par%W_esc1 = par%W_esc1 + photon%wgt
+      else
+        !--- band 2 (H-alpha) escape: photon%xfreq is already the lab-frame
+        !--- frequency in REFERENCE Doppler units (set at conversion), so no
+        !--- fluid shift and no Dfreq rescaling are applied here.
+        photon%xfreq_ref = photon%xfreq
+        ix = floor((photon%xfreq - amr_grid%xfreq_min_Ha) / amr_grid%dxfreq_Ha) + 1
+        if (ix >= 1 .and. ix <= amr_grid%nxfreq_Ha .and. associated(amr_grid%Jout_Ha)) then
+          !$OMP ATOMIC UPDATE
+          amr_grid%Jout_Ha(ix) = amr_grid%Jout_Ha(ix) + photon%wgt
+        end if
+        par%W_esc2 = par%W_esc2 + photon%wgt
       end if
     end if
   end subroutine raytrace_to_tau_amr
@@ -306,6 +339,52 @@ contains
       il = il_new
     end do
   end subroutine raytrace_to_edge_amr
+
+  !=========================================================================
+  ! Band-2 (H-alpha, ly_beta line_type = 8) dust-only optical depth from
+  ! photon to box edge: rhokapD * par%R_Ha along the ray.  Dust opacity is
+  ! frequency-independent, so no comoving-frame frequency bookkeeping.  Used
+  ! by the peel-off attenuation of band-2 photons (via the raytrace_to_edge_Ha
+  ! procedure pointer).  Signature matches raytrace_to_edge_amr (photon,grid,tau).
+  !=========================================================================
+  subroutine raytrace_to_edge_amr_dust_Ha(photon0, grid, tau)
+    use define
+    implicit none
+    type(photon_type), intent(in)  :: photon0
+    type(grid_type),   intent(in)  :: grid
+    real(wp),          intent(out) :: tau
+
+    integer  :: il, il_new, icell
+    real(wp) :: x, y, z, kx, ky, kz
+    real(wp) :: t_exit, rhokap
+    integer  :: iface
+
+    tau = 0.0_wp
+    if (par%DGR <= 0.0_wp .or. .not. associated(amr_grid%rhokapD)) return
+
+    x  = photon0%x;    y  = photon0%y;    z  = photon0%z
+    kx = photon0%kx;   ky = photon0%ky;   kz = photon0%kz
+    il = photon0%icell_amr
+    if (il <= 0) then
+      il = amr_find_leaf(x, y, z)
+      if (il <= 0) return
+    end if
+
+    do
+      icell = amr_grid%icell_of_leaf(il)
+      call amr_cell_exit(icell, x, y, z, kx, ky, kz, t_exit, iface)
+      rhokap = amr_grid%rhokapD(il) * par%R_Ha
+      tau = tau + t_exit * rhokap
+      if (tau >= tau_huge) return
+
+      x = x + t_exit * kx
+      y = y + t_exit * ky
+      z = z + t_exit * kz
+      il_new = amr_next_leaf(icell, iface, x, y, z)
+      if (il_new <= 0) return
+      il = il_new
+    end do
+  end subroutine raytrace_to_edge_amr_dust_Ha
 
   !=========================================================================
   ! Gas-only optical depth from photon to box edge.

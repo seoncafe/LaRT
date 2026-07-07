@@ -290,6 +290,60 @@ contains
   endif
   end subroutine do_resonance4
 !++++++++++++++++++++++++++++++++++++++
+  subroutine do_resonance8(photon,grid,uz,xfreq_atom,cost,sint,S11,S22,S12,S33,S44)
+  !---
+  !-- Ly-beta multiband fluorescence (line_type = 8).
+  !-- Upward machinery identical to do_resonance1 (single upper level, Voigt
+  !-- profile with damping = A_tot(3p)). The downward channel is then sampled:
+  !--   idown = 1 : 3p -> 1s, normal Ly-beta re-emission (the caller's existing
+  !--               frequency-update path applies unchanged).
+  !--   idown = 2 : 3p -> 2s, CONVERSION to H-alpha. Signalled to the caller by
+  !--               setting photon%iband = 2 (band transmutation); the caller
+  !--               (scatter_resonance_*) computes the band-2 lab-frame
+  !--               frequency and handles tallies/peel-off.
+  !-- Only two channels -> direct rand_number() comparison (no alias table).
+  !---
+  use define
+  implicit none
+  type(photon_type), intent(inout) :: photon
+  type(grid_type),   intent(in)    :: grid
+  real(kind=wp),     intent(out)   :: uz,xfreq_atom, cost,sint
+  real(kind=wp), optional, intent(out) :: S11,S22,S12,S33,S44
+  real(kind=wp) :: cost2
+  integer :: idown
+  !--- Select an atom by which the photon is scattered.
+  uz = rand_resonance_vz(photon%xfreq, grid%voigt_a(photon%icell,photon%jcell,photon%kcell))
+
+  !--- xfreq_atom = frequency in the atom's rest frame.
+  xfreq_atom = photon%xfreq - uz
+
+  !--- Select the downward channel.
+  if (rand_number() < line%b(1)%P_down(2)) then
+     idown = 2
+     photon%iband = 2
+  else
+     idown = 1
+  endif
+
+  photon%E1 = line%b(1)%E1(idown)
+  photon%E2 = line%b(1)%E2(idown)
+  photon%E3 = line%b(1)%E3(idown)
+
+  !--- Select a new scattering angle (cos(theta)).
+  cost  = rand_resonance(photon%E1)
+  cost2 = cost**2
+  sint  = sqrt(1.0_wp-cost2)
+
+  !--- Calculate Scattering Matrix. (S11, S12, S33, and S44)
+  if (present(S44)) then
+     S22 = three_over_four * photon%E1 * (cost2 + 1.0_wp)
+     S11 = S22 + photon%E2
+     S12 = three_over_four * photon%E1 * (cost2 - 1.0_wp)
+     S33 = three_over_two  * photon%E1 * cost
+     S44 = three_over_two  * photon%E3 * cost
+  endif
+  end subroutine do_resonance8
+!++++++++++++++++++++++++++++++++++++++
   subroutine do_resonance5(photon,grid,uz,xfreq_atom,cost,sint,S11,S22,S12,S33,S44)
   use define
   implicit none
@@ -1135,6 +1189,55 @@ contains
                                           1.0_wp/(line%wavelength0  *um2m*1.0e2_wp))
      line%ratio_Dfreq_HD  = (line%wavelength0_D/line%wavelength0) * sqrt(line%mass_amu_D/mass_amu)
      line%ratio_voigta_HD = (line%damping_D/line%damping) * line%ratio_Dfreq_HD
+  case ('ly_beta')
+     !-- H I Lyman-beta with 3p->2s fluorescent conversion (line_type = 8).
+     !-- Phase-0 validated atomic data (ly-beta_plan.md, section 8.1):
+     !--   lambda0(1s->3p)  = 1025.7222 A (vacuum)
+     !--   f(1s->3p)        = 0.07910
+     !--   A(3p->1s)        = 1.6725e8 s^-1  (Ly-beta re-emission)
+     !--   A(3p->2s)        = 2.2448e7 s^-1  (conversion -> H-alpha + 2-photon)
+     !--   damping = A_tot(3p) = 1.8970e8 s^-1 (Voigt a uses the TOTAL width)
+     !--   P_down  = A21/sum(A21) = [0.88166, 0.11834]
+     !--   lambda(3p->2s H-alpha) = 6564.553 A (vacuum; NIST statistical-weight mean)
+     !-- Fine structure is deferred: mirror the ly_alpha fine_structure=.false.
+     !-- branch (E1=1, E2=0, E3=1); the conversion-channel emission (s->p->s
+     !-- ladder) uses the same dipole E values.
+     line%ion_id    = 'H  I'
+     line%line_type = 8
+     line%wavelength0 = 0.10257222_wp
+     line%damping   = 1.8970e8_wp
+     line%f12(1)    = 0.07910_wp
+     line%cross0    = sigma_0/sqrt(pi)*line%f12(1)
+     mass_amu       = 1.00797_wp
+     line%mass_amu  = mass_amu
+     line%vtherm1   = vtherm1_amu/sqrt(mass_amu)
+     line%g_recoil0 = (h_planck/amu/mass_amu)/(line%wavelength0*um2m)**2
+     line%DnuHK_Hz  = 0.0_wp
+     line%E1        = 1.0_wp
+     line%E2        = 0.0_wp
+     line%E3        = 1.0_wp
+     line%nup       = 1
+     line%delE_Hz   = 0.0_wp
+     allocate(line%b(line%nup))
+     line%b(1)%ndown = 2
+     allocate(line%b(1)%A21(line%b(1)%ndown))
+     allocate(line%b(1)%Elow_Hz(line%b(1)%ndown))
+     allocate(line%b(1)%E1(line%b(1)%ndown))
+     allocate(line%b(1)%E2(line%b(1)%ndown))
+     allocate(line%b(1)%E3(line%b(1)%ndown))
+     allocate(line%b(1)%P_down(line%b(1)%ndown))
+     allocate(line%b(1)%A_down(line%b(1)%ndown))
+     line%b(1)%A21(1:2)     = [1.6725e8_wp, 2.2448e7_wp]
+     line%b(1)%Elow_Hz(1:2) = [0.0_wp, 0.0_wp]
+     !-- both channels are dipole (1s->3p->1s and 1s->3p->2s: s->p->s ladders)
+     line%b(1)%E1(1:2)      = [1.0_wp, 1.0_wp]
+     line%b(1)%E2(1:2)      = [0.0_wp, 0.0_wp]
+     line%b(1)%E3(1:2)      = [1.0_wp, 1.0_wp]
+     line%b(1)%damping      = sum(line%b(1)%A21(:))
+     !-- P_down derived from the A values ([0.88166, 0.11834] to fit accuracy)
+     line%b(1)%P_down(:)    = line%b(1)%A21(:)/line%b(1)%damping
+     !-- band-2 (H-alpha, 3p->2s) rest wavelength [um]
+     line%wavelength0_Ha    = 0.6564553_wp
   case default
      !-- Lyman-alpha
      !-- line%wavelength0 is in units of micron.
@@ -1167,5 +1270,28 @@ contains
      line%g_recoil0 = (h_planck/amu/mass_amu)/(line%wavelength0*um2m)**2
   endselect
   end subroutine setup_resonance_line
+!++++++++++++++++++++++++++++++++++++++
+  elemental function twophoton_dAdy(y) result(dAdy)
+  !---
+  !-- Nussbaumer & Schmutz (1984) fit to the hydrogen 2s->1s two-photon
+  !-- decay spectrum:
+  !--   dA/dy = 202.0 [ w (1 - (4w)^0.8) + 0.88 w^1.53 (4w)^0.8 ],  w = y(1-y),
+  !-- with y = nu/nu_LyA in (0,1), symmetric about y = 1/2.
+  !-- Integral over (0,1) = 16.452 s^-1 = 2 x 8.226 s^-1 (2 photons per decay;
+  !-- matches A_2gam = 8.229 s^-1 to fit accuracy). Used for the analytic
+  !-- J2gam output of the ly_beta conversion channel (Phase 1: no transport).
+  !---
+  implicit none
+  real(kind=wp), intent(in) :: y
+  real(kind=wp) :: dAdy
+  real(kind=wp) :: w, w4
+  w = y*(1.0_wp - y)
+  if (w <= 0.0_wp) then
+     dAdy = 0.0_wp
+  else
+     w4   = (4.0_wp*w)**0.8_wp
+     dAdy = 202.0_wp * ( w*(1.0_wp - w4) + 0.88_wp * w**1.53_wp * w4 )
+  endif
+  end function twophoton_dAdy
 !++++++++++++++++++++++++++++++++++++++
 end module line_mod

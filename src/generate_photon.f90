@@ -134,6 +134,9 @@ contains
   photon%nscatt_gas  = 0.0_wp
   photon%nscatt_dust = 0.0_wp
   photon%inside      = .true.
+  !--- source photons are always born in band 1 (the photon variable is reused
+  !--- across packets, so this must be reset explicitly; see photon_type%iband).
+  photon%iband       = 1
   photon%xfreq       = par%xfreq0
   photon%vfy_shear   = 0.0_wp
 

@@ -679,6 +679,15 @@ contains
     case (-1);    call create_mem(amr_grid%P1, [nz])
     case default; call create_mem(amr_grid%P1, [nr])
     end select
+    !--- Ly-beta (line_type = 8) conversion-rate maps (same shapes as Pa/P1/P2).
+    if (line%line_type == 8) then
+       select case (amr_grid%geometry_JPa)
+       case (3);     call create_mem(amr_grid%Pc,  [amr_grid%nleaf])
+       case (2);     call create_mem(amr_grid%Pc2, [nr, nz])
+       case (-1);    call create_mem(amr_grid%Pc1, [nz])
+       case default; call create_mem(amr_grid%Pc1, [nr])
+       end select
+    endif
 #endif
 #ifdef CALCPnew
     select case (amr_grid%geometry_JPa)
@@ -786,6 +795,26 @@ contains
       end do
     end if
     amr_grid%dwave = vtherm / speedc * (line%wavelength0 * 1.0e4_wp) * amr_grid%dxfreq
+
+    !--- Ly-beta fluorescence (line_type = 8): band-2 (H-alpha) frequency grid.
+    !--- Defaults inherit the band-1 grid: same number of bins and the same
+    !--- Doppler-unit range (v_th is identical for both bands, so the velocity
+    !--- range maps 1:1). Mirrors car_setup_freq_grid.
+    if (line%line_type == 8) then
+       amr_grid%nxfreq_Ha = par%nxfreq_Ha
+       if (amr_grid%nxfreq_Ha <= 0) amr_grid%nxfreq_Ha = amr_grid%nxfreq
+       par%nxfreq_Ha = amr_grid%nxfreq_Ha
+       if (par%xfreq_max_Ha > 0.0_wp) then
+          amr_grid%xfreq_max_Ha =  par%xfreq_max_Ha
+          amr_grid%xfreq_min_Ha = -par%xfreq_max_Ha
+       else
+          amr_grid%xfreq_min_Ha = amr_grid%xfreq_min
+          amr_grid%xfreq_max_Ha = amr_grid%xfreq_max
+       endif
+       amr_grid%dxfreq_Ha = (amr_grid%xfreq_max_Ha - amr_grid%xfreq_min_Ha)/amr_grid%nxfreq_Ha
+       amr_grid%dwave_Ha  = vtherm_total(par%temperature)/speedc * &
+                            (line%wavelength0_Ha * 1e4_wp) * amr_grid%dxfreq_Ha
+    endif
 
     !--- Compute line photon fraction for 'continuum+gaussian' spectral type.
     !    (Same logic as grid_mod_car.f90; needed by output_normalize_amr.)
@@ -999,6 +1028,14 @@ contains
     grid%dwave     = amr_grid%dwave
     grid%Dfreq_ref = amr_grid%Dfreq_ref
     grid%voigt_amean = amr_grid%voigt_amean
+    !--- Ly-beta (line_type = 8): band-2 (H-alpha) spectral metadata.
+    if (line%line_type == 8) then
+      grid%nxfreq_Ha    = amr_grid%nxfreq_Ha
+      grid%xfreq_min_Ha = amr_grid%xfreq_min_Ha
+      grid%xfreq_max_Ha = amr_grid%xfreq_max_Ha
+      grid%dxfreq_Ha    = amr_grid%dxfreq_Ha
+      grid%dwave_Ha     = amr_grid%dwave_Ha
+    endif
     ! nx/ny/nz set to 1 so nx==ny==nz check passes but rmax=0 forces box area
     grid%nx = 1
     grid%ny = 1
@@ -1046,6 +1083,9 @@ contains
     if (allocated(amr_grid%Jin))   deallocate(amr_grid%Jin)
     if (allocated(amr_grid%Jabs))  deallocate(amr_grid%Jabs)
     if (allocated(amr_grid%Jmu))   deallocate(amr_grid%Jmu)
+    if (associated(amr_grid%Jout_Ha)) deallocate(amr_grid%Jout_Ha)
+    if (associated(amr_grid%Jabs_Ha)) deallocate(amr_grid%Jabs_Ha)
+    nullify(amr_grid%Jout_Ha, amr_grid%Jabs_Ha)
 #if defined (CALCJ) || defined (CALCP) || defined (CALCPnew)
     ! CALC* volume arrays are shared-memory windows, already freed
     ! by destroy_shared_mem_all(); just drop the dangling pointers.
@@ -1062,6 +1102,10 @@ contains
     if (associated(amr_grid%P1)) deallocate(amr_grid%P1)
     if (associated(amr_grid%P2)) deallocate(amr_grid%P2)
     nullify(amr_grid%Pa, amr_grid%P1, amr_grid%P2)
+    if (associated(amr_grid%Pc)) deallocate(amr_grid%Pc)
+    if (associated(amr_grid%Pc1)) deallocate(amr_grid%Pc1)
+    if (associated(amr_grid%Pc2)) deallocate(amr_grid%Pc2)
+    nullify(amr_grid%Pc, amr_grid%Pc1, amr_grid%Pc2)
 #endif
 #ifdef CALCPnew
     if (associated(amr_grid%Pa_new)) deallocate(amr_grid%Pa_new)

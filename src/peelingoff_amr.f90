@@ -24,6 +24,8 @@ module peelingoff_amr_mod
   public :: peeling_dust_stokes_amr
   public :: peeling_resonance_nostokes_amr
   public :: peeling_resonance_stokes_amr
+  public :: peeling_conversion_Ha_amr
+  public :: peeling_dust_Ha_amr
   public :: peeling_direct_inside_amr
   public :: peeling_dust_nostokes_inside_amr
   public :: peeling_resonance_nostokes_inside_amr
@@ -242,6 +244,158 @@ contains
     end if
   end do
   end subroutine peeling_resonance_nostokes_amr
+
+  !=========================================================================
+  ! Direct fluorescent peel of the newborn H-alpha photon at a ly_beta
+  ! (line_type = 8) conversion event (AMR).  Mirrors peeling_resonance_nostokes_amr
+  ! with band-2 differences: the H-alpha photon is emitted at line center in
+  ! the ATOM frame (no xfreq_atom term), the frequency bin uses the band-2
+  ! axis (amr_grid%*_Ha), sightline attenuation is dust-only (raytrace_to_edge_Ha
+  ! pointer), and it deposits into observer%peel_Ha.
+  !=========================================================================
+  subroutine peeling_conversion_Ha_amr(photon, grid, vel_atom)
+  implicit none
+  type(photon_type), intent(in) :: photon
+  type(grid_type),   intent(in) :: grid
+  real(wp),          intent(in) :: vel_atom(3)
+  type(photon_type) :: pobs
+  real(wp) :: r2, r, kx, ky, kz
+  real(wp) :: wgt, peel, tau
+  real(wp) :: cost, cost2, sint, cosp, sinp, rho1, rho
+  real(wp) :: xfreq_ref, xfreq, u1
+  real(wp) :: xx, yy, zz, rr, r_dot_k, det
+  integer  :: ix, iy, ixf, il, i
+
+  il = photon%icell_amr
+
+  do i = 1, par%nobs
+    pobs    = photon
+    pobs%kx = observer(i)%x - photon%x
+    pobs%ky = observer(i)%y - photon%y
+    pobs%kz = observer(i)%z - photon%z
+    r2      = pobs%kx**2 + pobs%ky**2 + pobs%kz**2
+    r       = sqrt(r2)
+    pobs%kx = pobs%kx / r
+    pobs%ky = pobs%ky / r
+    pobs%kz = pobs%kz / r
+
+    !-- Check the photon is blocked by the star or not (stellar_illumination).
+    if (trim(par%source_geometry) == 'stellar_illumination') then
+       xx      = pobs%x
+       yy      = pobs%y
+       zz      = pobs%z + par%distance_star_to_planet
+       rr      = sqrt(xx**2 + yy**2 + zz**2)
+       r_dot_k = xx*pobs%kx + yy*pobs%ky + zz*pobs%kz
+       det     = r_dot_k**2 - (rr**2 - par%stellar_radius**2)
+       if (r_dot_k < 0.0_wp .and. det >= 0.0_wp) cycle
+    endif
+
+    kx = observer(i)%rmatrix(1,1)*pobs%kx + observer(i)%rmatrix(1,2)*pobs%ky + observer(i)%rmatrix(1,3)*pobs%kz
+    ky = observer(i)%rmatrix(2,1)*pobs%kx + observer(i)%rmatrix(2,2)*pobs%ky + observer(i)%rmatrix(2,3)*pobs%kz
+    kz = observer(i)%rmatrix(3,1)*pobs%kx + observer(i)%rmatrix(3,2)*pobs%ky + observer(i)%rmatrix(3,3)*pobs%kz
+
+    ix = floor(atan2(-kx,kz)*rad2deg/observer(i)%dxim + observer(i)%nxim/2.0_wp) + 1
+    iy = floor(atan2(-ky,kz)*rad2deg/observer(i)%dyim + observer(i)%nyim/2.0_wp) + 1
+
+    if (ix >= 1 .and. ix <= observer(i)%nxim .and. iy >= 1 .and. iy <= observer(i)%nyim) then
+       cost  = photon%kx*pobs%kx + photon%ky*pobs%ky + photon%kz*pobs%kz
+       cost2 = cost**2
+       sint  = sqrt(1.0_wp - cost2)
+       rho1  = sqrt(1.0_wp - photon%kz**2) * sint
+
+       if (rho1 == 0.0_wp) then
+          cosp = 1.0_wp
+          sinp = 0.0_wp
+       else
+          rho  = 1.0_wp / rho1
+          cosp = rho * (cost*photon%kz - pobs%kz)
+          sinp = rho * (photon%kx*pobs%ky - pobs%kx*photon%ky)
+       end if
+       !--- H-alpha frequency toward the observer: atom-velocity projection only
+       !--- (emission at H-alpha line center in the atom frame; no xfreq_atom).
+       xfreq = (vel_atom(1)*cosp + vel_atom(2)*sinp)*sint + vel_atom(3)*cost
+
+       !--- lab (observer) frame frequency in REFERENCE Doppler units.
+       u1        = amr_grid%vfx(il)*pobs%kx + amr_grid%vfy(il)*pobs%ky + amr_grid%vfz(il)*pobs%kz
+       xfreq_ref = (xfreq + u1) * (amr_grid%Dfreq(il) / amr_grid%Dfreq_ref)
+       ixf       = floor((xfreq_ref - amr_grid%xfreq_min_Ha) / amr_grid%dxfreq_Ha) + 1
+
+       !--- dust-only sightline attenuation (pobs%iband = 2, copied from photon).
+       pobs%xfreq = xfreq_ref
+       call raytrace_to_edge_Ha(pobs, grid, tau)
+       peel = three_over_four * photon%E1 * (cost2 + 1.0_wp) + photon%E2
+       wgt  = peel/(fourpi*r2) * exp(-tau) * photon%wgt
+
+       if (associated(observer(i)%peel_Ha) .and. ixf >= 1 .and. ixf <= amr_grid%nxfreq_Ha) then
+          !$OMP ATOMIC UPDATE
+          observer(i)%peel_Ha(ixf,ix,iy) = observer(i)%peel_Ha(ixf,ix,iy) + wgt
+       endif
+    end if
+  end do
+  end subroutine peeling_conversion_Ha_amr
+
+  !=========================================================================
+  ! Band-2 (H-alpha) dust-scattering peel (AMR).  Mirrors peeling_dust_nostokes_amr
+  ! with the H-alpha HG phase function (par%hgg_Ha) and the band-2 frequency
+  ! axis.  photon%xfreq is already the LAB-frame frequency in REFERENCE Doppler
+  ! units (dust scattering is elastic).  Deposits into observer%peel_Ha with
+  ! dust-only sightline attenuation (raytrace_to_edge_Ha pointer).
+  !=========================================================================
+  subroutine peeling_dust_Ha_amr(photon, grid)
+  implicit none
+  type(photon_type), intent(in) :: photon
+  type(grid_type),   intent(in) :: grid
+  type(photon_type) :: pobs
+  real(wp) :: r2, r, kx, ky, kz
+  real(wp) :: cosa, wgt, peel, tau
+  real(wp) :: xx, yy, zz, rr, r_dot_k, det
+  integer  :: ix, iy, ixf, i
+
+  do i = 1, par%nobs
+    pobs    = photon
+    pobs%kx = observer(i)%x - photon%x
+    pobs%ky = observer(i)%y - photon%y
+    pobs%kz = observer(i)%z - photon%z
+    r2      = pobs%kx**2 + pobs%ky**2 + pobs%kz**2
+    r       = sqrt(r2)
+    pobs%kx = pobs%kx / r
+    pobs%ky = pobs%ky / r
+    pobs%kz = pobs%kz / r
+
+    if (trim(par%source_geometry) == 'stellar_illumination') then
+       xx      = pobs%x
+       yy      = pobs%y
+       zz      = pobs%z + par%distance_star_to_planet
+       rr      = sqrt(xx**2 + yy**2 + zz**2)
+       r_dot_k = xx*pobs%kx + yy*pobs%ky + zz*pobs%kz
+       det     = r_dot_k**2 - (rr**2 - par%stellar_radius**2)
+       if (r_dot_k < 0.0_wp .and. det >= 0.0_wp) cycle
+    endif
+
+    kx = observer(i)%rmatrix(1,1)*pobs%kx + observer(i)%rmatrix(1,2)*pobs%ky + observer(i)%rmatrix(1,3)*pobs%kz
+    ky = observer(i)%rmatrix(2,1)*pobs%kx + observer(i)%rmatrix(2,2)*pobs%ky + observer(i)%rmatrix(2,3)*pobs%kz
+    kz = observer(i)%rmatrix(3,1)*pobs%kx + observer(i)%rmatrix(3,2)*pobs%ky + observer(i)%rmatrix(3,3)*pobs%kz
+
+    ix = floor(atan2(-kx,kz)*rad2deg/observer(i)%dxim + observer(i)%nxim/2.0_wp) + 1
+    iy = floor(atan2(-ky,kz)*rad2deg/observer(i)%dyim + observer(i)%nyim/2.0_wp) + 1
+
+    if (ix >= 1 .and. ix <= observer(i)%nxim .and. iy >= 1 .and. iy <= observer(i)%nyim) then
+       !--- frequency bin on the band-2 axis; xfreq already lab-frame.
+       ixf = floor((photon%xfreq - amr_grid%xfreq_min_Ha) / amr_grid%dxfreq_Ha) + 1
+
+       call raytrace_to_edge_Ha(pobs, grid, tau)
+       cosa = photon%kx*pobs%kx + photon%ky*pobs%ky + photon%kz*pobs%kz
+       peel = (1.0_wp - par%hgg_Ha**2) / ((1.0_wp + par%hgg_Ha**2) - 2.0_wp*par%hgg_Ha*cosa)**1.5_wp / fourpi
+       !--- albedo_Ha was already multiplied before this routine is called.
+       wgt  = peel / r2 * exp(-tau) * photon%wgt
+
+       if (associated(observer(i)%peel_Ha) .and. ixf >= 1 .and. ixf <= amr_grid%nxfreq_Ha) then
+          !$OMP ATOMIC UPDATE
+          observer(i)%peel_Ha(ixf,ix,iy) = observer(i)%peel_Ha(ixf,ix,iy) + wgt
+       endif
+    end if
+  end do
+  end subroutine peeling_dust_Ha_amr
 
   !=========================================================================
   subroutine peeling_dust_stokes_amr(photon, grid)
