@@ -14,7 +14,7 @@ Ly-beta multiband output (`par%line_id = 'ly_beta'`) adds the H-alpha /
 two-photon daughter sections produced by Ly-beta destruction:
 ``Jout_Ha`` / ``Jabs_Ha`` (H-alpha escape / dust-absorbed spectra),
 ``J2gam`` (two-photon continuum vs. y = nu/nu_Lya), ``peel_Ha`` (H-alpha
-peel-off cube, one per observer), and ``P_conv_*`` (Ly-beta -> H-alpha
+peel-off cube, one per observer), and ``Pconv_*`` (Ly-beta -> H-alpha
 conversion-rate profiles, CALCP builds).  A per-incident-photon photon
 budget (``lyb_budget``: esc1/abs1/conv/esc2/abs2) is reconstructed from
 the ``Jout_Ha`` header weights.  All these fields are ``None`` for a
@@ -755,7 +755,7 @@ class LaRTOutput:
         if lyb_bits or pconv_bits or self.lyb_budget is not None:
             present = list(lyb_bits)
             if pconv_bits:
-                present.append('P_conv(' + ','.join(pconv_bits) + ')')
+                present.append('Pconv(' + ','.join(pconv_bits) + ')')
             lines.append("ly_beta  : " + (', '.join(present) if present
                                           else '(sections absent)'))
             b = self.lyb_budget
@@ -3073,9 +3073,9 @@ def _read_JPa(lf, params: dict) -> dict:
         # par%line_id='ly_beta').  These carry the same geom_JPa / nr / dr /
         # nz / zmin / dz axis keywords as the Pa sections; when a Pa section
         # already set geometry_JPa the axis block is skipped and the shared
-        # r_JPa / z_JPa axes apply.  No '_new' variant exists for P_conv.
-        ('P_conv_1D', 'Pconv1'), ('P_conv_2D', 'Pconv2'),
-        ('P_conv_3D', 'Pconv3D'), ('P_conv_AMR', 'Pconv_leaf'),
+        # r_JPa / z_JPa axes apply.  No '_new' variant exists for Pconv.
+        ('Pconv_1D', 'Pconv1'), ('Pconv_2D', 'Pconv2'),
+        ('Pconv_3D', 'Pconv3D'), ('Pconv_AMR', 'Pconv_leaf'),
     ]
     out: dict = {}
     for sec_name, field_name in name_map:

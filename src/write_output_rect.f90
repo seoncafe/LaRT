@@ -48,7 +48,7 @@ contains
   use define
   use line_mod, only: twophoton_dAdy
   !--- amr_grid is used unconditionally for the ly_beta (line_type = 8) AMR
-  !--- band-2/P_conv sections (and under CALC* for the Jx/Pa AMR sections).
+  !--- band-2/Pconv sections (and under CALC* for the Jx/Pa AMR sections).
   use octree_mod, only: amr_grid
   implicit none
   character(len=*), intent(in)    :: filename
@@ -689,34 +689,34 @@ contains
      endif
 #ifdef CALCP
      if (par%use_amr_grid) then
-        !--- AMR conversion-rate maps: per-leaf (P_conv_AMR) or radial/cyl profile.
+        !--- AMR conversion-rate maps: per-leaf (Pconv_AMR) or radial/cyl profile.
         if (associated(amr_grid%Pc)) then
            call io_append_image(iofh,amr_grid%Pc,status,bitpix=par%out_bitpix)
-           call io_put_keyword(iofh,'EXTNAME','P_conv_AMR','conversion rate per atom per leaf (ly_beta)',status)
+           call io_put_keyword(iofh,'EXTNAME','Pconv_AMR','conversion rate per atom per leaf (ly_beta)',status)
            call put_amr_JPa_axes(iofh,status)
         endif
         if (associated(amr_grid%Pc1)) then
            call io_append_image(iofh,amr_grid%Pc1,status,bitpix=par%out_bitpix)
-           call io_put_keyword(iofh,'EXTNAME','P_conv_1D', 'conversion rate per atom (ly_beta)',status)
+           call io_put_keyword(iofh,'EXTNAME','Pconv_1D', 'conversion rate per atom (ly_beta)',status)
            call put_amr_JPa_axes(iofh,status)
         endif
         if (associated(amr_grid%Pc2)) then
            call io_append_image(iofh,amr_grid%Pc2,status,bitpix=par%out_bitpix)
-           call io_put_keyword(iofh,'EXTNAME','P_conv_2D', 'conversion rate per atom (ly_beta)',status)
+           call io_put_keyword(iofh,'EXTNAME','Pconv_2D', 'conversion rate per atom (ly_beta)',status)
            call put_amr_JPa_axes(iofh,status)
         endif
      else
         if (associated(grid%Pc)) then
            call io_append_image(iofh,grid%Pc,status,bitpix=par%out_bitpix)
-           call io_put_keyword(iofh,'EXTNAME','P_conv_3D', 'conversion rate per atom (ly_beta)',status)
+           call io_put_keyword(iofh,'EXTNAME','Pconv_3D', 'conversion rate per atom (ly_beta)',status)
         endif
         if (associated(grid%Pc1)) then
            call io_append_image(iofh,grid%Pc1,status,bitpix=par%out_bitpix)
-           call io_put_keyword(iofh,'EXTNAME','P_conv_1D', 'conversion rate per atom (ly_beta)',status)
+           call io_put_keyword(iofh,'EXTNAME','Pconv_1D', 'conversion rate per atom (ly_beta)',status)
         endif
         if (associated(grid%Pc2)) then
            call io_append_image(iofh,grid%Pc2,status,bitpix=par%out_bitpix)
-           call io_put_keyword(iofh,'EXTNAME','P_conv_2D', 'conversion rate per atom (ly_beta)',status)
+           call io_put_keyword(iofh,'EXTNAME','Pconv_2D', 'conversion rate per atom (ly_beta)',status)
         endif
      endif
 #endif

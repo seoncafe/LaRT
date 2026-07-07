@@ -336,7 +336,7 @@ contains
      enddo
   end select
   !--- Ly-beta (line_type = 8) conversion-rate maps: identical normalization
-  !--- to Pa/P1/P2 (per-atom rate). Expectation: P_conv/Pa -> 0.11834.
+  !--- to Pa/P1/P2 (per-atom rate). Expectation: Pconv/Pa -> 0.11834.
   if (line%line_type == 8) then
      select case (grid%geometry_JPa)
      case (3)
@@ -908,7 +908,7 @@ contains
      end do
   end select
   !--- Ly-beta (line_type = 8) conversion-rate maps: identical per-atom-rate
-  !--- volume-weighted normalization as Pa (expectation P_conv/Pa -> 0.11834).
+  !--- volume-weighted normalization as Pa (expectation Pconv/Pa -> 0.11834).
   if (line%line_type == 8) then
      select case (amr_grid%geometry_JPa)
      case (3)

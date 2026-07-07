@@ -749,8 +749,8 @@ contains
   subroutine add_to_Pconv(photon,grid,icell,jcell,kcell)
   !--- Ly-beta (line_type = 8) conversion-rate map: mirrors add_to_Pa (same
   !--- per-atom-rate convention, same binning, same guards), but accumulates
-  !--- into the P_conv arrays at conversion events only.
-  !--- Expectation: P_conv/Pa -> P_down(2) = 0.11834.
+  !--- into the Pconv arrays at conversion events only.
+  !--- Expectation: Pconv/Pa -> P_down(2) = 0.11834.
   use define
   type(photon_type), intent(in)    :: photon
   type(grid_type),   intent(inout) :: grid
