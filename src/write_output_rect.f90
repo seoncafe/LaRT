@@ -689,7 +689,7 @@ contains
      endif
 #ifdef CALCP
      if (par%use_amr_grid) then
-        !--- AMR conversion-rate maps: per-leaf (Pconv_AMR) or radial/cyl profile.
+        !--- AMR conversion-rate maps: leaf (Pconv_AMR) or radial/cyl profile.
         if (associated(amr_grid%Pc)) then
            call io_append_image(iofh,amr_grid%Pc,status,bitpix=par%out_bitpix)
            call io_put_keyword(iofh,'EXTNAME','Pconv_AMR','conversion rate per atom per leaf (ly_beta)',status)

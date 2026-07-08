@@ -14,7 +14,7 @@ module octree_mod
   !
   ! Tree structure arrays and physical data arrays are allocated as
   ! MPI-3 shared memory (one copy per node), via create_shared_mem.
-  ! Output arrays (Jout, Jin, Jabs) are per-rank (regular allocate).
+  ! Output arrays (Jout, Jin, Jabs) are rank-local (regular allocate).
   !-----------------------------------------------------------------------
   type amr_grid_type
 
@@ -76,7 +76,7 @@ module octree_mod
     real(wp), pointer :: velocity(:)  => null()
     real(wp), pointer :: wavelength(:)=> null()
 
-    ! ------ spectral output arrays (per frequency bin) -- per-rank (NOT shared) ------
+    ! ------ spectral output arrays (per frequency bin) -- rank-local (NOT shared) ------
     real(wp), allocatable :: Jout(:)  ! escaped spectrum
     real(wp), allocatable :: Jin(:)   ! input (injected) spectrum
     real(wp), allocatable :: Jabs(:)  ! absorbed by dust spectrum
@@ -92,8 +92,8 @@ module octree_mod
     real(wp), pointer :: Jabs_Ha(:) => null()  ! dust-absorbed H-alpha spectrum (band 2)
 
     ! ------ CALCJ / CALCP / CALCPnew : mean-intensity & scattering-rate maps ------
-    ! Per-leaf storage (the natural AMR counterpart of the Cartesian (i,j,k) arrays).
-    ! geometry_JPa: 3 = per-leaf 3D, 2 = cylinder (r,z), 1 = sphere (radial),
+    ! Leaf storage (the natural AMR counterpart of the Cartesian (i,j,k) arrays).
+    ! geometry_JPa: 3 = leaf 3D, 2 = cylinder (r,z), 1 = sphere (radial),
     !              -1 = plane-parallel (z bins).  Set from par%geometry_JPa.
     ! Binning is POSITION-based: each path segment (J, Pnew) or scattering event
     ! (Pa) deposits into the bin containing its position, independent of the
@@ -236,7 +236,7 @@ contains
   end function amr_find_enclosing_cell
 
   !=========================================================================
-  ! RASCAS-style per-cell core-skip threshold (Smith+15 Eq.35).
+  ! RASCAS-style cell-by-cell core-skip threshold (Smith+15 Eq.35).
   !   atau_cell = voigt_a(il) * rhokap(il) * dl_face
   !   xcrit     = (atau_cell)^(1/3) / 5   if atau_cell > 1, else 0
   ! dl_face is the minimum distance from (x,y,z) to any face of leaf cell il,
@@ -318,7 +318,7 @@ contains
   !   type 5, 6   -> calc_voigt3  (general multiplet, sum over line%nup)
   !   type 7      -> calc_voigt_HD (combined H + D Lyman-alpha)
   !   default 1,4 -> calc_voigt1  (single Voigt)
-  ! Uses the per-leaf amr_grid arrays; xfreq is carried in this leaf's Doppler
+  ! Uses the leaf amr_grid arrays; xfreq is carried in this leaf's Doppler
   ! units by the AMR raytrace.
   !=========================================================================
   function amr_line_profile(il, xfreq) result(v)
@@ -587,7 +587,7 @@ contains
   end subroutine amr_alloc_phys
 
   !=========================================================================
-  ! Allocate spectral-output arrays (per-rank, NOT shared).
+  ! Allocate spectral-output arrays (rank-local, NOT shared).
   !=========================================================================
   subroutine amr_alloc_output(save_jin, save_jabs, use_dust, save_jmu, nmu)
     logical, intent(in) :: save_jin, save_jabs, use_dust

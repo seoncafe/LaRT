@@ -47,7 +47,7 @@ contains
 
     eps_pos = 1.0e-9_wp * sphere_R
 
-    !--- Allocate per-observer sight-line arrays (MPI shared memory).
+    !--- Allocate sight-line arrays for each observer (MPI shared memory).
     do i = 1, par%nobs
       call create_shared_mem(observer(i)%tau_gas, [par%nxfreq, par%nxim, par%nyim])
       call create_shared_mem(observer(i)%N_gas,   [par%nxim, par%nyim])

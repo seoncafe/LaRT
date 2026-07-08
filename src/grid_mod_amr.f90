@@ -530,10 +530,10 @@ contains
   ! Allocate the AMR mean-intensity J and scattering-rate P_alpha
   ! accumulators, mirroring create_JPa_mem in grid_mod_car.f90.
   !
-  ! The per-leaf bin indices (ind_sph / ind_cyl / ind_pln) and the
+  ! The leaf bin indices (ind_sph / ind_cyl / ind_pln) and the
   ! volume-weighting arrays (vol_leaf / vol_sph / vol_cyl / vol_plane) are
   ! filled once on h_rank==0 into shared memory.  The J / Pa accumulators
-  ! themselves are per-rank (create_mem), reduced by output_reduce_amr.
+  ! themselves are rank-local (create_mem), reduced by output_reduce_amr.
   !
   ! Octant multiplicity for xyz_symmetry (8) / xy_symmetry (4) /
   ! xy_periodic (2) is folded into vol_* via the integer factor nadd; AMR
@@ -586,7 +586,7 @@ contains
        nadd = 1
     end if
 
-    !--- allocate per-leaf and per-bin bookkeeping (shared memory) ---
+    !--- allocate leaf and bin bookkeeping (shared memory) ---
     call create_shared_mem(amr_grid%vol_leaf, [amr_grid%nleaf])
     select case (amr_grid%geometry_JPa)
     case (1)
@@ -663,7 +663,7 @@ contains
     end if
     call MPI_BARRIER(mpar%hostcomm, ierr)
 
-    !--- allocate the J / Pa accumulators (per-rank; zero-initialized) ---
+    !--- allocate the J / Pa accumulators (rank-local; zero-initialized) ---
 #ifdef CALCJ
     select case (amr_grid%geometry_JPa)
     case (3);     call create_mem(amr_grid%J,  [amr_grid%nxfreq, amr_grid%nleaf])
@@ -1067,7 +1067,7 @@ contains
     ! Free every shared-memory window in one shot.  Mirrors the convention
     ! used by grid_destroy (Cartesian) and observer_destroy_outside: any of
     ! those callers may run before us and zero out num_windows, in which case
-    ! the per-array destroy_mem() route would fall through to a Fortran
+    ! the array-by-array destroy_mem() route would fall through to a Fortran
     ! deallocate() of MPI-window memory and trip ifort severe (173).  Calling
     ! destroy_shared_mem_all() is idempotent (no-op when num_windows == 0).
     call destroy_shared_mem_all()
@@ -1078,7 +1078,7 @@ contains
             amr_grid%vfx, amr_grid%vfy, amr_grid%vfz, &
             amr_grid%Pem, amr_grid%Pwgt, amr_grid%alias, &
             amr_grid%xfreq, amr_grid%velocity, amr_grid%wavelength)
-    ! Per-rank output arrays (allocatable): freed normally
+    ! Rank-local output arrays (allocatable): freed normally
     if (allocated(amr_grid%Jout))  deallocate(amr_grid%Jout)
     if (allocated(amr_grid%Jin))   deallocate(amr_grid%Jin)
     if (allocated(amr_grid%Jabs))  deallocate(amr_grid%Jabs)
@@ -1116,7 +1116,7 @@ contains
   end subroutine grid_destroy_amr
 
   !=========================================================================
-  ! assign_amr_velocities_from_type: override per-leaf vfx/vfy/vfz using the same
+  ! assign_amr_velocities_from_type: override leaf vfx/vfy/vfz using the same
   ! analytic velocity-field models supported by Cartesian mode.  Called from
   ! grid_create_amr only when amr_type='generic' and par%velocity_type is set.
   !

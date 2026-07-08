@@ -51,7 +51,7 @@ contains
      return
   endif
 
-  !--- Clump mode: dust-vs-resonance split from per-clump opacities.
+  !--- Clump mode: dust-vs-resonance split from clump opacities.
   !    Gas line opacity is multiplet-aware via voigt_clump; cl_rhokapD is
   !    the co-located dust continuum opacity (allocated only when DGR>0).
   if (par%use_clump_medium) then
@@ -268,13 +268,13 @@ contains
     ! new propagation direction: k' = (sint*cosp) e_x + (sint*sinp) e_y + cost e_z
     ! atom velociy             : u = ux e_x + uy e_y + uz e_z
     ! dot product              : u.k' = (ux*cosp + uy*sinp)sint + uz*cost
-    !-- Per-clump thermal-width ratio (see scatter_resonance_nostokes for rationale).
+    !-- Clump thermal-width ratio (see scatter_resonance_nostokes for rationale).
     if (par%use_clump_medium .and. photon%icell_clump > 0) then
        vth_ratio = cl_Dfreq(int(photon%icell_clump, int64)) / cl_Dfreq_ref
     else
        vth_ratio = 1.0_wp
     endif
-    !-- RASCAS-style per-cell xcrit (Smith+15 Eq.35), see car_xcrit_local.
+    !-- RASCAS-style cell-by-cell xcrit (Smith+15 Eq.35), see car_xcrit_local.
     if (par%core_skip) then
        call car_xcrit_local(grid, photon%icell, photon%jcell, photon%kcell, &
                             photon%x, photon%y, photon%z, xcrit_cell, xcrit_cell2)
@@ -597,7 +597,7 @@ contains
   cosp = cos(phi)
   sinp = sin(phi)
 
-  !-- Per-clump thermal-width ratio: scales perpendicular atom velocities and
+  !-- Clump thermal-width ratio: scales perpendicular atom velocities and
   !-- recoil shift into REF Doppler units when clump T differs from ref T.
   !-- = 1 for uniform-T (cl_Dfreq(icl) == cl_Dfreq_ref), preserving prior behavior.
   if (par%use_clump_medium .and. photon%icell_clump > 0) then
@@ -610,7 +610,7 @@ contains
   ! Note that the acceleration scheme uses a cut-off exponential distribution to obtain velocity amplitude, and
   ! divide it into x- and y- components, whereas the original scheme uses a gaussian distribution to obtain velocity components.
   ! This causes the difference in 1/sqrt(2) factor.
-  !-- RASCAS-style per-cell xcrit (Smith+15 Eq.35), see car_xcrit_local.
+  !-- RASCAS-style cell-by-cell xcrit (Smith+15 Eq.35), see car_xcrit_local.
   if (par%core_skip) then
      call car_xcrit_local(grid, i1, i2, i3, photon%x, photon%y, photon%z, &
                           xcrit_cell, xcrit_cell2)
@@ -748,7 +748,7 @@ contains
 
   subroutine add_to_Pconv(photon,grid,icell,jcell,kcell)
   !--- Ly-beta (line_type = 8) conversion-rate map: mirrors add_to_Pa (same
-  !--- per-atom-rate convention, same binning, same guards), but accumulates
+  !--- convention (rate per atom), same binning, same guards), but accumulates
   !--- into the Pconv arrays at conversion events only.
   !--- Expectation: Pconv/Pa -> P_down(2) = 0.11834.
   use define

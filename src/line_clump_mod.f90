@@ -3,7 +3,7 @@ module line_clump_mod
 ! Clump-mode resonance variants do_resonance{1,2,4,5,6,HD}_clump.
 !
 ! Used when par%use_clump_medium = .true. and the photon is inside a clump
-! (photon%icell_clump > 0).  They read the per-clump Voigt parameter
+! (photon%icell_clump > 0).  They read the clump Voigt parameter
 ! cl_voigt_a(icl) and Doppler frequency cl_Dfreq(icl) instead of the (uniform)
 ! Cartesian grid arrays, and rescale photon%xfreq to the local clump
 ! Doppler-width units for sampling, then convert uz and xfreq_atom back to

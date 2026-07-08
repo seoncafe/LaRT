@@ -452,7 +452,7 @@ contains
         photon%z = rp*cost
      end select
   else
-     ! Cell-based emissivity sampling (per-cell alias table).
+     ! Cell-based emissivity sampling (cell-by-cell alias table).
      if (par%use_amr_grid) then
         if (par%sampling_method == 0) then
            call random_emiss_alias_amr(photon)

@@ -1588,7 +1588,7 @@ contains
   end subroutine grid_destroy
 
   !=========================================================================
-  ! RASCAS-style per-cell core-skip threshold (Smith+15 Eq.35) for the
+  ! RASCAS-style cell-by-cell core-skip threshold (Smith+15 Eq.35) for the
   ! Cartesian grid.
   !   atau_cell = voigt_a(i,j,k) * rhokap(i,j,k) * dl_face
   !   xcrit     = (atau_cell)^(1/3) / 5   if atau_cell > 1, else 0

@@ -163,7 +163,7 @@ contains
   end function cie_ion_fraction
 
   !=========================================================================
-  ! Compute per-cell ion number density:
+  ! Compute cell-by-cell ion number density:
   !   n_ion = nH * (Z / Z_sun) * (n_X/n_H)_sun * f_ion(T)
   !
   ! For hydrogen lines, Z scaling is not applied (n_ion = nH * xHI).

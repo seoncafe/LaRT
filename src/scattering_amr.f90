@@ -461,7 +461,7 @@ contains
     cosp = cos(phi);  sinp = sin(phi)
 
     ! Update photon frequency (core-skip or full thermal sampling).
-    ! RASCAS-style per-cell xcrit (Smith+15 Eq.35), see amr_xcrit_local.
+    ! RASCAS-style cell-by-cell xcrit (Smith+15 Eq.35), see amr_xcrit_local.
     if (par%core_skip) then
       call amr_xcrit_local(il, photon%x, photon%y, photon%z, xcrit_cell, xcrit_cell2)
     else
@@ -942,7 +942,7 @@ contains
   end subroutine add_to_Pa_amr
 
 !--- Ly-beta (line_type = 8) conversion-rate map: mirrors add_to_Pa_amr (same
-!    per-atom-rate convention, same position binning), accumulated at 3p->2s
+!    convention (rate per atom), same position binning), accumulated at 3p->2s
 !    conversion events only.  Expectation: Pconv/Pa -> P_down(2) = 0.11834.
   subroutine add_to_Pconv_amr(photon, il)
   use define

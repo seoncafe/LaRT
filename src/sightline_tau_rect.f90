@@ -195,7 +195,7 @@ contains
   !--- gas tau and column density along each sight-line through the AMR
   !--- octree, and writes the result via write_sightline_tau_outside.
   !--- The Cartesian `grid` argument is required by the procedure-pointer
-  !--- interface; per-cell quantities come from the global `amr_grid` in
+  !--- interface; cell-by-cell quantities come from the global `amr_grid` in
   !--- octree_mod (already populated by grid_create_amr + amr_sync_to_grid).
   use mpi
   use octree_mod,       only: amr_grid, amr_find_leaf

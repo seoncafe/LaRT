@@ -15,8 +15,8 @@ two-photon daughter sections produced by Ly-beta destruction:
 ``Jout_Ha`` / ``Jabs_Ha`` (H-alpha escape / dust-absorbed spectra),
 ``J2gam`` (two-photon continuum vs. y = nu/nu_Lya), ``peel_Ha`` (H-alpha
 peel-off cube, one per observer), and ``Pconv_*`` (Ly-beta -> H-alpha
-conversion-rate profiles, CALCP builds).  A per-incident-photon photon
-budget (``lyb_budget``: esc1/abs1/conv/esc2/abs2) is reconstructed from
+conversion-rate profiles, CALCP builds).  A photon budget per incident photon
+summary (``lyb_budget``: esc1/abs1/conv/esc2/abs2) is reconstructed from
 the ``Jout_Ha`` header weights.  All these fields are ``None`` for a
 non-ly_beta file, so existing behavior is unchanged.  The plotting
 helpers ``plot_spectrum``, ``plot_peeling_map`` and
@@ -218,7 +218,7 @@ class PeelObservation:
 
 @dataclass
 class ClumpsOutput:
-    """A LaRT clump-input file loaded into per-clump arrays + attributes.
+    """A LaRT clump-input file loaded into clump arrays + attributes.
 
     Built by :func:`read_clumps` from either format (HDF5 or FITS).  Carries
     the analysis / plotting methods that operate purely on the clump
@@ -229,7 +229,7 @@ class ClumpsOutput:
     clumps_file: str
     input_file:  str  = ''
     params:      dict = field(default_factory=dict)
-    # core per-clump arrays (None if the column is absent from the file)
+    # core clump arrays (None if the column is absent from the file)
     x:           Optional[np.ndarray] = None
     y:           Optional[np.ndarray] = None
     z:           Optional[np.ndarray] = None
@@ -237,7 +237,7 @@ class ClumpsOutput:
     vy:          Optional[np.ndarray] = None
     vz:          Optional[np.ndarray] = None
     radius:      Optional[np.ndarray] = None        # R_CLUMP column
-    # Per-clump opacity carrier.  The clump file uses one of two column
+    # Clump opacity carrier.  The clump file uses one of two column
     # names that differ in physical units:
     #   ``rhokap``  -- RHOKAP column: opacity per code unit (legacy).
     #   ``density`` -- DENSITY/DENS column: n_HI [cm^-3].  LaRT converts
@@ -315,7 +315,7 @@ class ClumpsOutput:
         return float(v) if v is not None else None
 
     def _radii_array(self) -> Optional[np.ndarray]:
-        """Per-clump radii used by the f_vol / f_cov formulas: prefer the
+        """Clump radii used by the f_vol / f_cov formulas: prefer the
         ``R_CLUMP`` column, fall back to the scalar ``CL_RAD`` attribute
         broadcast to every clump.  Returns ``None`` if neither is available.
         """
@@ -468,7 +468,7 @@ class ClumpsOutput:
         radii = self._radii_array()
         if radii is None:
             raise RuntimeError(
-                f"{self.clumps_file!r} did not contain per-clump R_CLUMP "
+                f"{self.clumps_file!r} did not contain clump R_CLUMP "
                 f"nor the scalar CL_RAD attribute required for slice plotting.")
 
         try:
@@ -652,7 +652,7 @@ class LaRTOutput:
     # Shapes follow the file (numpy axis order = reversed Fortran order):
     #   J1 (nbin, nxfreq)   radial (geometry_JPa=1) or z (geometry_JPa=-1) bins
     #   J2 (nz, nr, nxfreq) cylindrical bins
-    #   J3D  Cartesian (nz, ny, nx, nxfreq);  J_leaf  AMR per-leaf (nleaf, nxfreq)
+    #   J3D  Cartesian (nz, ny, nx, nxfreq);  J_leaf  AMR leaf (nleaf, nxfreq)
     #   P*   same shapes without the frequency axis; *_new = Seon & Kim (2020)
     J1:          Optional[np.ndarray] = None
     J2:          Optional[np.ndarray] = None
@@ -678,7 +678,7 @@ class LaRTOutput:
     # (xfreq_Ha / velocity_Ha / wavelength_Ha).  J2gam is the two-photon
     # continuum vs. y_2gam (= nu / nu_Lya).  Pconv* are the Ly-beta ->
     # H-alpha conversion-rate profiles (CALCP builds), sharing the CALCJ
-    # r_JPa / z_JPa bin axes.  lyb_budget is a per-incident-photon dict
+    # r_JPa / z_JPa bin axes.  lyb_budget is a dict of fractions per incident photon
     # (esc1/abs1/conv/esc2/abs2).
     Jout_Ha:     Optional[np.ndarray] = None
     Jabs_Ha:     Optional[np.ndarray] = None
@@ -816,7 +816,7 @@ class LaRTOutput:
         xlim, ylim : (lo, hi) tuple, optional
             Axis limits.  Either bound may be None to leave it autoscaled.
         xmin, xmax, ymin, ymax : float, optional
-            Per-bound shorthand; merged with xlim/ylim.
+            Individual-bound shorthand; merged with xlim/ylim.
         colors : dict, optional
             Mapping from component name to matplotlib color.
         title, show, savefig : convenience options.
@@ -969,7 +969,7 @@ class LaRTOutput:
                         savefig: Optional[str] = None):
         r"""Bar chart of the Ly-beta destruction photon budget.
 
-        Draws the five per-incident-photon fractions in ``self.lyb_budget``
+        Draws the five fractions per incident photon in ``self.lyb_budget``
         (``esc1`` Ly-beta escape, ``abs1`` Ly-beta dust absorption, ``conv``
         conversion to H-alpha + 2-photon, ``esc2`` H-alpha escape, ``abs2``
         H-alpha dust absorption).  Raises if ``lyb_budget`` is None (i.e.
@@ -1050,7 +1050,7 @@ class LaRTOutput:
         xlim, ylim : (lo, hi) tuple, optional
             Axis limits.  Either bound may be None to leave it autoscaled.
         xmin, xmax, ymin, ymax : float, optional
-            Per-bound shorthand; merged with xlim/ylim (the per-bound
+            Individual-bound shorthand; merged with xlim/ylim (the individual-bound
             value wins if both are given).
         z_symmetry : bool
             If True, average Jmu(x; +mu) and Jmu(x; -mu) before plotting,
@@ -1251,7 +1251,7 @@ class LaRTOutput:
                         label: Optional[str] = None, **kwargs):
         """Scattering-rate profile P_alpha from the CALCP / CALCPnew output.
 
-        ``which``: 'Pa' (per-scattering counter, CALCP), 'Pa_new'
+        ``which``: 'Pa' (scattering-event counter, CALCP), 'Pa_new'
         (path-length estimator, CALCPnew), or 'auto' (Pa if present, else
         Pa_new).  Uses the 1-D section (``self.P1`` / ``self.P1_new``).
         Returns the matplotlib axis.
@@ -1305,7 +1305,7 @@ class LaRTOutput:
 
            This matches ``examples/sphere/plot_Jpeel_conversion.ipynb``.
            The bin_unit (dxfreq vs dwave) cancels because both Jmu and the
-           peel-off cube are already normalized per-bin_unit by the
+           peel-off cube are already normalized by the bin unit in the
            Fortran code (see ``output_sum_rect.f90``).
         2. Jmu spectrum at the corresponding ``mu = cos(beta)``, linearly
            interpolated between the closest mu bin centers.
@@ -1330,7 +1330,7 @@ class LaRTOutput:
         xlim, ylim : tuples, optional
             Axis limits applied to every panel.  Either bound may be None.
         xmin, xmax, ymin, ymax : float, optional
-            Per-bound overrides (per-bound value wins if both forms given).
+            Individual-bound overrides (individual-bound value wins if both forms given).
         show, savefig : convenience options.
 
         Returns
@@ -1616,7 +1616,7 @@ class LaRTOutput:
             vmin_eff = lo_auto if vmin is None else vmin
             vmax_eff = hi_auto if vmax is None else vmax
         else:
-            vmin_eff = vmax_eff = None  # per-panel auto
+            vmin_eff = vmax_eff = None  # automatic, for each panel
 
         any_heal = any(p.kind == 'heal' for p in self.peelings)
         if any_heal:
@@ -1726,7 +1726,7 @@ class LaRTOutput:
         vel_range : (lo, hi), optional
             Restrict integration to ``lo <= v <= hi`` (km/s).
         vel_min, vel_max : float, optional
-            Per-bound velocity overrides (km/s); override the
+            Individual-bound velocity overrides (km/s); override the
             corresponding entry of ``vel_range``.
         wav_min, wav_max : float, optional
             Same as ``vel_min``/``vel_max`` but expressed as wavelength
@@ -2242,7 +2242,7 @@ class LaRTOutput:
         vel_range : (lo, hi), optional
             Restrict integration to ``lo <= v <= hi`` (km/s).
         vel_min, vel_max : float, optional
-            Per-bound velocity overrides (km/s); override the
+            Individual-bound velocity overrides (km/s); override the
             corresponding entry of ``vel_range``.
         wav_min, wav_max : float, optional
             Same as ``vel_min``/``vel_max`` but expressed as wavelength
@@ -2601,7 +2601,7 @@ def _import_healpy(action: str):
 
 
 def _resolve_lim(lim, lo, hi):
-    """Combine (lo, hi) tuple with explicit per-bound overrides."""
+    """Combine (lo, hi) tuple with explicit individual-bound overrides."""
     if lim is None:
         lo_eff, hi_eff = None, None
     else:
@@ -2632,8 +2632,8 @@ def _x_axis_pick(out: 'LaRTOutput', x: str):
 
 
 def _spectral_jacobian(out: 'LaRTOutput', xvals: np.ndarray) -> float:
-    """Multiplier that converts the stored spectrum (per-d(orig)) to
-    per-d(requested), so that the area under the curve is preserved."""
+    """Multiplier that converts the stored spectrum (per unit d(orig)) to
+    per unit d(requested), so that the area under the curve is preserved."""
     i_unit = int(out.spectrum_header.get('I_unit', 0) or 0)
     orig_x = out.wavelength if i_unit == 1 else out.xfreq
     orig_dx = float(np.abs(orig_x[1] - orig_x[0]))
@@ -2979,7 +2979,7 @@ def read_clumps(name: str) -> ClumpsOutput:
       * a stem: ``'run'`` -- tries ``'run.in'`` first, then a sibling
         ``run_clumps.{h5,hdf5,fits.gz,fits}``.
 
-    Returns a :class:`ClumpsOutput` with the per-clump arrays and group
+    Returns a :class:`ClumpsOutput` with the clump arrays and group
     attributes populated.
     """
     cpath, infile, params = _resolve_clump_path(name)
@@ -3123,7 +3123,7 @@ def _read_lyb(lf, xfreq, velocity) -> dict:
     Reads ``Jout_Ha`` / ``Jabs_Ha`` (H-alpha escape / dust-absorbed spectra)
     and ``J2gam`` (two-photon continuum), reconstructs the H-alpha
     frequency / velocity / wavelength axes and the two-photon ``y`` axis,
-    and builds the per-incident-photon photon budget from the ``Jout_Ha``
+    and builds the photon budget per incident photon from the ``Jout_Ha``
     header weights.  Returns a dict of LaRTOutput field values (empty when
     the file has no ``Jout_Ha`` section, i.e. a non-ly_beta run).
     """
@@ -3150,8 +3150,8 @@ def _read_lyb(lf, xfreq, velocity) -> dict:
             out['velocity_Ha'] = xfreq_Ha * vth
         if dw is not None and l0 is not None and dx:
             out['wavelength_Ha'] = l0 + (xfreq_Ha / dx) * dw
-    # Per-incident-photon photon budget.  The five W_* header weights are
-    # already stored as per-incident-photon fractions (NOT divided by
+    # Photon budget per incident photon.  The five W_* header weights are
+    # already stored as fractions per incident photon (NOT divided by
     # nphotons); normalize defensively by the incident total so the result
     # is correct regardless of storage convention.
     w = {k: _attr_scalar(sec.attr(k))
@@ -3205,7 +3205,7 @@ def read_lart(name: str) -> LaRTOutput:
     if not os.path.exists(fits_file):
         # Clumps-only fallback: LaRT has not been run yet, but the namelist
         # points at an existing par%clump_input_file.  Delegate to
-        # read_clumps() so we get the full ClumpsOutput (per-clump arrays
+        # read_clumps() so we get the full ClumpsOutput (clump arrays
         # + attrs + plot_clump_slice method) without duplicating logic.
         try:
             clumps = read_clumps(infile) if infile else None
@@ -3341,7 +3341,7 @@ def _main(argv):
     out = read_lart(argv[1])
     print(out.summary())
     if out.Jmu is not None and out.Jout is not None:
-        # show per-bin Jmu_max vs Jout_max as a sanity check.
+        # show Jmu in each bin_max vs Jout_max as a sanity check.
         Jout_max = float(np.nanmax(out.Jout))
         print(f"\nJout_max = {Jout_max:.4e}")
         print("Jmu_max per mu bin / Jout_max:")

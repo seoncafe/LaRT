@@ -44,7 +44,7 @@ program make_sightline_tau_main
   par%save_sightline_tau = .true.
 
   !--- Build the grid for the user-selected mode.  The procedure pointers
-  !    set in setup_procedure handle the per-mode raytrace dispatch later.
+  !    set in setup_procedure handle the mode-dependent raytrace dispatch later.
   if (par%use_clump_medium) then
      call grid_create_clump(grid)
      call setup_clump_overlap()   ! re-dispatch after has_overlap is known

@@ -32,8 +32,8 @@ Color-by options:
   none     -- single color outline (default tab:blue)
   radius   -- color by full 3D R_CLUMP (uniform per clump)
   rcross   -- color by 2D intersection radius (depends on slice)
-  temp     -- per-clump temperature
-  rhokap   -- per-clump rhokap
+  temp     -- clump temperature
+  rhokap   -- clump rhokap
 
 The full sphere boundary (par%rmax / SPHERE_R from header) is drawn as a
 dashed circle for reference.
@@ -140,7 +140,7 @@ def main():
     ap.add_argument('--colorby',
                     choices=('none', 'radius', 'rcross', 'temp', 'rhokap', 'velocity'),
                     default='none',
-                    help='color outlines by per-clump quantity (default: none)')
+                    help='color outlines by clump quantity (default: none)')
     ap.add_argument('--fill', action='store_true',
                     help='fill cross-section disks (alpha=0.4) instead of outline only')
     ap.add_argument('--cmap', default='viridis',

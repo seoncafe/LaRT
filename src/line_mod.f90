@@ -87,7 +87,7 @@ contains
   !-- (H + D) line opacity at the photon's frequency.
   !-- Photon xfreq is carried in H-frame Doppler units (H line center, H Dfreq).
   !-- The deuterium contribution is computed on-the-fly using the cross-species
-  !-- constants precomputed at line setup; no per-cell D arrays are stored.
+  !-- constants precomputed at line setup; no cell-by-cell D arrays are stored.
   !---
   use define
   implicit none

@@ -202,7 +202,7 @@ and [-1, +1] otherwise. Normalization: `mean(Jmu, axis=mu) = Jout`.
 | Parameter | Default | Description |
 |-----------|---------|-------------|
 | `recoil` | `.false.` | Include the recoil effect |
-| `core_skip` | `.false.` | Per-cell core-skipping: `xcrit = (voigt_a * rhokap * dl_face)^(1/3) / 5` (Smith+15 Eq.35). Required for inhomogeneous boxes. |
+| `core_skip` | `.false.` | Core-skipping, evaluated in each cell: `xcrit = (voigt_a * rhokap * dl_face)^(1/3) / 5` (Smith+15 Eq.35). Required for inhomogeneous boxes. |
 | `core_skip_global` | `.false.` | Fall back to old volume-averaged xcrit (benchmarking only) |
 
 ### Optical Depth
@@ -327,7 +327,7 @@ If `use_stokes = .true.`, then `hgg` and `albedo` are obtained from the scatteri
 | `Omega` | 0.0 | Angular velocity [(km/s)/kpc] |
 | `q` | 1.0 | Shear parameter |
 
-### Line ID and Per-Line Options
+### Line ID and Line-Specific Options
 
 | `par%line_id` | Ion | Wavelength | Type |
 |---------------|-----|------------|------|
@@ -352,15 +352,50 @@ If `use_stokes = .true.`, then `hgg` and `albedo` are obtained from the scatteri
 | `'FeII_UV2'` / `'FeII_2383'` | Fe II | 2383 | 2 resonances + fluorescence |
 | `'FeII_UV1'` / `'FeII_2600'` | Fe II | 2600 | 2 resonances + fluorescence |
 | `'HeI_10833'` | He I | 10833 | triplet |
+| `'ly_beta'` | H I | 1026 (→ H α 6563 + 2γ) | resonance + fluorescence (multiband) |
 
-**Per-line options:**
+**Line-specific options:**
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
 | `fine_structure` | `.false.` | For `'ly_alpha'`: include H I 2P1/2-2P3/2 splitting (doublet) |
 | `include_deuterium` | `.false.` | With `'ly_alpha'`, promotes to `'ly_alpha_HD'` |
 | `D_to_H_ratio` | 1.5e-5 | Deuterium-to-hydrogen number ratio (cosmic primordial) |
-| `HeI_coherent` | `.false.` | For `'HeI_10833'`: use frequency-dependent (E1, E2, E3) from the Real-Phi polynomial form instead of per-component incoherent values. See `examples/HeI_coherent_test/`. |
+| `HeI_coherent` | `.false.` | For `'HeI_10833'`: use frequency-dependent (E1, E2, E3) from the Real-Phi polynomial form instead of incoherent values for each component. See `examples/HeI_coherent_test/`. |
+| `nxfreq_Ha` | 0 | For `'ly_beta'`: number of H-alpha (band-2) frequency bins (0 → inherit `nxfreq`) |
+| `xfreq_max_Ha` | 0.0 | For `'ly_beta'`: H-alpha `|xfreq|` range in Doppler units (0 → inherit the band-1 range) |
+| `ny_2gam` | 101 | For `'ly_beta'`: two-photon continuum `y = ν/ν_Lyα` bins over (0,1); 0 disables the `J2gam` section |
+| `cext_dust_Ha` | 3.801e-22 | For `'ly_beta'`: H-alpha dust extinction cross-section [cm²/H] (Draine 2003, R_V=3.1, 6563 Å) |
+| `albedo_Ha` | 0.6741 | For `'ly_beta'`: H-alpha dust single-scattering albedo |
+| `hgg_Ha` | 0.4967 | For `'ly_beta'`: H-alpha Henyey-Greenstein asymmetry g |
+| `transport_2gamma` | `.false.` | For `'ly_beta'`: reserved (full two-photon dust transport); unimplemented, aborts if `.true.` |
+
+**Ly-beta resonance + H-alpha / two-photon fluorescence (`'ly_beta'`):**
+
+H I Ly-beta (1025.72 Å) scatters as a resonance line, but each scattering has an
+**11.834 %** probability of the 3p→2s conversion, which destroys the Ly-beta
+photon and emits an H-alpha photon (6564.55 Å) plus a 2s→1s two-photon continuum
+(branching `A(3p→2s)/A_tot(3p)`). Because the three channels span up to ~6.4× in
+wavelength, they cannot share one `xfreq` grid, so the transport is **multiband**
+(`photon%iband`): band 1 = Ly-beta (resonant — all the usual outputs incl.
+peel-off, `Jmu`, `CALCJ`/`CALCP`); band 2 = H-alpha (**dust-only**, since 2s is
+metastable and H I is transparent there); band 3 = two-photon continuum (written
+**analytically**, no Monte Carlo transport).
+
+- **New output sections:** `Jout_Ha`, `Jabs_Ha` (H-alpha spectra), `J2gam`
+  (two-photon spectrum), `peel_Ha` (H-alpha peel-off cube), and — with `CALCP` —
+  `Pconv_*` (the map of the Ly-beta→H-alpha conversion rate per atom; `Pconv/Pa →
+  0.11834`). A conservation printout reports the band-1/band-2 weight
+  budget (`W_esc1 + W_abs1 + W_conv = 1`; `W_esc2 + W_abs2 = W_conv`).
+- **Grids:** Cartesian and AMR are supported. The clumpy medium, HEALPix
+  inside-observer, Stokes, `fine_structure`, symmetry folding, and slab
+  (`xy_periodic`) geometries are guarded off (abort with a clear message).
+- **`core_skip` is forced off** for `'ly_beta'` (it would bias the conversion
+  rate); the ~0.118 destruction probability caps `<nscatt>` at ~8 anyway.
+- For `'ly_beta'`, unset band-1 dust constants are re-defaulted to the Draine
+  2003 1026 Å values. See `examples/ly_beta_sphere/`, `python/read_lart.py`
+  (`plot_spectrum(band='lyb'|'ha'|'2gam')`, `plot_lyb_budget()`), and the user
+  manual for details.
 
 **Atomic data** (do not edit unless you know what you are doing):
 
@@ -418,7 +453,7 @@ When absent, LaRT computes the quantity using the model selected below.
 | Parameter | Default | Values |
 |-----------|---------|--------|
 | `ionization_model` | `'cie_formula'` | `'cie_formula'`, `'cie_table'` (Voronov + Verner), `'full_neutral'`, `'from_file'` |
-| `dust_model` | `'global_dgr'` | `'global_dgr'`, `'laursen09'` (per-cell: ndust = Z/Z_ref * (nHI + f_ion * nHII)), `'from_file'` |
+| `dust_model` | `'global_dgr'` | `'global_dgr'`, `'laursen09'` (computed in each cell: ndust = Z/Z_ref * (nHI + f_ion * nHII)), `'from_file'` |
 | `emissivity_model` | `'none'` | `'none'`, `'caseB'` (Case B recomb + collisional), `'from_file'` |
 | `ion_model` | `'none'` | `'none'`, `'solar_cie'` (Asplund+09 * Gnat-Sternberg CIE), `'from_file'` |
 | `metallicity_global` | -1.0 | Global Z for `'laursen09'`/`'solar_cie'` when no metallicity column (negative = unset) |
@@ -523,7 +558,7 @@ standard generic AMR format.
 
 - Direct HDF5 reading with `h5py` (no `illustris_python` dependency)
 - Adaptive octree refinement by density/velocity gradient + optional resolution matching
-- Two resampling methods: nearest-neighbor (Voronoi-exact, default) or Gaussian kernel smoothing with an adaptive per-cell smoothing length (`--resample-method gaussian`)
+- Two resampling methods: nearest-neighbor (Voronoi-exact, default) or Gaussian kernel smoothing with an adaptive smoothing length that varies from cell to cell (`--resample-method gaussian`)
 - ISM treatment for star-forming cells (`--sfr-treatment cap-temperature`)
 - Optional physics: TNG-native or CIE ionization, Laursen+09 dust, multi-line emissivity (Lya/CIV/OVI)
 - Optional TNG API cutout download (`--api-key`)

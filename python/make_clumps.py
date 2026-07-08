@@ -2,7 +2,7 @@
 """make_clumps.py -- Python port of LaRT's clump_mod.f90 / make_clumps.x
 
 Generate a population of spherical clumps (positions, bulk velocities,
-per-clump physical parameters) and write a FITS or HDF5 file with the
+clump physical parameters) and write a FITS or HDF5 file with the
 same schema as the Fortran writer in clump_mod.f90. The output file is
 consumed by LaRT via ``par%clump_input_file = '<file>'``.
 
@@ -16,7 +16,7 @@ along the z-axis:
     shell [rmin, rmax] (or the bicone subset of it).
   - radial profile (any of clump_*_profile != 'constant'): inverse-CDF
     radial draw weighted by shape_number(r) * r^2; isotropic phi; cos(theta)
-    direct in the cone window; per-clump radius / opacity / temperature
+    direct in the cone window; clump radius / opacity / temperature
     derived from shape_radius / shape_density / file table.
 
 The cone-fully-inside check uses
@@ -90,7 +90,7 @@ PI     = np.pi
 TWOPI  = 2.0 * np.pi
 FOURPI = 4.0 * np.pi
 
-# Per-line atomic data (singlet f12 used to compute cross0; for doublets
+# Line-specific atomic data (singlet f12 used to compute cross0; for doublets
 # this is the strong component, matching f12(1) in setup_resonance_line()).
 LINE_DATA: Dict[str, Dict[str, float]] = {
     'ly_alpha':  dict(wavelength0=0.1215668237310, damping=6.2649e8, f12=0.4164,  mass_amu=1.00797),
@@ -702,7 +702,7 @@ def generate_clumps(args, sphere_R: float, r_min_clump: float,
 
 
 # ---------------------------------------------------------------------------
-# Per-clump physics (rhokap, voigt_a, Dfreq, vtherm, temperature)
+# Clump physics (rhokap, voigt_a, Dfreq, vtherm, temperature)
 # ---------------------------------------------------------------------------
 def assign_perclump_physics(cols: Dict[str, np.ndarray], prof: RadialProfile | None,
                             ref: Dict[str, float], rhokap_ref: float,
@@ -718,11 +718,11 @@ def assign_perclump_physics(cols: Dict[str, np.ndarray], prof: RadialProfile | N
         cols['_DFREQ']   = np.full(N, ref['Dfreq'])
         cols['_VTHERM']  = np.full(N, ref['vtherm'])
     else:
-        # per-clump radius from shape_radius * base
+        # clump radius from shape_radius * base
         rcl = prof.eval_radius(r, base_radius)
         cols['R_CLUMP'] = rcl
         # temperature: clump_mod uses ref T uniformly when no tab_temperature
-        # (file-based per-clump T is not supported here).
+        # (file-based clump T is not supported here).
         T0 = args.temperature if args.clump_temperature < 0 else args.clump_temperature
         T  = np.full(N, T0)
         cols['TEMP'] = T
@@ -745,7 +745,7 @@ def write_clumps_file(path: str, cols: Dict[str, np.ndarray],
     p_low = path.lower()
     is_h5 = p_low.endswith('.h5') or p_low.endswith('.hdf5')
 
-    # decide which optional per-clump columns to keep (const_tol = 1e-3,
+    # decide which optional clump columns to keep (const_tol = 1e-3,
     # matching the Fortran writer).
     const_tol = 1.0e-3
     def varying(arr):
@@ -778,7 +778,7 @@ def write_clumps_file(path: str, cols: Dict[str, np.ndarray],
         _write_fits(path, out_cols, header)
 
     extra = {'R_CLUMP': write_radius, 'RHOKAP': write_rhokap, 'TEMP': write_temp}
-    print(' Clumps: per-clump columns saved (R_CLUMP/RHOKAP/TEMP) = '
+    print(' Clumps: clump columns saved (R_CLUMP/RHOKAP/TEMP) = '
           + ' '.join(str(extra[k]) for k in ('R_CLUMP', 'RHOKAP', 'TEMP')))
     print(f' Clumps saved to {path}')
 
@@ -855,9 +855,9 @@ def build_argparser() -> argparse.ArgumentParser:
 
     # opacity (one of)
     p.add_argument('--clump_tau0', type=float, default=0,
-                   help='per-clump line-center tau (center to surface)')
+                   help='clump line-center tau (center to surface)')
     p.add_argument('--clump_NHI',  type=float, default=0,
-                   help='per-clump HI column density [cm^-2]')
+                   help='clump HI column density [cm^-2]')
     p.add_argument('--clump_nH',   type=float, default=0,
                    help='clump HI number density [cm^-3]; requires --distance_unit')
     p.add_argument('--taumax',     type=float, default=0,
@@ -903,9 +903,9 @@ def build_argparser() -> argparse.ArgumentParser:
     p.add_argument('--Vy', type=float, default=0.0)
     p.add_argument('--Vz', type=float, default=0.0)
     p.add_argument('--clump_sigma_v', type=float, default=0.0,
-                   help='Gaussian sigma of random per-clump bulk velocity [km/s]')
+                   help='Gaussian sigma of random clump bulk velocity [km/s]')
 
-    # radial profile knobs (per-axis: 'constant' | 'powerlaw' | 'gaussian' | 'exponential')
+    # radial profile knobs (for each axis: 'constant' | 'powerlaw' | 'gaussian' | 'exponential')
     p.add_argument('--clump_radius_profile',  type=str, default='constant')
     p.add_argument('--clump_density_profile', type=str, default='constant')
     p.add_argument('--clump_number_profile',  type=str, default='constant')
@@ -980,10 +980,10 @@ def main(argv=None) -> int:
     cols = generate_clumps(args, sphere_R, r_min_clump, base_radius,
                            N, A, prof, cos_cone, rng)
 
-    # per-clump physical params
+    # clump physical params
     assign_perclump_physics(cols, prof, ref, rhokap_ref, args, base_radius)
 
-    # velocities -- systematic + per-clump random sigma_v.
+    # velocities -- systematic + clump random sigma_v.
     vx_sys, vy_sys, vz_sys = assign_velocity_systematic(
         args, cols['X'], cols['Y'], cols['Z'], sphere_R)
     if args.clump_sigma_v > 0:

@@ -224,7 +224,7 @@ public
      logical       :: fine_structure = .false.
      !-- He I 10833 coherent (frequency-dependent) E1/E3 via Real-Phi
      !-- polynomial form (Seon, scatter_matrix_HeI memo, eqs 29 & 30 bottom line).
-     !-- When .false. the legacy per-component incoherent (E1,E2,E3) values are used.
+     !-- When .false. the legacy component-by-component incoherent (E1,E2,E3) values are used.
      logical       :: HeI_coherent   = .false.
      !-- Hydrogen + Deuterium combined Ly-α (line_id = 'ly_alpha_HD').
      !-- include_deuterium=.true. with line_id='ly_alpha' is promoted to 'ly_alpha_HD'.
@@ -329,7 +329,7 @@ public
      real(kind=wp) :: clump_f_vol       = -1.0_wp  ! volume filling factor
      real(kind=wp) :: clump_f_cov       = -1.0_wp  ! covering factor
      real(kind=wp) :: clump_tau0        = -1.0_wp  ! line-center tau: clump center to surface
-     real(kind=wp) :: clump_NHI         = -1.0_wp  ! per-clump HI column density [cm^-2], individual clump center to its surface
+     real(kind=wp) :: clump_NHI         = -1.0_wp  ! clump HI column density [cm^-2], individual clump center to its surface
      real(kind=wp) :: clump_nH          = -1.0_wp  ! clump HI density [cm^-3]
      real(kind=wp) :: clump_temperature = -1.0_wp  ! clump temperature [K] (default: par%temperature)
      real(kind=wp) :: clump_sigma_v     =  0.0_wp  ! Gaussian sigma of clump bulk velocity [km/s]
@@ -466,7 +466,7 @@ public
      real(kind=wp) :: hgg_Ha       = 0.4967_wp    ! Draine 2003 R_V=3.1 at 6562 A
      logical       :: transport_2gamma = .false.  ! reserved (fatal if .true.)
      real(kind=wp) :: R_Ha         = 0.0_wp       ! derived: cext_dust_Ha/cext_dust
-     !--- Ly-beta per-band weight bookkeeping (not input parameters; accumulated
+     !--- Ly-beta weight bookkeeping for each band (not input parameters; accumulated
      !--- per rank during the run and MPI-reduced like nscatt_gas).
      real(kind=wp) :: W_conv = 0.0_wp   ! total 3p->2s conversion weight
      real(kind=wp) :: W_esc1 = 0.0_wp   ! band-1 (Ly-beta) escaped weight
@@ -905,7 +905,7 @@ contains
   ! the result is the pure thermal width.  Every Doppler width, Voigt
   ! parameter and velocity-in-thermal-units scaling must go through this so
   ! the Cartesian, AMR and clump grids treat turbulence identically (and so
-  ! per-cell temperature variations are preserved on top of the turbulence).
+  ! cell-by-cell temperature variations are preserved on top of the turbulence).
   !----------------------------------------------------------------------
   elemental function vtherm_total(T) result(vt)
     real(kind=wp), intent(in) :: T

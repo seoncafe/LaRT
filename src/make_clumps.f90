@@ -2,7 +2,7 @@
 ! make_clumps.f90
 !
 ! Standalone Fortran program to generate a clump population (positions,
-! bulk velocities, per-clump physical parameters) and write a FITS or
+! bulk velocities, clump physical parameters) and write a FITS or
 ! HDF5 file with the same schema as LaRT's write_clumps_info().
 !
 ! This is the standalone Fortran equivalent of python/make_clumps.py and
@@ -33,7 +33,7 @@ program make_clumps
   real(wp), parameter :: CONST_TOL   = 1.0e-3_wp  ! constant-column threshold
 
   !-----------------------------------------------------------------------
-  ! Per-line atomic data table (parallel arrays)
+  ! Atomic data table for each line (parallel arrays)
   !-----------------------------------------------------------------------
   integer, parameter :: N_LINES = 10
   character(len=12), parameter :: LINE_NAME(N_LINES) = [character(len=12) :: &
@@ -212,7 +212,7 @@ program make_clumps
   call rsa_place()
 
   !-----------------------------------------------------------------------
-  ! Per-clump physics (R_CLUMP already set in cl_r; assign RHOKAP, TEMP)
+  ! Clump physics (R_CLUMP already set in cl_r; assign RHOKAP, TEMP)
   !-----------------------------------------------------------------------
   allocate(cl_rhokap(N_target), cl_temp(N_target))
   call assign_perclump_physics()
@@ -842,7 +842,7 @@ contains
   end subroutine
 
   !=======================================================================
-  ! Per-clump RHOKAP, TEMP (R_CLUMP already set during placement)
+  ! Clump RHOKAP, TEMP (R_CLUMP already set during placement)
   !=======================================================================
   subroutine assign_perclump_physics()
     integer(int64) :: i
@@ -1048,7 +1048,7 @@ contains
     call io_put_keyword(iofh, 'IN_FCOV',  clump_f_cov,           'covering factor (input)',              status)
     call io_put_keyword(iofh, 'IN_FVOL',  clump_f_vol,           'volume filling factor (input)',        status)
     call io_put_keyword(iofh, 'IN_NCL',   clump_N_clumps,        'N_clumps (input)',                     status)
-    call io_put_keyword(iofh, 'IN_NHI',   clump_NHI,             'per-clump NHI input [cm^-2]',          status)
+    call io_put_keyword(iofh, 'IN_NHI',   clump_NHI,             'clump NHI input [cm^-2]',          status)
     call io_put_keyword(iofh, 'IN_NH',    clump_nH,              'clump nH density input [cm^-3]',       status)
     call io_put_keyword(iofh, 'IN_TEMP',  clump_temperature,     'clump temperature input [K]',          status)
     call io_put_keyword(iofh, 'DISTUNIT', trim(distance_unit),   'Distance Unit',                        status)
@@ -1062,7 +1062,7 @@ contains
        stop 1
     end if
 
-    write(*,'(a,3l2)') ' Clumps: per-clump columns saved (R_CLUMP/RHOKAP/TEMP) = ', &
+    write(*,'(a,3l2)') ' Clumps: clump columns saved (R_CLUMP/RHOKAP/TEMP) = ', &
          write_radius, write_rhokap, write_temp
     write(*,'(2a)')    ' Clumps saved to ', trim(output_file)
   end subroutine
@@ -1230,8 +1230,8 @@ contains
     write(*,'(a)') '  --clump_f_cov VAL           covering factor (radial sightline)'
     write(*,'(a)') ''
     write(*,'(a)') 'Opacity (one of these required):'
-    write(*,'(a)') '  --clump_tau0 VAL            per-clump line-center tau'
-    write(*,'(a)') '  --clump_NHI VAL             per-clump HI column [cm^-2]'
+    write(*,'(a)') '  --clump_tau0 VAL            clump line-center tau'
+    write(*,'(a)') '  --clump_NHI VAL             clump HI column [cm^-2]'
     write(*,'(a)') '  --clump_nH VAL              HI density [cm^-3] (needs --distance_unit)'
     write(*,'(a)') '  --taumax VAL                system-level radial tau (back-solve)'
     write(*,'(a)') '  --N_HImax VAL               system-level HI column (back-solve)'

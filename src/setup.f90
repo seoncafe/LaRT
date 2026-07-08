@@ -117,10 +117,10 @@ contains
   !--- comment added, 2020.09.02.
   !--- bturb is the turbulent b parameter in km/s (added, 2023.06.08).
   !--- It is now the TRUE turbulent velocity and is combined in quadrature with
-  !--- the (per-cell) thermal width via vtherm_total(T); par%temperature is left
+  !--- the cell-by-cell thermal width via vtherm_total(T); par%temperature is left
   !--- as the real gas temperature.  (Previously bturb overwrote par%temperature
   !--- with (bturb/vtherm1)^2, which forced a uniform width and was silently
-  !--- ignored wherever a per-cell temperature existed — AMR grids, cart/temp
+  !--- ignored wherever a cell-by-cell temperature existed — AMR grids, cart/temp
   !--- files — making those paths disagree with the native Cartesian grid.)
   if (par%temperature0 <= 0.0_wp) par%temperature0 = par%temperature
   !--- T=0 is permitted when par%bturb > 0: the total Doppler width is then
@@ -755,7 +755,7 @@ contains
      raytrace_to_dist         => raytrace_to_dist_clump
      raytrace_to_dist_tau_gas => raytrace_to_dist_tau_gas_clump
      raytrace_to_dist_column  => raytrace_to_dist_column_clump
-     !--- do_resonance: clump variant matching line_type.  Reads per-clump
+     !--- do_resonance: clump variant matching line_type.  Reads clump
      !    cl_voigt_a, cl_Dfreq (in place of the uniform grid arrays); xfreq is
      !    rescaled to local Doppler-width units internally and converted back
      !    to REF units on return.
@@ -769,7 +769,7 @@ contains
      case default; do_resonance => do_resonance1_clump
      end select
      !--- Scatter routines: reuse Cartesian nostokes/stokes variants;
-     !    do_resonance_*_clump above handles per-clump cl_voigt_a, cl_Dfreq.
+     !    do_resonance_*_clump above handles clump cl_voigt_a, cl_Dfreq.
      if (par%use_stokes) then
         scatter_dust      => scatter_dust_stokes
         scatter_resonance => scatter_resonance_stokes

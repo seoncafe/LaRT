@@ -6,8 +6,8 @@ This version adds support for adaptive mesh refinement (AMR) grids. Simulation d
 
 ## Status
 
-- AMR support: octree grid with per-leaf physical quantities; testing and validation are ongoing.
-- **per-cell core-skip**: `xcrit` is now recomputed at every scattering from the local cell's `voigt_a × rhokap × dl_face` ([Smith+15](https://ui.adsabs.harvard.edu/abs/2015MNRAS.449.4336S/abstract) Eq.35). This replaces the volume-averaged `xcrit` for inhomogeneous (e.g. galaxy-scale) boxes where the old prescription gave `xcrit = 0` and photons trapped in dense regions never escaped. The old behavior is retained behind `par%core_skip_global = .true.` for benchmarking.
+- AMR support: octree grid with leaf physical quantities; testing and validation are ongoing.
+- **cell-by-cell core-skip**: `xcrit` is now recomputed at every scattering from the local cell's `voigt_a × rhokap × dl_face` ([Smith+15](https://ui.adsabs.harvard.edu/abs/2015MNRAS.449.4336S/abstract) Eq.35). This replaces the volume-averaged `xcrit` for inhomogeneous (e.g. galaxy-scale) boxes where the old prescription gave `xcrit = 0` and photons trapped in dense regions never escaped. The old behavior is retained behind `par%core_skip_global = .true.` for benchmarking.
 - Clump overlap handling added: file-loaded or internally generated overlapping clumps are handled with an event-based multi-component raytrace; enabled via `par%clump_allow_overlap = .true.` for internally generated populations.
 - **HDF5 I/O support (output and input)** is now available alongside FITS for all output streams (spectrum, peel-off, sight-line tau, CALCJ/CALCP arrays) and all gridded inputs (density, temperature, velocity, emissivity, clump files). The default is HDF5 (`par%file_format = 'hdf5'`); set `par%file_format = 'fits'` to fall back to `.fits.gz`. Build with `make HDF5=1` (default) or `make HDF5=0` to skip the HDF5 link dependency. See `python/lart_io.py` for a format-agnostic Python reader/converter.
 - **CALCJ / CALCP / CALCPnew on the AMR grid** (2026-07-02): the internal mean-intensity spectrum `J(x)` and the scattering rate per atom `P_alpha` are now accumulated on the octree grid as well. Deposits are **position-binned** (segment midpoint / scattering position) with volume-weighted normalization from the true leaf/bin overlap, so radial profiles stay correct even in coarsely refined cores. Output sections: `Jx_AMR`/`Pa_AMR` (per leaf) or `Jx_1D`/`Pa_1D` etc. (binned profiles) with bin-axis keywords (`nr/rmax/dr`, `nz/zmin/dz`); `CALCPnew` sections carry the `_new` suffix. AMR radial/cylindrical binning requires `par%rmax > 0` in the input file. Validated against Cartesian runs to 1-2% (rms) at matched resolution. `python/read_lart.py` loads all CALC sections and provides `plot_J_profile()` / `plot_Pa_profile()`.
@@ -31,4 +31,4 @@ Detailed usage instructions are in preparation.
 
 ---
 
-Last updated: 2026-07-07 16:28
+Last updated: 2026-07-08 10:36

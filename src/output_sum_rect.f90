@@ -336,7 +336,7 @@ contains
      enddo
   end select
   !--- Ly-beta (line_type = 8) conversion-rate maps: identical normalization
-  !--- to Pa/P1/P2 (per-atom rate). Expectation: Pconv/Pa -> 0.11834.
+  !--- to Pa/P1/P2 (rate per atom). Expectation: Pconv/Pa -> 0.11834.
   if (line%line_type == 8) then
      select case (grid%geometry_JPa)
      case (3)
@@ -442,7 +442,7 @@ contains
      enddo
   endif
 
-  !--- Ly-beta fluorescence: per-band weight bookkeeping (per source photon).
+  !--- Ly-beta fluorescence: weight bookkeeping for each band (per source photon).
   !--- Conservation: band1_esc + band1_abs + conv = 1 ; band2_esc + band2_abs = conv.
   if (line%line_type == 8 .and. mpar%p_rank == 0) then
      nph = dble(par%nphotons)
@@ -832,7 +832,7 @@ contains
   !--- CALCJ / CALCP / CALCPnew : volume-weighted normalization on AMR leaves.
   !    Operates on the module-global amr_grid (this routine takes a grid_type
   !    argument only for the spectrum copy).  Mirrors the Cartesian convention:
-  !    the per-bin sum of leaf volumes (vol_*) replaces ncount_*, and d2 plays
+  !    the sum in each bin of leaf volumes (vol_*) replaces ncount_*, and d2 plays
   !    the role of the Cartesian dVol's distance factor.  nadd is pre-folded.
 #if defined (CALCJ) || defined (CALCP) || defined (CALCPnew)
   d2 = par%distance2cm**2
@@ -907,7 +907,7 @@ contains
            amr_grid%P1(ir) = amr_grid%P1(ir) / (amr_grid%vol_sph(ir) * d2 * par%nphotons)
      end do
   end select
-  !--- Ly-beta (line_type = 8) conversion-rate maps: identical per-atom-rate
+  !--- Ly-beta (line_type = 8) conversion-rate maps: the same convention (rate per atom) and
   !--- volume-weighted normalization as Pa (expectation Pconv/Pa -> 0.11834).
   if (line%line_type == 8) then
      select case (amr_grid%geometry_JPa)
@@ -1016,7 +1016,7 @@ contains
      end do
   end if
 
-  !--- Ly-beta fluorescence: per-band weight bookkeeping (per source photon).
+  !--- Ly-beta fluorescence: weight bookkeeping for each band (per source photon).
   !--- Conservation: band1_esc + band1_abs + conv = 1 ; band2_esc + band2_abs = conv.
   if (line%line_type == 8 .and. mpar%p_rank == 0) then
      write(*,'(a)')        '--- ly_beta bookkeeping (weights per source photon) ---'

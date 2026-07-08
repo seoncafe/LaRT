@@ -2,12 +2,12 @@ module clump_mod
 !---------------------------------------------------------------------------
 ! Clumpy medium support for LaRT_v2.00.
 !
-! Geometry: N_clumps spherical clumps of (per-clump) radius cl_radius(:)
+! Geometry: N_clumps spherical clumps of radius cl_radius(:)
 ! placed uniformly at random (non-overlapping via RSA) inside a sphere of
 ! radius sphere_R. Each clump has its own opacity cl_rhokap(:), temperature
 ! cl_temperature(:), Doppler frequency cl_Dfreq(:), Voigt parameter
 ! cl_voigt_a(:), and independent Gaussian random bulk velocities.
-! When all radial profiles are 'constant', every per-clump entry equals
+! When all radial profiles are 'constant', every clump entry equals
 ! the corresponding reference scalar; otherwise the arrays are populated
 ! from radial profiles.
 !
@@ -30,7 +30,7 @@ module clump_mod
   real(kind=wp),  save :: r_min_clump = 0.0_wp   ! inner placement radius [code units]
                                                  ! (= max(0, par%rmin); 0 -> filled sphere)
 
-  !--- Per-clump physical properties (MPI shared memory, dimension N_clumps).
+  !--- Clump physical properties (MPI shared memory, dimension N_clumps).
   !    When all radial profiles are 'constant', every entry is uniform and
   !    equals the corresponding _ref scalar below; when a radial profile is
   !    active, they are populated as functions of clump-center radius.
@@ -98,7 +98,7 @@ module clump_mod
 
   !--- Optional tabulated profile from `clump_profile_file`. When loaded,
   !    table_r/r_cl_in_table/n_H_in_table/T_in_table/n_cl_shape_in_table are
-  !    interpolated linearly. Per-axis profile selection still uses the
+  !    interpolated linearly. Axis-by-axis profile selection still uses the
   !    string flag; 'file' on any axis pulls from the corresponding column.
   integer, save :: NTAB = 0
   real(kind=wp), allocatable, save :: tab_r(:)
@@ -120,10 +120,10 @@ module clump_mod
 contains
 
   !===========================================================================
-  ! Per-clump unit-conversion helpers.  photon%xfreq and the Jout / Jin / peel
+  ! Clump unit-conversion helpers.  photon%xfreq and the Jout / Jin / peel
   ! arrays use REF Doppler units (cl_Dfreq_ref) globally.  cl_voigt_a(icl) is
   ! defined with cl_Dfreq(icl), and cl_vx/y/z(icl) is stored as v/cl_vtherm(icl).
-  ! When cl_Dfreq(icl) /= cl_Dfreq_ref (per-clump T), the Voigt argument and
+  ! When cl_Dfreq(icl) /= cl_Dfreq_ref (clump T), the Voigt argument and
   ! bulk-velocity Doppler shift need rescaling.  For uniform T both helpers
   ! reduce to the previous expressions (ratio = 1).
   !===========================================================================
@@ -484,7 +484,7 @@ contains
   ! Numerical volume filling factor:
   !     f_vol = (4π/R³) * ∫₀ᴿ A_norm * shape_number(r) * r_cl(r)³ * r² dr
   ! Derived from f_vol = (sum clump volumes)/V_box with the spatial number
-  ! density A * shape(r) and per-clump volume (4/3)π r_cl(r)³ integrated
+  ! density A * shape(r) and clump volume (4/3)π r_cl(r)³ integrated
   ! over the shell 4π r² dr. For uniform shapes this reduces to
   ! N (r_cl/R)³.
   !===========================================================================
@@ -763,7 +763,7 @@ contains
   if (N_clumps <= 0_int64) N_clumps = 1_int64
 
   !--- clump opacity (peak value).
-  !    Per-clump direct inputs (clump_tau0, clump_NHI, clump_nH) take
+  !    Clump direct inputs (clump_tau0, clump_NHI, clump_nH) take
   !    priority over the system-level fallbacks (par%taumax, par%N_HImax),
   !    which back-solve for the peak opacity assuming the realized f_cov
   !    (uniform) or shape quadrature (profile) hits the requested radial
@@ -772,7 +772,7 @@ contains
   if (par%clump_tau0 > 0.0_wp) then
      cl_rhokap_ref = par%clump_tau0 / (voigt(0.0_wp, cl_voigt_a_ref) * base_radius_in)
   else if (par%clump_NHI > 0.0_wp) then
-     ! clump_NHI = per-clump column density [cm^-2] from clump center to surface
+     ! clump_NHI = clump column density [cm^-2] from clump center to surface
      ! (peak value; shape_density(r) modulates per clump).
      cl_rhokap_ref = par%clump_NHI * line%cross0 / (cl_Dfreq_ref * base_radius_in)
   else if (par%clump_nH > 0.0_wp) then
@@ -836,7 +836,7 @@ contains
   call create_shared_mem(cl_vy, [int(N_clumps)])
   call create_shared_mem(cl_vz, [int(N_clumps)])
 
-  !--- shared memory for per-clump physical properties
+  !--- shared memory for clump physical properties
   call create_shared_mem(cl_radius,      [int(N_clumps)])
   call create_shared_mem(cl_radius2,     [int(N_clumps)])
   call create_shared_mem(cl_rhokap,      [int(N_clumps)])
@@ -846,7 +846,7 @@ contains
   call create_shared_mem(cl_vtherm,      [int(N_clumps)])
   call create_shared_mem(cl_temperature, [int(N_clumps)])
 
-  !--- Fill per-clump arrays uniformly with the reference values. When
+  !--- Fill clump arrays uniformly with the reference values. When
   !    radial profiles are active, the profile-driven assignments below
   !    overwrite these defaults once clump positions are placed.
   if (mpar%h_rank == 0) then
@@ -857,7 +857,7 @@ contains
      cl_Dfreq(:)       = cl_Dfreq_ref
      cl_vtherm(:)      = cl_vtherm_ref
      cl_temperature(:) = cl_temperature_ref
-     !--- uniform-case dust opacity (overwritten per-clump below if profiles
+     !--- uniform-case dust opacity (overwritten clump below if profiles
      !    are active), matching the Cartesian rhokapD/rhokap ratio.
      if (par%DGR > 0.0_wp .and. associated(cl_rhokapD)) &
         cl_rhokapD(:) = cl_rhokap_ref * par%cext_dust * par%DGR * cl_Dfreq_ref / line%cross0
@@ -900,9 +900,9 @@ contains
   ! Two sampling paths:
   !  - profiles_active = .false.: uniform-in-sphere box rejection.
   !  - profiles_active = .true. : inverse-CDF sampling on r, isotropic angles,
-  !    per-clump radius from shape_radius(r), per-clump opacity / temperature
+  !    clump radius from shape_radius(r), clump opacity / temperature
   !    / Voigt parameter from the active profiles.
-  ! Per-pair RSA overlap test handles non-uniform r_cl correctly.
+  ! Pairwise RSA overlap test handles non-uniform r_cl correctly.
   !---------------------------------------------------------------------------
   implicit none
   integer        :: rg, ncells_rsa
@@ -1094,7 +1094,7 @@ contains
      cl_x(icl) = real(xc, dp);  cl_y(icl) = real(yc, dp);  cl_z(icl) = real(zc, dp)
 
      if (profiles_active) then
-        !--- per-clump physical assignments from radial profiles
+        !--- clump physical assignments from radial profiles
         cl_radius(icl)     = rcl_trial
         cl_radius2(icl)    = rcl_trial * rcl_trial
         if (allocated(tab_temperature)) then
@@ -1807,7 +1807,7 @@ contains
   !--- Compute realized f_vol and f_cov from actual placed clumps.
   !    Uniform case: closed-form expression.
   !    Profile case: 4π/3 * Σ r_cl^3 / V_shell and (LOS f_cov from quadrature).
-  !    From-file case: per-clump sums (no profile tables available).
+  !    From-file case: clump sums (no profile tables available).
   !    All formulas use shell volume V_shell = (4π/3)(R^3 - rmin^3) and shell
   !    sightline factor (R^2 + R*rmin + rmin^2); rmin = 0 reduces them to the
   !    original full-sphere expressions.
@@ -1837,7 +1837,7 @@ contains
      f_cov_actual = f_cov_LOS_quad(real(ncl,wp) / max(total_count_quad(1.0_wp), tiny(1.0_wp)))
   end if
 
-  !--- per-clump diagnostics (peak, mean, range)
+  !--- clump diagnostics (peak, mean, range)
   rcl_min  = huge(1.0_wp);  rcl_max = 0.0_wp;  rcl_mean = 0.0_wp;  tau_mean = 0.0_wp
   do i = 1_int64, ncl
      rcl_min  = min(rcl_min,  cl_radius(i))
@@ -1875,10 +1875,10 @@ contains
 
   !--- BinTable HDU: X, Y, Z, VX, VY, VZ + (conditionally) R_CLUMP, RHOKAP, TEMP
   !
-  !    The three per-clump physical columns are only written when their
+  !    The three clump physical columns are only written when their
   !    spread (max-min) exceeds const_tol * |mean|. Otherwise the value
   !    is fully captured by the corresponding header keyword (CL_RAD,
-  !    RHOKAP, TEMP_CL) and the column would be a 4-byte-per-row constant
+  !    RHOKAP, TEMP_CL) and the column would be a 4-byte constant per row
   !    waste. read_clumps_info() falls back to the header keyword when the
   !    column is absent, so legacy 6-column files and new constant-case
   !    files are read the same way.
@@ -1899,7 +1899,7 @@ contains
   tmp = cl_vz(1:ncl) * cl_vtherm(1:ncl)
   call io_write_table_column(iofh, 'VZ', tmp, status, bitpix)
 
-  !--- per-clump physical columns: write only if non-constant.
+  !--- clump physical columns: write only if non-constant.
   kap_min_w  = minval(cl_rhokap(1:ncl))
   kap_max_w  = maxval(cl_rhokap(1:ncl))
   kap_mean_w = sum(cl_rhokap(1:ncl)) / max(real(ncl,wp), 1.0_wp)
@@ -1927,7 +1927,7 @@ contains
   deallocate(tmp)
 
   if (mpar%p_rank == 0) then
-     write(*,'(a,3l2)') ' Clumps: per-clump columns saved (R_CLUMP/RHOKAP/TEMP) = ', &
+     write(*,'(a,3l2)') ' Clumps: clump columns saved (R_CLUMP/RHOKAP/TEMP) = ', &
           write_radius, write_rhokap, write_temp
   end if
 
@@ -1949,7 +1949,7 @@ contains
   call io_put_keyword(iofh, 'IN_FCOV',   par%clump_f_cov,   'covering factor (input)',            status)
   call io_put_keyword(iofh, 'IN_FVOL',   par%clump_f_vol,   'volume filling factor (input)',      status)
   call io_put_keyword(iofh, 'IN_NCL',    par%clump_N_clumps,'N_clumps (input)',                   status)
-  call io_put_keyword(iofh, 'IN_NHI',    par%clump_NHI,     'per-clump NHI input [cm^-2] (clump center to surface)',status)
+  call io_put_keyword(iofh, 'IN_NHI',    par%clump_NHI,     'clump NHI input [cm^-2] (clump center to surface)',status)
   call io_put_keyword(iofh, 'IN_NH',     par%clump_nH,      'clump nH density input [cm^-3]',    status)
   call io_put_keyword(iofh, 'IN_TEMP',   par%clump_temperature,'clump temperature input [K]',     status)
   call io_put_keyword(iofh, 'DISTUNIT',  par%distance_unit, 'Distance Unit',                     status)
@@ -1967,7 +1967,7 @@ contains
   ! Helper used by read_clumps_info.  Try each comma-separated entry in
   ! `colnames` in order; the first one that exists in the FITS table is
   ! used.  Allows alternative spellings to be accepted (e.g. RHOKAP,
-  ! DENSITY, DENS for the per-clump opacity proxy).  If none of the
+  ! DENSITY, DENS for the clump opacity proxy).  If none of the
   ! columns are present, fall back to the value of header keyword
   ! `keyname` and fill `dst` uniformly with it.  This is how
   !   - a legacy file without the R_CLUMP/RHOKAP/TEMP columns, and
@@ -2045,7 +2045,7 @@ contains
   !   HDU 2 (BinTable) columns:
   !     X, Y, Z          [code units]
   !     VX, VY, VZ       [km/s]
-  !     R_CLUMP, RHOKAP, TEMP    (per-clump physical props)
+  !     R_CLUMP, RHOKAP, TEMP    (clump physical props)
   !
   ! Allocates the same MPI shared-memory arrays as the generate path,
   ! distributes via the standard hostcomm/SAME_HRANK_COMM pattern, and
@@ -2190,8 +2190,8 @@ contains
         end if
      end if
 
-     !--- Derive per-clump Doppler frequency, thermal velocity, Voigt damping
-     !    from the per-clump temperature so that the line-data choice (par%line_id)
+     !--- Derive clump Doppler frequency, thermal velocity, Voigt damping
+     !    from the clump temperature so that the line-data choice (par%line_id)
      !    used in the LaRT run can differ from the one that generated the file.
      do i = 1_int64, ncl
         cl_vtherm(i)  = vtherm_total(cl_temperature(i))
@@ -2286,7 +2286,7 @@ contains
   !    so write_clumps_info and grid_create_clump see the rescaled values.
   call rescale_loaded_clumps_to_target()
 
-  !--- Per-clump dust opacity from the finalized (rescaled) cl_rhokap, using
+  !--- Clump dust opacity from the finalized (rescaled) cl_rhokap, using
   !    the same Cartesian convention as the generate path:
   !      cl_rhokapD = cl_rhokap * cext_dust * DGR * cl_Dfreq / cross0.
   if (par%DGR > 0.0_wp .and. associated(cl_rhokapD)) then
@@ -2315,7 +2315,7 @@ contains
   !===========================================================================
   subroutine compute_clump_scalars(tauhomo_out, taumax_out, N_gashomo_out, N_gasmax_out)
   !---------------------------------------------------------------------------
-  ! Compute the four system-level scalars from the per-clump arrays
+  ! Compute the four system-level scalars from the clump arrays
   ! cl_rhokap, cl_voigt_a, cl_Dfreq, cl_radius, cl_x/y/z (all assumed
   ! populated; works for both loaded and generated clumps, uniform or
   ! profile mode).
@@ -2395,7 +2395,7 @@ contains
   ! N_gas* names alone is sufficient.
   !
   ! If none of the four targets are set, returns without modifying
-  ! cl_rhokap -- the per-clump opacities loaded from the file are taken
+  ! cl_rhokap -- the clump opacities loaded from the file are taken
   ! as-is and the four system-level scalars are derived from them in
   ! grid_mod_clump.
   !---------------------------------------------------------------------------
