@@ -222,7 +222,7 @@ the Cartesian and AMR grids; peel-off sight-lines are attenuated by H2.
 | `h2_hi_width` | `.false.` | Benchmark: force the H2 line to the H I Doppler width (Neufeld point-in-sigma approximation) |
 | `h2_data_dir` | `''` | Directory holding `energy_X.dat` (default `<exe>/data/h2`) |
 
-The absorbed-fraction budget (`1-f_e`, per-line pumping) is printed at the end of the
+The absorbed-fraction budget (`1-f_e`, pumping for each line) is printed at the end of the
 run and written as Spectrum-header keywords; `read_lart('input.in').h2_budget` loads
 it. Examples/validation: `examples/h2_test/`.
 

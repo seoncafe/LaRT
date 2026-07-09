@@ -33,7 +33,7 @@ contains
      call MPI_ALLREDUCE(MPI_IN_PLACE, par%W_esc2, 1, MPI_DOUBLE_PRECISION, MPI_SUM, MPI_COMM_WORLD, ierr)
      call MPI_ALLREDUCE(MPI_IN_PLACE, par%W_abs2, 1, MPI_DOUBLE_PRECISION, MPI_SUM, MPI_COMM_WORLD, ierr)
   endif
-  !--- H2 effect on Ly-alpha: destruction / scatter / per-line pumping weights.
+  !--- H2 effect on Ly-alpha: destruction / scatter / pumping weights for each line.
   if (h2_on) then
      call MPI_ALLREDUCE(MPI_IN_PLACE, par%W_H2abs,  1,          MPI_DOUBLE_PRECISION, MPI_SUM, MPI_COMM_WORLD, ierr)
      call MPI_ALLREDUCE(MPI_IN_PLACE, par%W_H2scat, 1,          MPI_DOUBLE_PRECISION, MPI_SUM, MPI_COMM_WORLD, ierr)
@@ -688,7 +688,7 @@ contains
      call MPI_ALLREDUCE(MPI_IN_PLACE, par%W_esc2, 1, MPI_DOUBLE_PRECISION, MPI_SUM, MPI_COMM_WORLD, ierr)
      call MPI_ALLREDUCE(MPI_IN_PLACE, par%W_abs2, 1, MPI_DOUBLE_PRECISION, MPI_SUM, MPI_COMM_WORLD, ierr)
   endif
-  !--- H2 effect on Ly-alpha: destruction / scatter / per-line pumping weights (AMR).
+  !--- H2 effect on Ly-alpha: destruction / scatter / pumping weights for each line (AMR).
   if (h2_on) then
      call MPI_ALLREDUCE(MPI_IN_PLACE, par%W_H2abs,  1,          MPI_DOUBLE_PRECISION, MPI_SUM, MPI_COMM_WORLD, ierr)
      call MPI_ALLREDUCE(MPI_IN_PLACE, par%W_H2scat, 1,          MPI_DOUBLE_PRECISION, MPI_SUM, MPI_COMM_WORLD, ierr)

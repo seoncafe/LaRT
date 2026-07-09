@@ -489,7 +489,7 @@ public
      !--- H2 weight bookkeeping (not inputs; accumulated per rank, MPI-reduced).
      real(kind=wp) :: W_H2abs  = 0.0_wp            ! Lya weight destroyed by H2 (fluorescence)
      real(kind=wp) :: W_H2scat = 0.0_wp            ! H2 resonance-scatter events (photon kept)
-     !--- (per-line pumping weights live in h2_mod%W_H2pump; an allocatable field
+     !--- (pumping weights for each line live in h2_mod%W_H2pump; an allocatable field
      !--- here would break the params namelist read.)
      character(len=128) :: scatt_mat_file = ''
      character(len=128) :: line_prof_file = ''

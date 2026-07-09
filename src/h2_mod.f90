@@ -14,7 +14,7 @@ module h2_mod
 !  Uniform molecular fraction (par%f_H2) and a single H2 temperature
 !  (par%h2_temperature) that sets BOTH the LTE level populations and the H2
 !  Doppler width.  The opacity is a constant multiple of the local H I opacity
-!  grid%rhokap (Neufeld's dimensionless strength s_i), so no per-cell array.
+!  grid%rhokap (Neufeld's dimensionless strength s_i), so no cell-by-cell array.
 !
 !  The design mirrors the existing H+D (line_type = 7) second-species path: a
 !  co-moving absorber with its own Doppler width and Voigt-a, added on top of the
@@ -44,7 +44,7 @@ module h2_mod
   type(h2_line_t), allocatable,  public :: h2l(:)
   real(kind=wp),                 public :: h2_Dfreq_Hz = 0.0_wp   ! H2 Doppler width [Hz]
   logical,                       public :: h2_on = .false.
-  !--- per-line pumping weight accumulator (kept here, not in par, so the params
+  !--- pumping-weight accumulator for each line (kept here, not in par, so the params
   !--- namelist read is not broken by an allocatable derived-type field).
   real(kind=wp), allocatable,    public :: W_H2pump(:)
 

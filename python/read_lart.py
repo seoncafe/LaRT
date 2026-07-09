@@ -3195,7 +3195,7 @@ def _build_h2_budget(hdr: dict) -> Optional[dict]:
     keywords written by LaRT.  Returns None for a run without H2.
 
     Keys: model, f_H2, T_H2, abs (Ly-alpha destroyed by H2 /photon),
-    scat (H2 resonance-scatter events /photon), pump (per-line pumped /photon;
+    scat (H2 resonance-scatter events /photon), pump (pumped for each line /photon;
     [R(6), P(5), ...]), ratio (P(5)/R(6) pumping ratio, Neufeld Fig. 21)."""
     if not hdr:
         return None

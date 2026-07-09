@@ -429,7 +429,7 @@ class VoronoiInterpolator:
         if self.kernel_size is not None and self.kernel_size > 0:
             h = float(self.kernel_size)              # fixed, scalar
         else:
-            h = self.kernel_factor * self.r_eff[idx]  # adaptive, per-neighbor
+            h = self.kernel_factor * self.r_eff[idx]  # adaptive, varies by neighbor
         w = self.cell_volume[idx] * np.exp(-0.5 * (d / h)**2)
         wsum = w.sum(axis=1)
         zero = (wsum == 0.0)

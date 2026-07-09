@@ -74,7 +74,7 @@ The following optimizations have been applied to handle large grids
    (vectorised physics-function evaluation)
    The original code called fn(scalar, scalar, scalar) once per leaf
    cell.  For numpy-based functions (e.g. Gaussian profiles built with
-   np.exp / np.sqrt) this creates per-call numpy overhead N times.
+   np.exp / np.sqrt) this creates numpy overhead on every call N times.
    The new implementation collects all leaf coordinates into numpy arrays
    (cx, cy, cz) and calls fn(cx_array, cy_array, cz_array) once.  numpy
    then evaluates the expression in a single C-level vectorised pass,
@@ -88,7 +88,7 @@ The following optimizations have been applied to handle large grids
    Python zip-loop (N_probe individual fn calls per leaf).  Now the
    function is probed once at closure creation to detect array support;
    if supported, all probe points are evaluated with a single fn(xx, yy,
-   zz) array call, reducing per-leaf fn calls from N_probe to 1.
+   zz) array call, reducing the fn calls for each leaf from N_probe to 1.
 
 5. info()  (single-pass leaf traversal)
    The original info() called self.leaves() three times (once inside
@@ -104,7 +104,7 @@ The following optimizations have been applied to handle large grids
 
 7. write (text format)  (batched output via np.savetxt)
    The original code called f.write(f'...') individually for every leaf,
-   incurring per-line Python format overhead.  Replaced with np.column_stack
+   incurring line-by-line Python format overhead.  Replaced with np.column_stack
    to build a 2-D array of all data, then np.savetxt for bulk formatted
    output.
 
@@ -116,7 +116,7 @@ The following optimizations have been applied to handle large grids
    not intersect the slice plane, reducing traversal cost to
    O(N_slice·depth).  Polygon vertices are then built as a single
    (N, 4, 2) numpy array instead of a Python list-of-lists, eliminating
-   per-cell Python object creation before passing to PolyCollection.
+   cell-by-cell Python object creation before passing to PolyCollection.
 
 Geometry boundary refinement  (refine_boundary parameter)
 -----------------------------------------------------------
@@ -653,7 +653,7 @@ class AMRGrid:
     def refine_by_velocity(self, vel_fn, dens_fn=None, threshold=0.1,
                            level_max=6, level_min=2, nprobe=2, floor=1e-30):
         """
-        Refine cells where the per-component velocity variation exceeds
+        Refine cells where the velocity variation in each component exceeds
         ``threshold``.
 
         Component-wise criterion (sensitive to direction changes / sign
@@ -1324,7 +1324,7 @@ class AMRGrid:
     # ------------------------------------------------------------------ #
 
     def _set_optional(self, attr, fn):
-        """Generic setter for optional per-leaf scalar attributes."""
+        """Generic setter for optional leaf scalar attributes."""
         if callable(fn):
             leaflist = self.leaves()
             try:
@@ -1513,7 +1513,7 @@ class AMRGrid:
                 dt.append((attr, 'f8'))
 
         data = np.empty(len(leaflist), dtype=dt)
-        # Column-wise assignment is much faster than per-row structured-array writes
+        # Column-wise assignment is much faster than row-by-row structured-array writes
         data['x']      = [lf.cx     for lf in leaflist]
         data['y']      = [lf.cy     for lf in leaflist]
         data['z']      = [lf.cz     for lf in leaflist]

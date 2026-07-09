@@ -240,7 +240,7 @@ def make_velocity_fn(law, rmax, v_exp=0.0, velocity_alpha=1.0, vrot=0.0, rinner=
 
 
 # ---------------------------------------------------------------------------
-# Vectorized fast path (no per-cell Cell objects)
+# Vectorized fast path (no cell-by-cell Cell objects)
 # ---------------------------------------------------------------------------
 def _shell_radii_array(rmax, level_min, level_max, spacing, ratio, custom_radii):
     """Outer-boundary radius of each refinement shell (outermost first)."""
@@ -331,7 +331,7 @@ class FastAMRGrid(AMRGrid):
     instead of a ``Cell`` octree.  Produced by the vectorized generators for
     fast writing of very large grids.  It reuses the inherited ``write()``
     machinery (HDF5/FITS) and supports ``info()`` and ``len(grid.leaves())``;
-    per-cell iteration and ``slice_plot()`` are intentionally unavailable —
+    cell-by-cell iteration and ``slice_plot()`` are intentionally unavailable —
     read the written file back with ``AMRGrid.read()`` for analysis."""
 
     def __init__(self, boxlen, cx, cy, cz, level, dens, T, vx, vy, vz,
@@ -362,7 +362,7 @@ class FastAMRGrid(AMRGrid):
         return self._table
 
     def leaves(self):
-        # Only len() is used by callers (leaf-count reporting); per-cell
+        # Only len() is used by callers (leaf-count reporting); cell-by-cell
         # iteration is intentionally unsupported on the array-backed grid.
         return range(self._n)
 
@@ -883,7 +883,7 @@ def main():
     )
 
     # The vectorized fast engine builds no Cell tree, so slice plots (which
-    # need per-cell traversal) require the object-tree engine.
+    # need cell-by-cell traversal) require the object-tree engine.
     _engine = 'tree' if args.plot else 'fast'
 
     if args.compare:
