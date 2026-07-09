@@ -473,6 +473,24 @@ public
      real(kind=wp) :: W_abs1 = 0.0_wp   ! band-1 (Ly-beta) dust-absorbed weight
      real(kind=wp) :: W_esc2 = 0.0_wp   ! band-2 (H-alpha) escaped weight
      real(kind=wp) :: W_abs2 = 0.0_wp   ! band-2 (H-alpha) dust-absorbed weight
+     !--- Molecular hydrogen (H2) effect on Lyman-alpha (line_id = 'ly_alpha').
+     !--- Phase 1: Neufeld two-line pumping (R(6), P(5)) by uniform H2 with a single
+     !--- H2 temperature and a constant molecular fraction. h2_model = 'none' (default)
+     !--- skips the whole H2 path => bit-identical to runs without H2.
+     character(len=8) :: h2_model    = 'none'      ! 'none' | 'neufeld' | 'lte'
+     real(kind=wp) :: f_H2           = 0.0_wp      ! constant molecular fraction n_H2/n_HI
+     real(kind=wp) :: h2_temperature = 1000.0_wp   ! H2 molecular temperature [K]
+                                                   ! (LTE level populations + H2 Doppler width)
+     logical       :: h2_pure_absorption = .false. ! .true. => p_scat = 0 (Neufeld destruction limit)
+     logical       :: h2_hi_width = .false.        ! benchmark: force H2 line to the H I Doppler
+                                                   ! width (Neufeld point-in-sigma approx); default
+                                                   ! .false. uses the physical (narrower) H2 width
+     character(len=128) :: h2_data_dir = ''        ! dir holding energy_X.dat (default: <exe>/data/h2)
+     !--- H2 weight bookkeeping (not inputs; accumulated per rank, MPI-reduced).
+     real(kind=wp) :: W_H2abs  = 0.0_wp            ! Lya weight destroyed by H2 (fluorescence)
+     real(kind=wp) :: W_H2scat = 0.0_wp            ! H2 resonance-scatter events (photon kept)
+     !--- (per-line pumping weights live in h2_mod%W_H2pump; an allocatable field
+     !--- here would break the params namelist read.)
      character(len=128) :: scatt_mat_file = ''
      character(len=128) :: line_prof_file = ''
      integer            :: line_prof_file_type = 0

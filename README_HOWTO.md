@@ -205,6 +205,27 @@ and [-1, +1] otherwise. Normalization: `mean(Jmu, axis=mu) = Jout`.
 | `core_skip` | `.false.` | Core-skipping, evaluated in each cell: `xcrit = (voigt_a * rhokap * dl_face)^(1/3) / 5` (Smith+15 Eq.35). Required for inhomogeneous boxes. |
 | `core_skip_global` | `.false.` | Fall back to old volume-averaged xcrit (benchmarking only) |
 
+### Molecular Hydrogen (H2) Effect on Ly-alpha
+
+For `line_id = 'ly_alpha'` only. H2 Lyman/Werner-band lines near Ly-alpha absorb and
+mostly destroy (via fluorescence) Ly-alpha photons (Neufeld 1990). Two-channel:
+resonance scatter off H2 (probability `p_scat`) or fluorescent destruction. Works on
+the Cartesian and AMR grids; peel-off sight-lines are attenuated by H2.
+`h2_model = 'none'` (default) skips the H2 path (bit-identical to no-H2).
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `h2_model` | `'none'` | `'none'` \| `'neufeld'` (2 lines R(6)+P(5)) \| `'lte'` (Phase 2, many lines) |
+| `f_H2` | `0.0` | Constant molecular fraction n_H2/n_HI |
+| `h2_temperature` | `1000.0` | H2 temperature [K]: sets LTE level populations AND the H2 Doppler width; independent of the gas temperature |
+| `h2_pure_absorption` | `.false.` | `.true.` => p_scat = 0 (Neufeld destruction limit) |
+| `h2_hi_width` | `.false.` | Benchmark: force the H2 line to the H I Doppler width (Neufeld point-in-sigma approximation) |
+| `h2_data_dir` | `''` | Directory holding `energy_X.dat` (default `<exe>/data/h2`) |
+
+The absorbed-fraction budget (`1-f_e`, per-line pumping) is printed at the end of the
+run and written as Spectrum-header keywords; `read_lart('input.in').h2_budget` loads
+it. Examples/validation: `examples/h2_test/`.
+
 ### Optical Depth
 
 The following parameters scale the density field.

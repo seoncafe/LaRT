@@ -158,6 +158,7 @@ OBJSB	= $(addprefix $(SRCDIR)/, \
 	read_cartesian_grid.o \
 	grid_mod_car.o \
 	line_mod.o \
+	h2_mod.o \
 	raytrace_car.o \
 	octree_mod.o \
 	output_sum_rect.o \

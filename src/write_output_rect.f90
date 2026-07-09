@@ -3,6 +3,7 @@ module write_output_rect
   use iofile_mod
   use output_sum_rect
   use utility
+  use h2_mod, only: h2_on, n_h2_lines, h2l, W_H2pump
   implicit none
   !---- this should be accesible within this module.
   character(len=128) :: fname_backup
@@ -506,6 +507,17 @@ contains
   if (trim(par%source_geometry) == 'point_illumination') then
      call io_put_keyword(iofh,'Raccept',  par%acceptance_rate,'Acceptance Rate', status)
      call io_put_keyword(iofh,'fluxfac',  par%flux_factor,    'Flux (or luminosity) factor', status)
+  endif
+  !--- H2 effect on Ly-alpha budget (weights per source photon, this run).
+  if (h2_on) then
+     call io_put_keyword(iofh,'H2MODEL', trim(par%h2_model),          'H2 model', status)
+     call io_put_keyword(iofh,'H2FH2',   par%f_H2,                    'H2 molecular fraction n_H2/n_HI', status)
+     call io_put_keyword(iofh,'H2TEMP',  par%h2_temperature,          'H2 temperature [K]', status)
+     call io_put_keyword(iofh,'H2NLINE', n_h2_lines,                  'number of H2 lines', status)
+     call io_put_keyword(iofh,'H2ABS',   par%W_H2abs/nph_tot,         'Lya destroyed by H2 /photon', status)
+     call io_put_keyword(iofh,'H2SCAT',  par%W_H2scat/nph_tot,        'H2 resonance-scatter events /photon', status)
+     if (n_h2_lines >= 1) call io_put_keyword(iofh,'H2PUMP1', W_H2pump(1)/nph_tot, 'R(6) pumped /photon', status)
+     if (n_h2_lines >= 2) call io_put_keyword(iofh,'H2PUMP2', W_H2pump(2)/nph_tot, 'P(5) pumped /photon', status)
   endif
 !---------------------------------
 

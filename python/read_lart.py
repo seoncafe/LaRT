@@ -693,6 +693,9 @@ class LaRTOutput:
     Pconv_leaf:  Optional[np.ndarray] = None
     lyb_budget:  Optional[dict] = None
     lyb_header:  dict = field(default_factory=dict)
+    # --- H2 effect on Ly-alpha budget (from the Spectrum header H2* keywords) ---
+    # dict: model, f_H2, T_H2, abs, scat, pump (list), ratio; None if no H2 run.
+    h2_budget:   Optional[dict] = None
     # --- Peel-off observers (optional) ---
     peelings:    List[PeelObservation] = field(default_factory=list)
     # --- Metadata ---
@@ -765,6 +768,16 @@ class LaRTOutput:
                     f"esc1={b['esc1']:.4g} abs1={b['abs1']:.4g} "
                     f"conv={b['conv']:.4g} | esc2={b['esc2']:.4g} "
                     f"abs2={b['abs2']:.4g}")
+        if self.h2_budget is not None:
+            h = self.h2_budget
+            pump = ' '.join(f'{p:.3g}' for p in h.get('pump', []))
+            lines.append(
+                f"H2       : model={h.get('model')} f_H2={h.get('f_H2'):.3g} "
+                f"T_H2={h.get('T_H2'):.0f}K")
+            lines.append(
+                f"  budget : Lya_destroyed={h['abs']:.4g} scat={h['scat']:.4g} "
+                f"pump=[{pump}]"
+                + (f" ratio(P5/R6)={h['ratio']:.3g}" if h.get('ratio') else ""))
         return '\n'.join(lines)
 
     # ------------------------------------------------------------------
@@ -3177,6 +3190,42 @@ def _read_lyb(lf, xfreq, velocity) -> dict:
     return out
 
 
+def _build_h2_budget(hdr: dict) -> Optional[dict]:
+    """Reconstruct the H2-on-Ly-alpha budget from the Spectrum-header H2*
+    keywords written by LaRT.  Returns None for a run without H2.
+
+    Keys: model, f_H2, T_H2, abs (Ly-alpha destroyed by H2 /photon),
+    scat (H2 resonance-scatter events /photon), pump (per-line pumped /photon;
+    [R(6), P(5), ...]), ratio (P(5)/R(6) pumping ratio, Neufeld Fig. 21)."""
+    if not hdr:
+        return None
+    abs_ = _attr_scalar(hdr.get('H2ABS'))
+    if abs_ is None:
+        return None
+    pump = []
+    for i in range(1, 33):
+        p = _attr_scalar(hdr.get('H2PUMP%d' % i))
+        if p is None:
+            break
+        pump.append(p)
+    model = hdr.get('H2MODEL')
+    if isinstance(model, bytes):
+        model = model.decode()
+    if isinstance(model, np.ndarray):
+        model = model.ravel()[0]
+        if isinstance(model, bytes):
+            model = model.decode()
+    return {
+        'model': (model.strip() if isinstance(model, str) else model),
+        'f_H2':  _attr_scalar(hdr.get('H2FH2')),
+        'T_H2':  _attr_scalar(hdr.get('H2TEMP')),
+        'abs':   abs_,
+        'scat':  _attr_scalar(hdr.get('H2SCAT')),
+        'pump':  pump,
+        'ratio': (pump[1] / pump[0] if len(pump) >= 2 and pump[0] else None),
+    }
+
+
 def read_lart(name: str) -> LaRTOutput:
     """Read a LaRT output file (FITS or HDF5).
 
@@ -3305,6 +3354,8 @@ def read_lart(name: str) -> LaRTOutput:
     # sort by beta for stable ordering when plotted
     peelings.sort(key=lambda p: (p.beta, p.alpha, p.gamma))
 
+    h2_bud = _build_h2_budget(spec_hdr)
+
     return LaRTOutput(
         fits_file = fits_file,
         input_file = infile,
@@ -3312,6 +3363,7 @@ def read_lart(name: str) -> LaRTOutput:
         velocity = velocity,
         wavelength = wavelength,
         Jout = Jout,
+        h2_budget = h2_bud,
         Jin  = Jin,
         Jabs = Jabs,
         Jabs2 = Jabs2,

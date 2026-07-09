@@ -2,6 +2,7 @@ module output_sum_rect
   use define
   use mpi
   use memory_mod
+  use h2_mod, only: h2_on, n_h2_lines, h2l, W_H2pump
 contains
   subroutine output_reduce_outside(grid)
   implicit none
@@ -31,6 +32,12 @@ contains
      call MPI_ALLREDUCE(MPI_IN_PLACE, par%W_abs1, 1, MPI_DOUBLE_PRECISION, MPI_SUM, MPI_COMM_WORLD, ierr)
      call MPI_ALLREDUCE(MPI_IN_PLACE, par%W_esc2, 1, MPI_DOUBLE_PRECISION, MPI_SUM, MPI_COMM_WORLD, ierr)
      call MPI_ALLREDUCE(MPI_IN_PLACE, par%W_abs2, 1, MPI_DOUBLE_PRECISION, MPI_SUM, MPI_COMM_WORLD, ierr)
+  endif
+  !--- H2 effect on Ly-alpha: destruction / scatter / per-line pumping weights.
+  if (h2_on) then
+     call MPI_ALLREDUCE(MPI_IN_PLACE, par%W_H2abs,  1,          MPI_DOUBLE_PRECISION, MPI_SUM, MPI_COMM_WORLD, ierr)
+     call MPI_ALLREDUCE(MPI_IN_PLACE, par%W_H2scat, 1,          MPI_DOUBLE_PRECISION, MPI_SUM, MPI_COMM_WORLD, ierr)
+     call MPI_ALLREDUCE(MPI_IN_PLACE, W_H2pump, n_h2_lines, MPI_DOUBLE_PRECISION, MPI_SUM, MPI_COMM_WORLD, ierr)
   endif
   if (trim(par%geometry) == 'plane_atmosphere' .or. trim(par%geometry) == 'spherical_atmosphere') then
      call reduce_mem(grid%Jabs2)
@@ -459,6 +466,24 @@ contains
      write(*,'(a)')        '--------------------------------------------------------'
   endif
 
+  !--- H2 effect on Ly-alpha: pumping / destruction bookkeeping (per source photon).
+  !--- W_H2abs/nph is Neufeld's Ly-alpha fraction absorbed by H2 (Fig. 20);
+  !--- W_H2pump(2)/W_H2pump(1) is the P(5)/R(6) pumping ratio (Fig. 21).
+  if (h2_on .and. mpar%p_rank == 0) then
+     nph = dble(par%nphotons)
+     write(*,'(a)')        '--- H2 effect on Ly-alpha (weights per source photon) ---'
+     write(*,'(a,es14.6)') '  Ly-alpha destroyed by H2 (fluoresced) : ', par%W_H2abs/nph
+     write(*,'(a,es14.6)') '  H2 resonance-scatter events           : ', par%W_H2scat/nph
+     do i = 1, n_h2_lines
+        write(*,'(a,i1,a,f7.3,a,es14.6)') '  line ', i, ' (dv=', h2l(i)%dv_kms, &
+              ' km/s) pumped         : ', W_H2pump(i)/nph
+     enddo
+     if (W_H2pump(1) > 0.0_wp) &
+        write(*,'(a,es14.6)') '  pumping ratio  f(P5)/f(R6)            : ', &
+              W_H2pump(2)/W_H2pump(1)
+     write(*,'(a)')        '--------------------------------------------------------'
+  endif
+
   end subroutine output_normalize_outside
 !--------------------------------------------------------------
   subroutine make_radial_intensity(grid,obs,use_2D_data)
@@ -662,6 +687,12 @@ contains
      call MPI_ALLREDUCE(MPI_IN_PLACE, par%W_abs1, 1, MPI_DOUBLE_PRECISION, MPI_SUM, MPI_COMM_WORLD, ierr)
      call MPI_ALLREDUCE(MPI_IN_PLACE, par%W_esc2, 1, MPI_DOUBLE_PRECISION, MPI_SUM, MPI_COMM_WORLD, ierr)
      call MPI_ALLREDUCE(MPI_IN_PLACE, par%W_abs2, 1, MPI_DOUBLE_PRECISION, MPI_SUM, MPI_COMM_WORLD, ierr)
+  endif
+  !--- H2 effect on Ly-alpha: destruction / scatter / per-line pumping weights (AMR).
+  if (h2_on) then
+     call MPI_ALLREDUCE(MPI_IN_PLACE, par%W_H2abs,  1,          MPI_DOUBLE_PRECISION, MPI_SUM, MPI_COMM_WORLD, ierr)
+     call MPI_ALLREDUCE(MPI_IN_PLACE, par%W_H2scat, 1,          MPI_DOUBLE_PRECISION, MPI_SUM, MPI_COMM_WORLD, ierr)
+     call MPI_ALLREDUCE(MPI_IN_PLACE, W_H2pump, n_h2_lines, MPI_DOUBLE_PRECISION, MPI_SUM, MPI_COMM_WORLD, ierr)
   endif
 
 #ifdef CALCJ
@@ -1029,6 +1060,20 @@ contains
                            (par%W_esc1 + par%W_abs1 + par%W_conv)/dble(par%nphotons)
      write(*,'(a,es14.6)') '  band2_esc + band2_abs (= conv)        : ', &
                            (par%W_esc2 + par%W_abs2)/dble(par%nphotons)
+     write(*,'(a)')        '--------------------------------------------------------'
+  endif
+  !--- H2 effect on Ly-alpha budget (AMR): 1-f_e = W_H2abs/nph, ratio f(P5)/f(R6).
+  if (h2_on .and. mpar%p_rank == 0) then
+     write(*,'(a)')        '--- H2 effect on Ly-alpha (weights per source photon) ---'
+     write(*,'(a,es14.6)') '  Ly-alpha destroyed by H2 (fluoresced) : ', par%W_H2abs/dble(par%nphotons)
+     write(*,'(a,es14.6)') '  H2 resonance-scatter events           : ', par%W_H2scat/dble(par%nphotons)
+     do k = 1, n_h2_lines
+        write(*,'(a,i1,a,f7.3,a,es14.6)') '  line ', k, ' (dv=', h2l(k)%dv_kms, &
+              ' km/s) pumped         : ', W_H2pump(k)/dble(par%nphotons)
+     enddo
+     if (W_H2pump(1) > 0.0_wp) &
+        write(*,'(a,es14.6)') '  pumping ratio  f(P5)/f(R6)            : ', &
+              W_H2pump(2)/W_H2pump(1)
      write(*,'(a)')        '--------------------------------------------------------'
   endif
   end subroutine output_normalize_amr

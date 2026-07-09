@@ -53,6 +53,7 @@ module raytrace_amr_mod
   !-----------------------------------------------------------------------
   use octree_mod
   use voigt_mod
+  use h2_mod, only: h2_on, h2_kappa_D
   implicit none
   private
 
@@ -109,11 +110,12 @@ contains
 
       if (photon%iband == 1) then
         rhokapH = amr_grid%rhokap(il) * amr_line_profile(il, photon%xfreq)
-        if (par%DGR > 0.0_wp .and. associated(amr_grid%rhokapD)) then
-          rhokap = rhokapH + amr_grid%rhokapD(il)
-        else
-          rhokap = rhokapH
-        end if
+        rhokap  = rhokapH
+        !--- H2 line opacity (destroying/scattering); kept out of rhokapH so the
+        !--- H I mean-intensity / scattering-rate accumulation stays H I only.
+        if (h2_on) rhokap = rhokap + amr_grid%rhokap(il) * &
+                                     h2_kappa_D(photon%xfreq, amr_grid%Dfreq(il))
+        if (par%DGR > 0.0_wp .and. associated(amr_grid%rhokapD)) rhokap = rhokap + amr_grid%rhokapD(il)
       else
         !--- band 2 (H-alpha, ly_beta line_type = 8): dust-only opacity, scaled
         !--- from the band-1 wavelength to 6563 A by par%R_Ha (0 when DGR==0).
@@ -291,6 +293,7 @@ contains
       icell  = amr_grid%icell_of_leaf(il)
       call amr_cell_exit(icell, x, y, z, kx, ky, kz, t_exit, iface)
       rhokap = amr_grid%rhokap(il) * amr_line_profile(il, xfreq_loc)
+      if (h2_on) rhokap = rhokap + amr_grid%rhokap(il) * h2_kappa_D(xfreq_loc, amr_grid%Dfreq(il))  !--- H2 peel attenuation
       if (par%DGR > 0.0_wp .and. associated(amr_grid%rhokapD)) &
           rhokap = rhokap + amr_grid%rhokapD(il)
       tau = tau + t_exit * rhokap

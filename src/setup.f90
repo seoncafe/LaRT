@@ -7,6 +7,7 @@ contains
   use iofile_mod, only: io_file_extension
   use utility
   use line_mod
+  use h2_mod, only: h2_init
   use mpi
   implicit none
 
@@ -14,6 +15,7 @@ contains
   character(len=128) :: model_infile, arg
   integer :: unit
   integer :: ierr
+  integer :: i
   !real(kind=wp) :: dx,dy,dz
   integer       :: nx,ny,nz
   real(kind=wp) :: xmax,ymax,zmax
@@ -304,6 +306,63 @@ contains
         par%R_Ha = par%cext_dust_Ha / par%cext_dust
      endif
      if (par%ny_2gam < 0) par%ny_2gam = 0
+  endif
+
+  !--- Molecular hydrogen (H2) effect on Ly-alpha (Phase-1 Neufeld two-line).
+  par%h2_model = strlowcase(par%h2_model)
+  if (trim(par%h2_model) /= 'none') then
+     !--- Phase 1 scope: only the plain ly_alpha (line_type = 1) Cartesian path.
+     if (line%line_type /= 1) then
+        if (mpar%p_rank == 0) write(*,'(a)') 'H2: only supported for line_id = ''ly_alpha'' (line_type 1)'
+        flush(6); call MPI_ABORT(MPI_COMM_WORLD, 1, ierr)
+     endif
+     if (trim(par%h2_model) /= 'neufeld') then
+        if (mpar%p_rank == 0) write(*,'(2a)') 'H2: Phase 1 supports only h2_model=''neufeld''; got ', trim(par%h2_model)
+        flush(6); call MPI_ABORT(MPI_COMM_WORLD, 1, ierr)
+     endif
+     if (par%use_clump_medium) then
+        if (mpar%p_rank == 0) write(*,'(a)') 'H2: clump medium not yet supported'
+        flush(6); call MPI_ABORT(MPI_COMM_WORLD, 1, ierr)
+     endif
+     if (par%nside > 0 .or. par%observer_located_inside) then
+        if (mpar%p_rank == 0) write(*,'(a)') 'H2: inside-observer (HEALPix) not yet supported'
+        flush(6); call MPI_ABORT(MPI_COMM_WORLD, 1, ierr)
+     endif
+     if (par%use_stokes) then
+        if (mpar%p_rank == 0) write(*,'(a)') 'H2: Stokes polarization not yet supported'
+        flush(6); call MPI_ABORT(MPI_COMM_WORLD, 1, ierr)
+     endif
+     if (par%xyz_symmetry .or. par%xy_symmetry .or. par%Omega /= 0.0_wp) then
+        if (mpar%p_rank == 0) write(*,'(a)') 'H2: xyz/xy symmetry and shear not yet supported'
+        flush(6); call MPI_ABORT(MPI_COMM_WORLD, 1, ierr)
+     endif
+     !--- The xy_periodic slab is supported only in the nx=ny=1 (zonly) variant,
+     !--- which is the one carrying the H2 opacity term (Neufeld-slab validation).
+     if (par%xy_periodic .and. (par%nx > 1 .or. par%ny > 1)) then
+        if (mpar%p_rank == 0) write(*,'(a)') 'H2: xy_periodic supported only for the nx=ny=1 slab'
+        flush(6); call MPI_ABORT(MPI_COMM_WORLD, 1, ierr)
+     endif
+     !--- Peel-off sight-line tau now includes H2 absorption (raytrace_to_edge_car
+     !--- / _zonly / _amr), so peeled spectra are attenuated by H2 along the ray.
+     if (trim(par%geometry) == 'plane_atmosphere' .or. trim(par%geometry) == 'spherical_atmosphere') then
+        if (mpar%p_rank == 0) write(*,'(a)') 'H2: atmosphere geometries not yet supported'
+        flush(6); call MPI_ABORT(MPI_COMM_WORLD, 1, ierr)
+     endif
+     if (par%f_H2 <= 0.0_wp) then
+        if (mpar%p_rank == 0) write(*,'(a)') 'H2: par%f_H2 must be > 0 when h2_model /= ''none'''
+        flush(6); call MPI_ABORT(MPI_COMM_WORLD, 1, ierr)
+     endif
+     !--- default data directory: <executable dir>/data/h2
+     if (len_trim(par%h2_data_dir) == 0) then
+        call get_command_argument(0, arg)
+        i = index(arg, '/', back=.true.)
+        if (i > 0) then
+           par%h2_data_dir = arg(1:i)//'data/h2'
+        else
+           par%h2_data_dir = 'data/h2'
+        endif
+     endif
+     call h2_init(trim(par%h2_data_dir))
   endif
 
   !--- Jmu setup (escaped spectrum binned by mu = cos(theta_z))

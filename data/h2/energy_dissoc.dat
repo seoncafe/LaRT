@@ -1,0 +1,19 @@
+2 4 29 // magic number - today's date			
+#
+# dissociation energies (cm-1) for each electronic state, from 
+# >>refer	H2	energies	Sharp, T. E., 1971, Atomic Data, 2, 119 
+# energy for H_2 + hnu -> 2H,
+# note that energies for excited states are in the Lyman continuum
+# (1 Ryd = 109670 cm-1) */
+#
+# >>chng 02 oct 08, improved energies */
+# /* original values { 36113., 118372., 118372., 118372., 118372.,0.,0. };*/
+#
+# dissociation energies of electronic states (in cm^-1)
+0	36118.11
+1	118375.6 
+2	118375.6 
+3	118375.6 
+4	118375.6
+5	133608.6
+6	133608.6

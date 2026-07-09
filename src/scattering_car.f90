@@ -7,6 +7,7 @@ module scatter_mod
   !use peelingoff_mod
   use mathlib
   use grid_mod, only: car_xcrit_local
+  use h2_mod,   only: h2_on, h2_kappa, h2_kappa_D, h2_select_line, h2_select_line_D, h2l, h2_Dfreq_Hz, W_H2pump
   public
 contains
   !=====================================
@@ -37,6 +38,20 @@ contains
   !--- AMR mode: use amr_grid arrays indexed by leaf index
   if (par%use_amr_grid) then
      i1 = photon%icell_amr
+     !--- H2 channel (3-way split): H2 pumping event -> scatter_h2_amr, else fall through.
+     if (h2_on) then
+        block
+          real(kind=wp) :: kap_HI, kap_H2, kap_D
+          kap_HI = amr_grid%rhokap(i1)*amr_line_profile(i1, photon%xfreq)
+          kap_H2 = amr_grid%rhokap(i1)*h2_kappa_D(photon%xfreq, amr_grid%Dfreq(i1))
+          kap_D  = 0.0_wp
+          if (par%DGR > 0.0_wp .and. associated(amr_grid%rhokapD)) kap_D = amr_grid%rhokapD(i1)
+          if (rand_number()*(kap_HI+kap_H2+kap_D) <= kap_H2) then
+             call scatter_h2(photon, grid)   ! scatter_h2 branches on par%use_amr_grid
+             return
+          end if
+        end block
+     endif
      if (par%DGR > 0.0_wp .and. associated(amr_grid%rhokapD)) then
         p_dust = amr_grid%rhokapD(i1) / &
             (amr_grid%rhokap(i1)*amr_line_profile(i1, photon%xfreq) + amr_grid%rhokapD(i1))
@@ -70,6 +85,24 @@ contains
      return
   endif
 
+  !--- H2 channel (Cartesian only; h2_on is guaranteed to imply Cartesian mode by
+  !--- the setup guards). With probability kap_H2/(kap_HI+kap_H2+kap_dust) the event
+  !--- is an H2 pumping event; otherwise fall through to the dust/resonance split.
+  if (h2_on) then
+     i1 = photon%icell; i2 = photon%jcell; i3 = photon%kcell
+     block
+       real(kind=wp) :: kap_HI, kap_H2, kap_D
+       kap_HI = grid%rhokap(i1,i2,i3)*calc_voigt(grid,photon%xfreq,i1,i2,i3)
+       kap_H2 = grid%rhokap(i1,i2,i3)*h2_kappa(grid,photon%xfreq,i1,i2,i3)
+       kap_D  = 0.0_wp
+       if (par%DGR > 0.0_wp) kap_D = grid%rhokapD(i1,i2,i3)
+       if (rand_number()*(kap_HI+kap_H2+kap_D) <= kap_H2) then
+          call scatter_h2(photon,grid)
+          return
+       endif
+     end block
+  endif
+
   if (par%DGR > 0.0_wp) then
      i1 = photon%icell
      i2 = photon%jcell
@@ -85,6 +118,85 @@ contains
   endif
   return
   end subroutine scattering
+  !=====================================
+  subroutine scatter_h2(photon,grid)
+  !--- Handle an H2 pumping event (line_id = 'ly_alpha' with par%h2_model /= 'none').
+  !--- Pick which H2 line absorbed the photon, then follow the two-channel branch:
+  !---   * with probability p_scat: resonance scatter off an H2 molecule (coherent
+  !---     in the molecule rest frame; H2 Doppler width) -- the photon stays in the
+  !---     Ly-alpha band and continues.
+  !---   * otherwise: fluorescent decay to another wavelength destroys the photon.
+  !--- Phase 1: isotropic re-emission; no direct peel-off contribution for the
+  !--- H2-scattered photon (its later escape is still peeled normally).
+  use octree_mod, only: amr_grid
+  implicit none
+  type(photon_type), intent(inout) :: photon
+  type(grid_type),   intent(inout) :: grid
+  integer       :: il, i1,i2,i3
+  real(kind=wp) :: Dfreq_cell, ratio, dx, x_h2, uz, xatom, cost, sint, phi, cosp, sinp
+  real(kind=wp) :: ux, uy, uxy, phi2, x_h2_new
+  real(kind=wp) :: kx1,ky1,kz1,kr
+
+  i1 = photon%icell; i2 = photon%jcell; i3 = photon%kcell
+  !--- cell H I Doppler width: AMR (leaf) or Cartesian.
+  if (par%use_amr_grid) then
+     Dfreq_cell = amr_grid%Dfreq(photon%icell_amr)
+  else
+     Dfreq_cell = grid%Dfreq(i1,i2,i3)
+  endif
+  il = h2_select_line_D(photon%xfreq, Dfreq_cell)
+
+  !--- pumping tally (every H2 absorption into this line)
+  W_H2pump(il) = W_H2pump(il) + photon%wgt
+
+  if (rand_number() > h2l(il)%p_scat) then
+     !--- destruction: fluorescence to another wavelength -> photon leaves Ly-alpha
+     par%W_H2abs   = par%W_H2abs + photon%wgt
+     photon%inside = .false.
+     if (par%save_all_photons) photon%wgt = 0.0_wp
+     return
+  endif
+
+  !--- resonance scatter off an H2 molecule (H2 Doppler width). Work in H2 Doppler
+  !--- units, then convert the re-emitted frequency back to the H-frame units that
+  !--- photon%xfreq carries (mirrors calc_voigt_HD / the H+D scatter path).
+  par%W_H2scat      = par%W_H2scat + photon%wgt
+  photon%nscatt_gas = photon%nscatt_gas + photon%wgt
+  ratio = Dfreq_cell / h2_Dfreq_Hz
+  dx    = h2l(il)%dnu_Hz / Dfreq_cell
+  x_h2  = (photon%xfreq - dx) * ratio
+  uz    = rand_resonance_vz(x_h2, h2l(il)%a_damp)
+  xatom = x_h2 - uz
+
+  !--- isotropic re-emission (Phase 1)
+  cost = 2.0_wp*rand_number() - 1.0_wp
+  sint = sqrt(1.0_wp - cost*cost)
+  phi  = twopi*rand_number()
+  cosp = cos(phi); sinp = sin(phi)
+
+  !--- perpendicular molecular velocities (H2 Doppler units)
+  phi2 = twopi*rand_number()
+  uxy  = sqrt(-log(rand_number()))
+  ux   = uxy*cos(phi2)
+  uy   = uxy*sin(phi2)
+
+  x_h2_new     = xatom + uz*cost + (ux*cosp + uy*sinp)*sint
+  photon%xfreq = x_h2_new/ratio + dx
+
+  !--- new direction vector
+  if (abs(photon%kz) >= 0.99999999999_wp) then
+     photon%kx = sint*cosp
+     photon%ky = sint*sinp
+     photon%kz = cost
+  else
+     kx1 = photon%kx; ky1 = photon%ky; kz1 = photon%kz
+     kr  = sqrt(kx1*kx1 + ky1*ky1)
+     photon%kx = cost*kx1 + sint*(kz1*kx1*cosp - ky1*sinp)/kr
+     photon%ky = cost*ky1 + sint*(kz1*ky1*cosp + kx1*sinp)/kr
+     photon%kz = cost*kz1 - sint*cosp*kr
+  endif
+  return
+  end subroutine scatter_h2
   !=====================================
   subroutine scatter_dust_stokes(photon,grid)
     implicit none

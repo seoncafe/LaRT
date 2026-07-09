@@ -1,0 +1,23 @@
+&parameters
+ par%no_photons   = 3e4
+ par%temperature  = 1.0e4
+ par%taumax       = 1.0e4
+ par%DGR          = 0.0
+ par%spectral_type = 'voigt'
+ par%source_geometry = 'point'
+ par%geometry     = 'sphere'
+ par%nx = 101, par%ny = 101, par%nz = 101
+ par%rmax = 1.0
+ par%xyz_symmetry = .false.
+ par%xfreq_min = -15.0, par%xfreq_max = 15.0, par%nxfreq = 241
+ par%save_Jin = .true.
+ par%save_peeloff = .true.
+ par%save_peeloff_2D = .true.
+ par%nxim = 64
+ par%nyim = 64
+ par%distance = 100.0
+ par%h2_model       = 'neufeld'
+ par%f_H2           = 0.05
+ par%h2_temperature = 8000.0
+ par%out_file = 'car_peel_neufeld.h5'
+/

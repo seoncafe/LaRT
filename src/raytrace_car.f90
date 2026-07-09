@@ -1,5 +1,6 @@
 module raytrace
   use line_mod
+  use h2_mod, only: h2_on, h2_kappa
 contains
 
 !---------------------------------------------------------------------------
@@ -469,6 +470,7 @@ contains
   !--- integrate through grid
   do while(.true.)
      rhokap = grid%rhokap(icell,jcell,kcell)*calc_voigt(grid,xfreq,icell,jcell,kcell)
+     if (h2_on) rhokap = rhokap + grid%rhokap(icell,jcell,kcell)*h2_kappa(grid,xfreq,icell,jcell,kcell)   !--- H2 peel attenuation
      if (par%DGR > 0.0_wp) rhokap = rhokap + grid%rhokapD(icell,jcell,kcell)
 
      idx_min = minloc([tx,ty,tz], dim=1)
@@ -1211,6 +1213,7 @@ contains
   !--- integrate through grid
   do while(.true.)
      rhokap = grid%rhokap(icell,jcell,kcell)*calc_voigt(grid,xfreq,icell,jcell,kcell)
+     if (h2_on) rhokap = rhokap + grid%rhokap(icell,jcell,kcell)*h2_kappa(grid,xfreq,icell,jcell,kcell)   !--- H2 peel attenuation
      if (par%DGR > 0.0_wp) rhokap = rhokap + grid%rhokapD(icell,jcell,kcell)
 
      tau   = tau + (tz - d) * rhokap
@@ -1483,11 +1486,12 @@ contains
 
      if (photon%iband == 1) then
         rhokapH = grid%rhokap(icell,jcell,kcell)*calc_voigt(grid,photon%xfreq,icell,jcell,kcell)
-        if (par%DGR > 0.0_wp) then
-           rhokap = rhokapH + grid%rhokapD(icell,jcell,kcell)
-        else
-           rhokap = rhokapH
-        endif
+        rhokap  = rhokapH
+        !--- H2 line opacity (destroying/scattering); kept out of rhokapH so the
+        !--- H I mean-intensity / scattering-rate accumulation stays H I only.
+        if (h2_on) rhokap = rhokap + grid%rhokap(icell,jcell,kcell)* &
+                                     h2_kappa(grid,photon%xfreq,icell,jcell,kcell)
+        if (par%DGR > 0.0_wp) rhokap = rhokap + grid%rhokapD(icell,jcell,kcell)
      else
         !--- band 2 (H-alpha, ly_beta line_type = 8): dust-only opacity,
         !--- scaled from the band-1 wavelength to 6563 A by par%R_Ha.
@@ -2592,11 +2596,11 @@ contains
   do while(photon%inside)
 
      rhokapH = grid%rhokap(icell,jcell,kcell)*calc_voigt(grid,photon%xfreq,icell,jcell,kcell)
-     if (par%DGR > 0.0_wp) then
-        rhokap = rhokapH + grid%rhokapD(icell,jcell,kcell)
-     else
-        rhokap = rhokapH
-     endif
+     rhokap  = rhokapH
+     !--- H2 line opacity (destroying/scattering); kept out of rhokapH.
+     if (h2_on) rhokap = rhokap + grid%rhokap(icell,jcell,kcell)* &
+                                  h2_kappa(grid,photon%xfreq,icell,jcell,kcell)
+     if (par%DGR > 0.0_wp) rhokap = rhokap + grid%rhokapD(icell,jcell,kcell)
 
      del    = tz - d
      tau    = tau + del * rhokap

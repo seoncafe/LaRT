@@ -1,0 +1,19 @@
+&parameters
+ par%use_amr_grid  = .true.
+ par%amr_type      = 'generic'
+ par%amr_file      = 'uniform_amr_sphere.fits.gz'
+ par%no_photons    = 3e4
+ par%temperature   = 1.0e4
+ par%taumax        = 1.0e4
+ par%DGR           = 0.0
+ par%source_geometry = 'point'
+ par%spectral_type = 'voigt'
+ par%rmax          = 1.0
+ par%xfreq_min = -15.0, par%xfreq_max = 15.0, par%nxfreq = 241
+ par%save_Jin      = .true.
+ par%save_peeloff  = .false.
+ par%h2_model       = 'neufeld'
+ par%f_H2           = 0.05
+ par%h2_temperature = 8000.0
+ par%out_file = 'amr_h2_on.h5'
+/

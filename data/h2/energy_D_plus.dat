@@ -1,0 +1,47 @@
+2 4 29 // magic number - today's date
+#
+# this file gives the vibration, rotation, and energy, of all 
+# levels within the ground electronic state of molecular hydrogen
+# The energies are in atomic units.  Any line starting with a #
+# is interpreted as a comment and ignored.  The same magic number
+# appears at the start and end of the file.
+#
+# data are derived from
+#>>refer	H2	As	Abgrall, H., Roueff, E., & Drira, I. 2000, A&AS, 141, 297-300
+#
+# energies for J=0 were missing and extrapolated
+#
+# This is the D+ state, which is elec = 5 in the internal bookkeeping.
+#
+# vib rot ener D+ e state
+0	0	112876.265
+0	1	112935.45
+0	2	113060.16
+0	3	113244.97
+0	4	113487.56
+0	5	113785.24
+0	6	114135.04
+0	7	114533.67
+0	8	114977.47
+0	9	115461.91
+0	10	115980.28
+0	11	116517.88
+0	12	117268.58
+0	13	117856.97
+1	0	115099.806 // extrapolated energy - done for all J 
+1	1	115156.3
+1	2	115270.53
+1	3	115439.47
+1	4	115659.86
+1	5	115926.15
+1	6	116227.81
+1	7	116623.2561
+1	8	117162.36
+1	9	117600.97
+1	10	118080.64
+2	0	117198.267
+2	1	117252.07
+2	2	117363.99
+2	3	117527.99
+2	4	117740.22
+2	5	117992.87
