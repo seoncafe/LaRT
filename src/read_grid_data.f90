@@ -130,7 +130,9 @@ contains
         endif
         if (loc(3) < n3cen) then
            arr(:,:,n3cen-loc(3)+1:n3)   = array(:,:,1:loc(3)+n3cen)
-           arr(:,:,1:n3cen-loc(3))      = array(:,:,loc(3)+n2cen+1:n3)
+           !arr(:,:,1:n3cen-loc(3))      = array(:,:,loc(3)+n2cen+1:n3)
+           !bug-fixed, 2027.07.13
+           arr(:,:,1:n3cen-loc(3))      = array(:,:,loc(3)+n3cen+1:n3)
            array(:,:,:) = arr(:,:,:)
         else if (loc(3) > n3cen) then
            arr(:,:,1:3*n3cen-loc(3))    = array(:,:,loc(3)-n3cen+1:n3)
