@@ -132,20 +132,25 @@ contains
   subroutine fits_close(unit,status)
   integer, intent(in)    :: unit
   integer, intent(inout) :: status
-  integer :: tmp_status, hdutype, dvals(8)
+  integer :: tmp_status, hdutype, dvals(8), iomode
   character(len=10) :: date_str
-  ! Write DATE to primary HDU before closing.
-  ! Called here (after data is written) rather than in fits_open_new because
-  ! CFITSIO 4.6.x bug: ftpkys/ftpdat called immediately after ftinit corrupts
-  ! the unit state (ftghdt returns status=252 BAD_HDU_NUM on the next call).
-  ! Writing the keyword after data operations avoids the bug entirely.
-  ! For read-only files ftpkys will fail; we ignore that via a local status.
+  ! Write DATE to the primary HDU before closing, but ONLY for a file opened
+  ! read-write.  Called here (after data is written) rather than in
+  ! fits_open_new because of a CFITSIO 4.6.x bug: ftpkys/ftpdat called
+  ! immediately after ftinit corrupts the unit state (ftghdt returns
+  ! status=252 BAD_HDU_NUM on the next call).  On a read-only file ftpkys
+  ! fails and leaves the unit in an error state that then makes ftclos return
+  ! nonzero, so a plain read of the file would wrongly report a failure;
+  ! ftflmd guards against that.
   tmp_status = 0
-  call ftmahd(unit, 1, hdutype, tmp_status)
-  if (tmp_status == 0) then
-    call date_and_time(values=dvals)
-    write(date_str,'(i4,"-",i2.2,"-",i2.2)') dvals(1), dvals(2), dvals(3)
-    call ftpkys(unit, 'DATE', trim(date_str), 'file creation date', tmp_status)
+  call ftflmd(unit, iomode, tmp_status)      ! iomode: 0 = read-only, 1 = read-write
+  if (tmp_status == 0 .and. iomode == 1) then
+    call ftmahd(unit, 1, hdutype, tmp_status)
+    if (tmp_status == 0) then
+      call date_and_time(values=dvals)
+      write(date_str,'(i4,"-",i2.2,"-",i2.2)') dvals(1), dvals(2), dvals(3)
+      call ftpkys(unit, 'DATE', trim(date_str), 'file creation date', tmp_status)
+    end if
   end if
   tmp_status = 0
   call ftclos(unit,tmp_status)
