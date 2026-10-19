@@ -19,7 +19,7 @@ Supported velocity fields [km/s] (matching grid_mod_car.f90):
                         r >= rpeak: v = Vpeak + DeltaV*(r-rpeak)/(rmax-rpeak)
   rotating_solid_body solid-body rotation about z-axis (Garavito-Camargo+2014):
                         vx = -Vrot*y/rmax,  vy = Vrot*x/rmax,  vz = 0
-  rotating_galaxy_halo flat rotation curve above rinner (Kim et al.):
+  rotating_galaxy_halo flat rotation curve above rinner (Kym et al. (2026, arXiv:2609.08396), Eq. (1)):
                         rxy = sqrt(x^2+y^2)
                         rxy < rinner: vx = -Vrot*y/rinner, vy = Vrot*x/rinner
                         rxy >= rinner: vx = -Vrot*y/rxy,   vy = Vrot*x/rxy
@@ -178,7 +178,7 @@ def make_velocity_fn(vtype, rmax, Vexp=0.0, Vpeak=0.0, rpeak=None,
             return -scale * y_, scale * x_, np.zeros_like(x_)
 
     elif vtype == 'rotating_galaxy_halo':
-        # Kim et al.: flat rotation curve above rinner.
+        # Kym et al. (2026, arXiv:2609.08396), Eq. (1): flat rotation curve above rinner.
         # rxy = sqrt(x^2+y^2)
         # rxy < rinner: solid-body  vx=-Vrot*y/rinner, vy=Vrot*x/rinner
         # rxy >= rinner: flat curve vx=-Vrot*y/rxy,    vy=Vrot*x/rxy

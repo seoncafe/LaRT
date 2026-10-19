@@ -1,0 +1,695 @@
+%% LaRT / MoCafe — Coordinate, Scattering, and Polarization Definitions
+%% Author: Kwang-Il Seon
+%% Originally written 2016-01-10; revised 2017-08-21, 2017-09-01, 2020-08-16,
+%%   and re-typeset for kiseon_memo.cls on 2026-04-29.
+\documentclass[english,a4paper]{my_memo}
+\synctex=1
+\usepackage{float}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{microtype}
+
+\graphicspath{{figures/}}
+
+\begin{document}
+
+\title{Geometry and Definitions in LaRT / MoCafe}
+\author{Kwang-Il Seon}
+\date{2020-08-16}
+\maketitle
+
+\tableofcontents
+\bigskip
+
+%=============================================================================
+\section{Coordinate System in LaRT / MoCafe}
+%=============================================================================
+\begin{itemize}
+\item History: written on 2016-01-10; modified by Hyunmi Song on 2017-08-21;
+  modified by KI Seon on 2017-09-01 and 2020-08-16.
+\end{itemize}
+
+\subsection{Rotation Matrix and Peeling-off}
+
+LaRT / MoCafe can place a galaxy/cloud and an observer at arbitrary
+positions, depending on which side of the galaxy the observer wishes
+to see (face-on, edge-on, intermediate inclination, and so on).
+Consider two reference frames: the observer frame $O$ and the
+galaxy/cloud frame $G$. The target galaxy is placed at the origin
+with its disk lying in the $xy$-plane of $G$. Initially, $O$ and $G$
+are coincident and the observer is on the $z$-axis, so by default
+the galaxy is seen face-on. Hence, the observer position is
+$(0,0,d)$ in $O$. We now rotate the observer frame so that the
+galaxy is viewed with a specified set of angles
+$(\alpha, \beta, \gamma)$. Our goal is to obtain the representation
+in $O$ of a vector that is given in $G$, and to determine the
+coordinates of the observer in $G$.
+
+In this setting, a sequence of rotations of the observer's axes
+that converts the original face-on view into a view with phase
+angle $\alpha$, inclination angle $\beta$, and position angle
+$\gamma$ is, in consecutive order,
+\begin{enumerate}
+\item rotation by $\alpha$ about the $z$-axis,
+\item rotation by $\beta$ about the new $y'$-axis,
+\item rotation by $\gamma$ about the new $z''$-axis.
+\end{enumerate}
+We denote the corresponding matrices by $R_{z}(\alpha)$,
+$R_{y}(\beta)$, and $R_{z}(\gamma)$, respectively, where
+\[
+R_{z}(\alpha)=\left(\begin{array}{ccc}
+\cos\alpha & \sin\alpha & 0\\
+-\sin\alpha & \cos\alpha & 0\\
+0 & 0 & 1
+\end{array}\right),
+\]
+\[
+R_{y}(\beta)=\left(\begin{array}{ccc}
+\cos\beta & 0 & -\sin\beta\\
+0 & 1 & 0\\
+\sin\beta & 0 & \cos\beta
+\end{array}\right),
+\]
+and
+\[
+R_{z}(\gamma)=\left(\begin{array}{ccc}
+\cos\gamma & \sin\gamma & 0\\
+-\sin\gamma & \cos\gamma & 0\\
+0 & 0 & 1
+\end{array}\right).
+\]
+The composite matrix
+$R = R_{z}(\gamma)\,R_{y}(\beta)\,R_{z}(\alpha)$ rotates the frame
+$O$ relative to the frame $G$. Note that $R$ rotates the axes of
+the frame, not a vector within a fixed frame. Therefore, to
+re-express a given vector in the rotated frame, we multiply the
+vector by $R$. The matrix that gives the new coordinates of a
+vector in the rotated frame $O$ is therefore
+\[
+R = R_{z}(\gamma)\,R_{y}(\beta)\,R_{z}(\alpha),
+\]
+and substituting the matrices from above we obtain
+\[
+R=\left(\begin{array}{ccc}
+\cos\gamma\cos\beta\cos\alpha-\sin\gamma\sin\alpha & \cos\gamma\cos\beta\sin\alpha+\sin\gamma\cos\alpha & -\cos\gamma\sin\beta\\
+-\sin\gamma\cos\beta\cos\alpha-\cos\gamma\sin\alpha & -\sin\gamma\cos\beta\sin\alpha+\cos\gamma\cos\alpha & \sin\gamma\sin\beta\\
+\sin\beta\cos\alpha & \sin\beta\sin\alpha & \cos\beta
+\end{array}\right).
+\]
+The inverse matrix, which corresponds to the transformation from
+the observer frame to the galaxy frame, is given by
+\[
+R^{-1}=R^{T}=R_{z}(-\alpha)\,R_{y}(-\beta)\,R_{z}(-\gamma).
+\]
+Using this matrix, the observer's position vector in $G$ (the fixed
+frame), $\{\mathbf{k}\}_{G}$, is obtained from
+$R^{-1}\{\mathbf{k}\}_{O}$ where $\{\mathbf{k}\}_{O}=(0,0,d)^{T}$.
+The components of $\{\mathbf{k}\}_{G}$ are
+\begin{align*}
+x_{\rm obs} & = d\sin\beta\cos\alpha,\\
+y_{\rm obs} & = d\sin\beta\sin\alpha,\\
+z_{\rm obs} & = d\cos\beta.
+\end{align*}
+
+To apply the peeling-off technique, we need the direction vector
+from the photon position to the observer. The detector plane
+coincides with the $xy$-plane of the observer frame. If the
+observer and photon coordinates in the galaxy frame $G$ are
+$(x_{\rm obs}, y_{\rm obs}, z_{\rm obs})$ and
+$(x_{\rm p}, y_{\rm p}, z_{\rm p})$, respectively, then the photon
+direction toward the observer in $G$ is
+\[
+\{\boldsymbol{v}\}_{G} =
+  (x_{\rm obs}-x_{\rm p},\, y_{\rm obs}-y_{\rm p},\, z_{\rm obs}-z_{\rm p})^{T}/|\boldsymbol{v}|,
+\]
+where the normalization factor is
+\[
+|\boldsymbol{v}|=\bigl[(x_{\rm obs}-x_{\rm p})^{2}+(y_{\rm obs}-y_{\rm p})^{2}+(z_{\rm obs}-z_{\rm p})^{2}\bigr]^{1/2}.
+\]
+The corresponding direction vector in the observer frame,
+$\{\boldsymbol{v}\}_{O}=R\{\boldsymbol{v}\}_{G}=(v_{x},v_{y},v_{z})^{T}$,
+yields the angular coordinates $(\theta_{x},\theta_{y})$ of the
+photon in the detector $XY$-plane:
+\begin{align*}
+\theta_{x} & = \frac{180}{\pi}\,{\rm atan2}(-v_{x},\,v_{z}),\\
+\theta_{y} & = \frac{180}{\pi}\,{\rm atan2}(-v_{y},\,v_{z}).
+\end{align*}
+In Fortran, the array indices on the image plane with angular
+bin sizes $(\Delta\theta_{x},\Delta\theta_{y})$ are then
+\begin{align*}
+i & = {\rm floor}\!\left(\frac{\theta_{x}}{\Delta\theta_{x}}+\frac{N_{x}}{2}\right)+1\quad (i=1,\ldots,N_{x}),\\
+j & = {\rm floor}\!\left(\frac{\theta_{y}}{\Delta\theta_{y}}+\frac{N_{y}}{2}\right)+1\quad (j=1,\ldots,N_{y}),
+\end{align*}
+where $N_{x}$ and $N_{y}$ are the number of image bins along the
+$x$ and $y$ axes, respectively.
+
+Sometimes we wish to compute the optical depth along a line of
+sight from a pixel on the detector toward the sky (galaxy). In
+that case the direction vector toward the galaxy from a pixel
+$(i,j)$ on the detector is given by
+\begin{align*}
+v_{x} & = \tan\!\left[\left(i-\tfrac{N_{x}+1}{2}\right)\Delta\theta_{x}\,\tfrac{\pi}{180}\right]\big/v,\\
+v_{y} & = \tan\!\left[\left(j-\tfrac{N_{y}+1}{2}\right)\Delta\theta_{y}\,\tfrac{\pi}{180}\right]\big/v,\\
+v_{z} & = -1/v,
+\end{align*}
+where $v=\sqrt{v_{x}^{2}+v_{y}^{2}+v_{z}^{2}}$ and
+$\Delta\theta_{x},\Delta\theta_{y}$ are in degrees. This direction
+vector is computed in the detector frame and must be transformed
+into the galaxy frame.
+
+\begin{figure}[H]
+\centering
+\includegraphics[scale=0.7]{observer_coord}
+\caption{\label{fig:Coordinate-system-transfrom}Coordinate-system
+transformation from the galaxy frame $(X,Y,Z)$ to the observer
+frame $(x,y,z)$.}
+\end{figure}
+
+
+\subsection{Edge-on Galaxy}
+
+When modeling an edge-on galaxy, we assume that the disk lies in
+the $xy$-plane. The phase angle for the spiral pattern, the
+inclination angle of the disk, and the position angle on the sky
+are then given by
+\begin{align*}
+\text{phase angle} & = -\alpha,\\
+\text{inclination angle} & = -\beta,\\
+\text{position angle} & = -\gamma.
+\end{align*}
+
+
+%=============================================================================
+\section{Scattering Geometry}
+%=============================================================================
+\begin{itemize}
+\item History: written on 2014-12-15, updated on 2014-12-18.
+\item This section will be updated later (2020-08-16).
+\end{itemize}
+
+The following definitions and equations are mostly the same as
+those of Bianchi et al.\ (1996, ApJ, 465, 127). See also
+Chandrasekhar (1960, \textit{Radiative Transfer}), Code \&
+Whitney (1995, ApJ), and Whitney (2011, BASI).
+
+\subsection{Transformation of the Stokes Parameters}
+
+\begin{figure}[H]
+\centering
+\includegraphics[scale=0.8]{scattering_geometry1}
+\caption{\label{fig:Scattering-geometry}Scattering geometry.
+A photon propagating in the direction $\boldsymbol{v}_{0}$ scatters
+through angle $\theta$ into the direction $\boldsymbol{v}_{1}$.}
+\end{figure}
+
+We use the Stokes vector $\mathbf{S}$ to describe the polarization:
+\[
+\mathbf{S}=\left(\begin{array}{c}
+I\\ Q\\ U\\ V
+\end{array}\right),
+\]
+where $I$ is the intensity, $Q$ is the linear polarization
+component aligned parallel to the $z$-axis, $U$ is the linear
+polarization component aligned $\pm 45^{\circ}$ to the $z$-axis,
+and $V$ is the circular polarization. Note that the Stokes vector
+depends on the chosen reference frame. A scattering diagram is
+shown in Figure~\ref{fig:Scattering-geometry} (see also
+Chandrasekhar 1960). In the figure, $\boldsymbol{v}_{0}$ and
+$\boldsymbol{v}_{1}$ are unit vectors that define the propagation
+direction before and after scattering, respectively. The
+scattering plane is spanned by $\boldsymbol{v}_{0}$ and
+$\boldsymbol{v}_{1}$. Two angles specify $\boldsymbol{v}_{1}$ relative to
+$\boldsymbol{v}_{0}$: the polar angle $\theta$ between $\boldsymbol{v}_{0}$
+and $\boldsymbol{v}_{1}$, which is the actual scattering angle, and
+the azimuthal angle $\phi$ between $\mathbf{p}_{0}$ and
+$\mathbf{s}_{0}$, measured clockwise about $\boldsymbol{v}_{0}$.
+The reference directions for the Stokes parameters of the incoming
+and scattered photons are $\mathbf{p}_{0}$ and $\mathbf{p}_{1}$,
+respectively. The unit vector $\mathbf{s}_{0}$ is the projection
+of $\boldsymbol{v}_{1}$ onto the plane normal to $\boldsymbol{v}_{0}$;
+$\mathbf{s}_{0}$ also lies in the scattering plane defined by
+$\boldsymbol{v}_{0}$ and $\boldsymbol{v}_{1}$.
+
+Since the Mueller matrix elements are most naturally written for
+Stokes vectors referred to the scattering plane, we first rotate
+the Stokes vector about $\boldsymbol{v}_{0}$ from the initial
+reference direction $\mathbf{p}_{0}$ to the new reference direction
+$\mathbf{s}_{0}$. The Stokes parameters of the incoming photon
+referred to the scattering plane (reference direction
+$\mathbf{s}_{0}$) are then
+\[
+\mathbf{S}_{0}'=\mathbf{L}(-\phi)\,\mathbf{S}_{0},
+\]
+where
+\[
+\mathbf{L}(\varphi)=\left(\begin{array}{cccc}
+1 & 0 & 0 & 0\\
+0 & \cos2\varphi & \sin2\varphi & 0\\
+0 & -\sin2\varphi & \cos2\varphi & 0\\
+0 & 0 & 0 & 1
+\end{array}\right).
+\]
+The rotation matrix is defined for clockwise rotation, as in
+Chandrasekhar (1960, Chap.~1).
+
+The Stokes vector after scattering, still referred to the
+scattering plane (reference direction $\mathbf{s}_{1}$), is
+obtained by applying the scattering Mueller matrix
+$\mathbf{R}(\theta)$:
+\[
+\mathbf{S}_{1}'=\mathbf{R}(\theta)\,\mathbf{L}(-\phi)\,\mathbf{S}_{0},
+\]
+where
+\[
+\mathbf{R}(\theta)=\left(\begin{array}{cccc}
+S_{11}(\theta) & S_{12}(\theta) & 0 & 0\\
+S_{12}(\theta) & S_{11}(\theta) & 0 & 0\\
+0 & 0 & S_{33}(\theta) & S_{34}(\theta)\\
+0 & 0 & -S_{34}(\theta) & S_{33}(\theta)
+\end{array}\right).
+\]
+The matrix elements can be computed with a Mie code such as
+\texttt{bhmie} or \texttt{MIEV0}.
+
+The new Stokes parameters are defined relative to $\mathbf{s}_{1}$,
+the unit vector that lies in the scattering plane and in the plane
+perpendicular to the new propagation direction $\boldsymbol{v}_{1}$.
+We must therefore rotate the Stokes vector once more, from
+$\mathbf{s}_{1}$ to the final reference direction
+$\mathbf{p}_{1}$. The final Stokes vector is then
+\[
+\mathbf{S}_{1}=\mathbf{L}(\gamma)\,\mathbf{R}(\theta)\,\mathbf{L}(-\phi)\,\mathbf{S}_{0},
+\]
+and explicit multiplication of the three matrices gives
+\begin{align*}
+\mathbf{L}(\gamma)\mathbf{R}(\theta)\mathbf{L}(-\phi)
+& = \left(\begin{array}{cccc}
+1 & 0 & 0 & 0\\
+0 & \cos2\gamma & \sin2\gamma & 0\\
+0 & -\sin2\gamma & \cos2\gamma & 0\\
+0 & 0 & 0 & 1
+\end{array}\right)
+\left(\begin{array}{cccc}
+S_{11} & S_{12} & 0 & 0\\
+S_{12} & S_{11} & 0 & 0\\
+0 & 0 & S_{33} & S_{34}\\
+0 & 0 & -S_{34} & S_{33}
+\end{array}\right)
+\left(\begin{array}{cccc}
+1 & 0 & 0 & 0\\
+0 & \cos2\phi & -\sin2\phi & 0\\
+0 & \sin2\phi & \cos2\phi & 0\\
+0 & 0 & 0 & 1
+\end{array}\right)\\[2pt]
+& = \left(\begin{array}{cccc}
+1 & 0 & 0 & 0\\
+0 & \cos2\gamma & \sin2\gamma & 0\\
+0 & -\sin2\gamma & \cos2\gamma & 0\\
+0 & 0 & 0 & 1
+\end{array}\right)
+\left(\begin{array}{cccc}
+S_{11} & S_{12}\cos2\phi & -S_{12}\sin2\phi & 0\\
+S_{12} & S_{11}\cos2\phi & -S_{11}\sin2\phi & 0\\
+0 & S_{33}\sin2\phi & S_{33}\cos2\phi & S_{34}\\
+0 & -S_{34}\sin2\phi & -S_{34}\cos2\phi & S_{33}
+\end{array}\right)\\[2pt]
+& = {\setlength{\arraycolsep}{1.5pt}\left(\begin{array}{cccc}
+S_{11} & S_{12}\cos2\phi & -S_{12}\sin2\phi & 0\\
+S_{12}\cos2\gamma & S_{11}\cos2\gamma\cos2\phi+S_{33}\sin2\gamma\sin2\phi & -S_{11}\cos2\gamma\sin2\phi+S_{33}\sin2\gamma\cos2\phi & S_{34}\sin2\gamma\\
+-S_{12}\sin2\gamma & -S_{11}\sin2\gamma\cos2\phi+S_{33}\cos2\gamma\sin2\phi & S_{11}\sin2\gamma\sin2\phi+S_{33}\cos2\gamma\cos2\phi & S_{34}\cos2\gamma\\
+0 & -S_{34}\sin2\phi & -S_{34}\cos2\phi & S_{33}
+\end{array}\right).}
+\end{align*}
+
+
+\subsection{Scattering Matrix for Resonance Scattering}
+
+The scattering matrix for resonance line scattering in the
+scattering plane is given by Equations~(259) and (260) of
+Chandrasekhar (1960):
+\begin{align*}
+\left(\begin{array}{c} I_{l}'\\ I_{r}'\\ U'\\ V'\end{array}\right)
+& = R\left(\begin{array}{c} I_{l}\\ I_{r}\\ U\\ V\end{array}\right),\\
+R & = \frac{3}{2}E_{1}\left(\begin{array}{cccc}
+\cos^{2}\theta & 0 & 0 & 0\\
+0 & 1 & 0 & 0\\
+0 & 0 & \cos\theta & 0\\
+0 & 0 & 0 & 0
+\end{array}\right)
++\frac{1}{2}E_{2}\left(\begin{array}{cccc}
+1 & 1 & 0 & 0\\
+1 & 1 & 0 & 0\\
+0 & 0 & 0 & 0\\
+0 & 0 & 0 & 0
+\end{array}\right)
++\frac{3}{2}E_{3}\left(\begin{array}{cccc}
+0 & 0 & 0 & 0\\
+0 & 0 & 0 & 0\\
+0 & 0 & 0 & 0\\
+0 & 0 & 0 & \cos\theta
+\end{array}\right)\\[2pt]
+& = \left(\begin{array}{cccc}
+\tfrac{3}{2}E_{1}\cos^{2}\theta+\tfrac{1}{2}E_{2} & \tfrac{1}{2}E_{2} & 0 & 0\\
+\tfrac{1}{2}E_{2} & \tfrac{3}{2}E_{1}+\tfrac{1}{2}E_{2} & 0 & 0\\
+0 & 0 & \tfrac{3}{2}E_{1}\cos\theta & 0\\
+0 & 0 & 0 & \tfrac{3}{2}E_{3}\cos\theta
+\end{array}\right).
+\end{align*}
+Therefore,
+\begin{align*}
+I_{l}' & =\left(\tfrac{3}{2}E_{1}\cos^{2}\theta+\tfrac{1}{2}E_{2}\right)I_{l}+\tfrac{1}{2}E_{2}I_{r},\\
+I_{r}' & =\tfrac{1}{2}E_{2}I_{l}+\left(\tfrac{3}{2}E_{1}+\tfrac{1}{2}E_{2}\right)I_{r}.
+\end{align*}
+Using the definitions $I = I_{l}+I_{r}$ and $Q = I_{l}-I_{r}$, we
+obtain
+\begin{align*}
+I' & =\left(\tfrac{3}{2}E_{1}\cos^{2}\theta+E_{2}\right)\tfrac{1}{2}\!\left(I+Q\right)+\left(\tfrac{3}{2}E_{1}+E_{2}\right)\tfrac{1}{2}\!\left(I-Q\right),\\
+Q' & =\left(\tfrac{3}{2}E_{1}\cos^{2}\theta\right)\tfrac{1}{2}\!\left(I+Q\right)-\left(\tfrac{3}{2}E_{1}\right)\tfrac{1}{2}\!\left(I-Q\right),
+\end{align*}
+which simplifies to
+\begin{align*}
+I' & =\left[\tfrac{3}{4}E_{1}\!\left(\cos^{2}\theta+1\right)+E_{2}\right]I+\tfrac{3}{4}E_{1}\!\left(\cos^{2}\theta-1\right)Q,\\
+Q' & =\tfrac{3}{4}E_{1}\!\left(\cos^{2}\theta-1\right)I+\tfrac{3}{4}E_{1}\!\left(\cos^{2}\theta+1\right)Q.
+\end{align*}
+
+Therefore, the scattering matrix for the conventional Stokes
+vector defined in the scattering plane is
+\begin{align*}
+\left(\begin{array}{c} I'\\ Q'\\ U'\\ V'\end{array}\right)
+& = \mathbf{R}(\theta)\left(\begin{array}{c} I\\ Q\\ U\\ V\end{array}\right),\\
+\mathbf{R}(\theta) & = \tfrac{3}{4}E_{1}\!\left(\begin{array}{cccc}
+\cos^{2}\theta+1 & \cos^{2}\theta-1 & 0 & 0\\
+\cos^{2}\theta-1 & \cos^{2}\theta+1 & 0 & 0\\
+0 & 0 & 2\cos\theta & 0\\
+0 & 0 & 0 & 0
+\end{array}\right)
++E_{2}\!\left(\begin{array}{cccc}
+1 & 0 & 0 & 0\\
+0 & 0 & 0 & 0\\
+0 & 0 & 0 & 0\\
+0 & 0 & 0 & 0
+\end{array}\right)
++\tfrac{3}{2}E_{3}\!\left(\begin{array}{cccc}
+0 & 0 & 0 & 0\\
+0 & 0 & 0 & 0\\
+0 & 0 & 0 & 0\\
+0 & 0 & 0 & \cos\theta
+\end{array}\right)\\[2pt]
+\mathbf{R}(\theta) & = \left(\begin{array}{cccc}
+\tfrac{3}{4}E_{1}\!\left(\cos^{2}\theta+1\right)+E_{2} & \tfrac{3}{4}E_{1}\!\left(\cos^{2}\theta-1\right) & 0 & 0\\
+\tfrac{3}{4}E_{1}\!\left(\cos^{2}\theta-1\right) & \tfrac{3}{4}E_{1}\!\left(\cos^{2}\theta+1\right) & 0 & 0\\
+0 & 0 & \tfrac{3}{2}E_{1}\cos\theta & 0\\
+0 & 0 & 0 & \tfrac{3}{2}E_{3}\cos\theta
+\end{array}\right).
+\end{align*}
+The scattering matrix in the comoving frame is then
+\begin{align*}
+\mathbf{R}(\theta)\,\mathbf{L}(-\phi)
+& = \left(\begin{array}{cccc}
+\tfrac{3}{4}E_{1}\!\left(\cos^{2}\theta+1\right)+E_{2} & \tfrac{3}{4}E_{1}\!\left(\cos^{2}\theta-1\right) & 0 & 0\\
+\tfrac{3}{4}E_{1}\!\left(\cos^{2}\theta-1\right) & \tfrac{3}{4}E_{1}\!\left(\cos^{2}\theta+1\right) & 0 & 0\\
+0 & 0 & \tfrac{3}{2}E_{1}\cos\theta & 0\\
+0 & 0 & 0 & \tfrac{3}{2}E_{3}\cos\theta
+\end{array}\right)
+\left(\begin{array}{cccc}
+1 & 0 & 0 & 0\\
+0 & \cos2\phi & -\sin2\phi & 0\\
+0 & \sin2\phi & \cos2\phi & 0\\
+0 & 0 & 0 & 1
+\end{array}\right)\\[2pt]
+& = \left(\begin{array}{cccc}
+\tfrac{3}{4}E_{1}\!\left(\cos^{2}\theta+1\right)+E_{2} & \tfrac{3}{4}E_{1}\!\left(\cos^{2}\theta-1\right)\cos2\phi & -\tfrac{3}{4}E_{1}\!\left(\cos^{2}\theta-1\right)\sin2\phi & 0\\
+\tfrac{3}{4}E_{1}\!\left(\cos^{2}\theta-1\right) & \tfrac{3}{4}E_{1}\!\left(\cos^{2}\theta+1\right)\cos2\phi & -\tfrac{3}{4}E_{1}\!\left(\cos^{2}\theta+1\right)\sin2\phi & 0\\
+0 & \tfrac{3}{2}E_{1}\cos\theta\sin2\phi & \tfrac{3}{2}E_{1}\cos\theta\cos2\phi & 0\\
+0 & 0 & 0 & \tfrac{3}{2}E_{3}\cos\theta
+\end{array}\right),
+\end{align*}
+so that
+\begin{align*}
+I' & = \left[\tfrac{3}{4}E_{1}\!\left(\cos^{2}\theta+1\right)+E_{2}\right]I + \left[\tfrac{3}{4}E_{1}\!\left(\cos^{2}\theta-1\right)\cos2\phi\right]Q - \left[\tfrac{3}{4}E_{1}\!\left(\cos^{2}\theta-1\right)\sin2\phi\right]U,\\
+Q' & = \left[\tfrac{3}{4}E_{1}\!\left(\cos^{2}\theta-1\right)\right]I + \left[\tfrac{3}{4}E_{1}\!\left(\cos^{2}\theta+1\right)\cos2\phi\right]Q - \left[\tfrac{3}{4}E_{1}\!\left(\cos^{2}\theta+1\right)\sin2\phi\right]U,\\
+U' & = \left[\tfrac{3}{2}E_{1}\cos\theta\sin2\phi\right]Q + \left[\tfrac{3}{2}E_{1}\cos\theta\cos2\phi\right]U,\\
+V' & = \left[\tfrac{3}{2}E_{3}\cos\theta\right]V.
+\end{align*}
+
+
+\subsection{Polarization Handedness and Angle}
+
+The linear polarization map is obtained by computing, for each
+pixel, the degree of linear polarization and the polarization
+angle:
+\begin{align*}
+P & = \sqrt{Q^{2}+U^{2}}/I,\\
+\tan2\psi & = U/Q,
+\end{align*}
+or equivalently
+\begin{align*}
+Q/I & = P\cos2\psi,\\
+U/I & = P\sin2\psi.
+\end{align*}
+
+We adopt the traditional convention in which an elliptically
+polarized wave is right-handed if the vibration ellipse rotates
+clockwise as viewed by an observer looking toward the source of
+light (Figure~\ref{fig:polarization_angle}). The opposite
+convention seems to be favored by van de Hulst (1957). The sign
+of $V$ specifies the handedness of the vibration ellipse: positive
+denotes right-handed and negative denotes left-handed. The
+polarization angle $\psi$ is defined as the clockwise angle
+between $\mathbf{e}_{\parallel}$ and $\mathbf{e}_{\perp}$.
+
+\begin{figure}[H]
+\centering
+\includegraphics[scale=0.8]{polarization_angle}\hspace{1.5em}%
+\includegraphics[scale=0.75]{polarization_angle_bh}
+\caption{\label{fig:polarization_angle}(Left) Definition of the
+polarization angle and handedness. (Right) Stokes parameters for
+polarized light, reproduced from Table 2.2 of Bohren \& Huffman
+(1983). The unit vectors $\mathbf{e}_{\parallel}$ and
+$\mathbf{e}_{\perp}$ correspond to the $\mathbf{y}$ and
+$\mathbf{x}$ axes, respectively.}
+\end{figure}
+
+
+\subsection{Phase Function}
+
+\subsubsection{Scattering Angles}
+
+The phase function follows from
+$\mathbf{S}_{1}'=\mathbf{R}(\theta)\,\mathbf{L}(-\phi)\,\mathbf{S}_{0}$:
+\begin{align*}
+P(\theta,\phi) & = \frac{I'(\theta,\phi)}{I} = S_{11}(\theta) + S_{12}(\theta)\,\frac{Q'}{I}\\
+& = S_{11}(\theta) + S_{12}(\theta)\!\left(\frac{Q}{I}\cos2\phi - \frac{U}{I}\sin2\phi\right).
+\end{align*}
+The angles $\theta$ and $\phi$ are distributed according to
+$P(\theta,\phi)$, which is normalized so that
+\begin{align*}
+1 & = \int_{0}^{2\pi}\!\!d\phi\int_{0}^{\pi}\!d\theta\,\sin\theta\,P(\theta,\phi)\\
+& = \int_{0}^{\pi}\!d\theta\,\sin\theta\,P(\theta),
+\end{align*}
+where
+\[
+P(\theta) = \int_{0}^{2\pi}\!P(\theta,\phi)\,d\phi = S_{11}(\theta).
+\]
+Because $P(\theta)$ depends only on $\theta$, the scattering polar
+angle $\bar\theta$ can be drawn from a single random number
+$\xi_{1}$ independently of both $\phi$ and the polarization of the
+incident radiation, by inverting
+\[
+\int_{0}^{\bar{\theta}}\!P(\theta)\,\sin\theta\,d\theta = \xi_{1}.
+\]
+Substituting $\bar\theta$ into the equation for the joint
+distribution, $\bar\phi$ is then obtained from
+\[
+\left.\int_{0}^{\bar{\phi}}\!P(\bar{\theta},\phi)\,d\phi\,\middle/\,\int_{0}^{2\pi}\!P(\bar{\theta},\phi)\,d\phi\right. = \xi_{2},
+\]
+or, explicitly,
+\[
+\frac{1}{2\pi}\!\left\{\bar{\phi} + \frac{S_{12}(\bar{\theta})}{2\,S_{11}(\bar{\theta})}\!\left[\frac{Q}{I}\sin2\bar{\phi} - \frac{U}{I}\!\left(1-\cos2\bar{\phi}\right)\right]\right\} = \xi_{2}.
+\]
+
+In terms of the polarization angle $\chi$ defined by
+$Q/I = \cos2\beta\,\cos2\chi$ and $U/I = \cos2\beta\,\sin2\chi$,
+the phase function and the equation for $\bar\phi$ become
+\begin{align*}
+P(\theta,\phi) & = S_{11}(\theta) + S_{12}(\theta)\,\cos2\beta\,\cos2(\phi+\chi),\\
+P(\theta) & = S_{11}(\theta),\\
+P(\phi) & = \frac{1}{2\pi}\!\left[1 + \frac{S_{12}(\bar{\theta})}{S_{11}(\bar{\theta})}\,\cos2\beta\,\cos2(\phi+\chi)\right].
+\end{align*}
+
+For a rejection method, the maximum of $P(\phi)$ is
+\[
+P_{\rm max} = \frac{1}{2\pi}\!\left[1 + \left|\frac{S_{12}}{S_{11}}\,P_{L}\right|\right],
+\]
+where $P_{L} = \cos2\beta$ measures the linear polarization
+fraction. Note that $\cos2\beta = 1$ for linearly polarized light.
+
+The equation for $\bar\phi$ can be rewritten as
+\[
+f(\bar{\phi})\equiv\frac{1}{2\pi}\!\left\{\bar{\phi} + \frac{S_{12}(\bar{\theta})}{2\,S_{11}(\bar{\theta})}\,\cos2\beta\!\left[\sin2(\bar{\phi}+\chi)-\sin2\chi\right]\right\} = \xi_{2}.
+\]
+How do we solve this equation for given $\bar\theta$ and
+$\xi_{2}$? Note that $|S_{12}|\le|S_{11}|$ and $0\le P_{L}\le 1$.
+The ratio $S_{12}/S_{11}$ can reach $100\%$ at $\bar\theta=\pi/2$
+for Rayleigh scattering at long wavelengths
+($\lambda\gtrsim 10\,\mu\mathrm{m}$); however, in most practical
+cases $|S_{12}/S_{11}| < 1$. The derivative of $f$ is
+\[
+f'(\phi) = \frac{1}{2\pi}\!\left\{1 + \frac{S_{12}}{S_{11}}\,P_{L}\,\cos2(\phi+\chi)\right\} \ge 0.
+\]
+A value of $\phi$ with $f'(\phi)=0$ exists only when
+$|S_{12}/S_{11}|\,P_{L}=1$, in which case the Newton--Raphson
+method is inapplicable. In most cases $|S_{12}/S_{11}|<1$ and
+$P_{L}<1$, so the Newton--Raphson method can be used; we start
+the iteration from $\bar\phi = 2\pi\xi_{2}$. If
+$f'(\phi)=0$ is encountered, Brent's method should be used
+instead.
+
+\begin{figure}[H]
+\centering
+\includegraphics[scale=0.7]{phase_phi_fig1}\hspace{1em}\includegraphics[scale=0.7]{phase_phi_fig2}\\[2pt]
+\includegraphics[scale=0.7]{phase_phi_fig3}\hspace{1em}\includegraphics[scale=0.7]{phase_phi_fig4}
+\caption{\label{fig:phase_phi}The function $f(\bar\phi)$ used to
+compute the azimuthal scattering angle $\bar\phi$. Blue and orange
+curves denote $y=f(\bar\phi)$ and $y=\bar\phi/2\pi$, respectively;
+green curves denote $y=\xi_{2}=0.77$. Top panels show
+$|S_{12}/S_{11}|\,P_{L}=1$, bottom panels show
+$|S_{12}/S_{11}|\,P_{L}=0.5$. The polarization angle was set to
+$\chi=0.7$ in the left panels and $\chi=0$ in the right panels.
+These plots can be reproduced with the Mathematica notebook
+\texttt{phase\_phi.nb}.}
+\end{figure}
+
+
+\subsubsection{New Direction Cosines}
+
+Given $\bar\theta$ and $\bar\phi$, we obtain the direction cosines
+of $\boldsymbol{v}_{1} = (v_{x}^{1}, v_{y}^{1}, v_{z}^{1})$ as
+follows. Introduce a unit vector $\mathbf{w}_{0}$ that lies in the
+$x$--$y$ plane and forms an orthonormal triad with $\boldsymbol{v}_{0}$
+and $\mathbf{p}_{0}$ (see the left panel of
+Figure~\ref{fig:vector_s1}); that is,
+$\mathbf{w}_{0}\!\cdot\!\boldsymbol{v}_{0}=0$ and
+$\mathbf{w}_{0}\!\cdot\!\hat{\mathbf{z}}=0$:
+\begin{align*}
+\mathbf{w}_{0} & = \frac{1}{\rho_{0}}\,\boldsymbol{v}_{0}\times\hat{\mathbf{z}}\\
+& = \left(v_{y}^{0}\,\hat{\mathbf{x}} - v_{x}^{0}\,\hat{\mathbf{y}}\right)/\rho_{0},
+\end{align*}
+where
+$\rho_{0}=|\boldsymbol{v}_{0}\times\hat{\mathbf{z}}|=\sqrt{(v_{x}^{0})^{2}+(v_{y}^{0})^{2}}=\sqrt{1-(v_{z}^{0})^{2}}$.
+The unit vector $\mathbf{p}_{0}$ is then
+\begin{align*}
+\mathbf{p}_{0} & = \mathbf{w}_{0}\times\boldsymbol{v}_{0}
+   = \frac{1}{\rho_{0}}\!\left(\boldsymbol{v}_{0}\times\hat{\mathbf{z}}\right)\times\boldsymbol{v}_{0}\\
+& = \frac{1}{\rho_{0}}\!\left\{(\boldsymbol{v}_{0}\!\cdot\!\boldsymbol{v}_{0})\,\hat{\mathbf{z}} - (\hat{\mathbf{z}}\!\cdot\!\boldsymbol{v}_{0})\,\boldsymbol{v}_{0}\right\}\\
+& = \frac{1}{\rho_{0}}\!\left\{\hat{\mathbf{z}} - (\hat{\mathbf{z}}\!\cdot\!\boldsymbol{v}_{0})\,\boldsymbol{v}_{0}\right\}\\
+& = \left(-\frac{v_{x}^{0}\,v_{z}^{0}}{\rho_{0}}\right)\hat{\mathbf{x}} + \left(-\frac{v_{y}^{0}\,v_{z}^{0}}{\rho_{0}}\right)\hat{\mathbf{y}} + \rho_{0}\,\hat{\mathbf{z}}.
+\end{align*}
+
+The vector $\boldsymbol{v}_{1}$ can be expressed in terms of the
+orthonormal triad $(\mathbf{p}_{0},\,\mathbf{w}_{0},\,\boldsymbol{v}_{0})$:
+\[
+\boldsymbol{v}_{1} = \sin\bar{\theta}\!\left(\cos\bar{\phi}\,\mathbf{p}_{0} + \sin\bar{\phi}\,\mathbf{w}_{0}\right) + \cos\bar{\theta}\,\boldsymbol{v}_{0}.
+\]
+Substituting the expressions for $\mathbf{p}_{0}$,
+$\mathbf{w}_{0}$, and $\boldsymbol{v}_{0}$ yields the components of
+$\boldsymbol{v}_{1}$ in the stationary coordinate system:
+\begin{align*}
+v_{x}^{1} & = \frac{\sin\bar{\theta}}{\rho_{0}}\!\left(-v_{x}^{0}v_{z}^{0}\cos\bar{\phi} + v_{y}^{0}\sin\bar{\phi}\right) + \cos\bar{\theta}\,v_{x}^{0},\\
+v_{y}^{1} & = \frac{\sin\bar{\theta}}{\rho_{0}}\!\left(-v_{y}^{0}v_{z}^{0}\cos\bar{\phi} - v_{x}^{0}\sin\bar{\phi}\right) + \cos\bar{\theta}\,v_{y}^{0},\\
+v_{z}^{1} & = \rho_{0}\sin\bar{\theta}\cos\bar{\phi} + \cos\bar{\theta}\,v_{z}^{0}.
+\end{align*}
+These are exactly Equations~(A37) of Bianchi et al.\ (1996). Note
+that $\bar\phi$ is related to the angle $\varphi'$ defined in
+Pozdnyakov et al.\ (1983, \textit{Soviet Scientific Reviews},
+p.~323) by $\varphi' = \bar\phi - \pi/2$.
+
+\begin{figure}[H]
+\centering
+\includegraphics[scale=0.7]{scattering_geometry2}\hspace{1em}%
+\includegraphics[scale=0.6]{vector_s1}
+\caption{\label{fig:vector_s1}Geometry of (a) $\mathbf{w}_{0}$ and
+$\mathbf{p}_{0}$, and (b) the vectors $\boldsymbol{v}_{0}$,
+$\boldsymbol{v}_{1}$, and $\mathbf{s}_{1}$.}
+\end{figure}
+
+
+\subsubsection{Transformation Angle for the Stokes Parameters}
+
+The expression for $\mathbf{p}_{1}$ is analogous to that for
+$\mathbf{p}_{0}$ with $\boldsymbol{v}_{1}$ in place of
+$\boldsymbol{v}_{0}$:
+\begin{align*}
+\mathbf{p}_{1} & = \frac{1}{\rho_{1}}\!\left(\boldsymbol{v}_{1}\times\hat{\mathbf{z}}\right)\times\boldsymbol{v}_{1}\\
+& = \frac{1}{\sqrt{1-(v_{z}^{1})^{2}}}\!\left\{\hat{\mathbf{z}} - (\hat{\mathbf{z}}\!\cdot\!\boldsymbol{v}_{1})\,\boldsymbol{v}_{1}\right\},
+\end{align*}
+where $\rho_{1}=\sqrt{1-(v_{z}^{1})^{2}}$. Because $\mathbf{s}_{1}$
+lies in the scattering plane, it is parallel to the projection of
+$\boldsymbol{v}_{0}$ onto the plane normal to $\boldsymbol{v}_{1}$ but
+points in the opposite direction (see the right panel of
+Figure~\ref{fig:vector_s1}):
+\begin{align*}
+\mathbf{s}_{1} & \parallel \left(\boldsymbol{v}_{0}\!\cdot\!\boldsymbol{v}_{1}\right)\boldsymbol{v}_{1} - \boldsymbol{v}_{0}\\
+& \parallel \left(\boldsymbol{v}_{0}\times\boldsymbol{v}_{1}\right)\times\boldsymbol{v}_{1}.
+\end{align*}
+Since the magnitude of
+$(\boldsymbol{v}_{0}\!\cdot\!\boldsymbol{v}_{1})\boldsymbol{v}_{1} - \boldsymbol{v}_{0}$
+is $\sin\bar\theta = \sqrt{1-(\boldsymbol{v}_{0}\!\cdot\!\boldsymbol{v}_{1})^{2}}$,
+the unit vector $\mathbf{s}_{1}$ is given by
+\begin{align*}
+\mathbf{s}_{1} & = \frac{1}{\sqrt{1-(\boldsymbol{v}_{0}\!\cdot\!\boldsymbol{v}_{1})^{2}}}\!\left\{(\boldsymbol{v}_{0}\!\cdot\!\boldsymbol{v}_{1})\,\boldsymbol{v}_{1} - \boldsymbol{v}_{0}\right\}\\
+& = \frac{1}{\sqrt{1-(\boldsymbol{v}_{0}\!\cdot\!\boldsymbol{v}_{1})^{2}}}\!\left(\boldsymbol{v}_{0}\times\boldsymbol{v}_{1}\right)\times\boldsymbol{v}_{1}.
+\end{align*}
+The angle $\gamma$ between $\mathbf{p}_{1}$ and $\mathbf{s}_{1}$ is
+then
+\begin{align*}
+\cos\gamma & = \mathbf{p}_{1}\!\cdot\!\mathbf{s}_{1}\\
+& = \frac{1}{\sqrt{1-(v_{z}^{1})^{2}}\sqrt{1-(\boldsymbol{v}_{0}\!\cdot\!\boldsymbol{v}_{1})^{2}}}\!\left\{(\boldsymbol{v}_{0}\!\cdot\!\boldsymbol{v}_{1})(\hat{\mathbf{z}}\!\cdot\!\boldsymbol{v}_{1}) - \hat{\mathbf{z}}\!\cdot\!\boldsymbol{v}_{0}\right\}\\
+& = \frac{v_{z}^{1}\,(\boldsymbol{v}_{0}\!\cdot\!\boldsymbol{v}_{1}) - v_{z}^{0}}{\sqrt{1-(v_{z}^{1})^{2}}\sqrt{1-(\boldsymbol{v}_{0}\!\cdot\!\boldsymbol{v}_{1})^{2}}}.
+\end{align*}
+Since both $\mathbf{s}_{1}$ and $\mathbf{p}_{1}$ are perpendicular
+to $\boldsymbol{v}_{1}$, we obtain
+\begin{align*}
+(\sin\gamma)\,\boldsymbol{v}_{1} & = \mathbf{p}_{1}\times\mathbf{s}_{1}\\
+& = \frac{1}{\sqrt{1-(v_{z}^{1})^{2}}\sqrt{1-(\boldsymbol{v}_{0}\!\cdot\!\boldsymbol{v}_{1})^{2}}}\!\left[\left(\boldsymbol{v}_{1}\times\hat{\mathbf{z}}\right)\times\boldsymbol{v}_{1}\right]\!\times\!\left[\left(\boldsymbol{v}_{0}\times\boldsymbol{v}_{1}\right)\times\boldsymbol{v}_{1}\right].
+\end{align*}
+Using the identity
+$(\mathbf{A}\times\mathbf{B})\times(\mathbf{C}\times\mathbf{D}) = [\mathbf{A}\!\cdot\!(\mathbf{B}\times\mathbf{D})]\,\mathbf{C} - [\mathbf{A}\!\cdot\!(\mathbf{B}\times\mathbf{C})]\,\mathbf{D}$,
+we find
+\begin{align*}
+\left[\left(\boldsymbol{v}_{1}\times\hat{\mathbf{z}}\right)\times\boldsymbol{v}_{1}\right]\!\times\!\left[\left(\boldsymbol{v}_{0}\times\boldsymbol{v}_{1}\right)\times\boldsymbol{v}_{1}\right]
+& = -\left\{\left(\boldsymbol{v}_{1}\times\hat{\mathbf{z}}\right)\!\cdot\!\left[\boldsymbol{v}_{1}\times\left(\boldsymbol{v}_{0}\times\boldsymbol{v}_{1}\right)\right]\right\}\boldsymbol{v}_{1}\\
+& = -\left\{\left(\boldsymbol{v}_{1}\times\hat{\mathbf{z}}\right)\!\cdot\!\left[\boldsymbol{v}_{0} - (\boldsymbol{v}_{0}\!\cdot\!\boldsymbol{v}_{1})\,\boldsymbol{v}_{1}\right]\right\}\boldsymbol{v}_{1}\\
+& = -\left[\left(\boldsymbol{v}_{1}\times\hat{\mathbf{z}}\right)\!\cdot\!\boldsymbol{v}_{0}\right]\boldsymbol{v}_{1}\\
+& = -\left[\hat{\mathbf{z}}\!\cdot\!\left(\boldsymbol{v}_{0}\times\boldsymbol{v}_{1}\right)\right]\boldsymbol{v}_{1},
+\end{align*}
+where we used the identity
+$\mathbf{A}\!\cdot\!(\mathbf{B}\times\mathbf{C}) = \mathbf{B}\!\cdot\!(\mathbf{C}\times\mathbf{A}) = \mathbf{C}\!\cdot\!(\mathbf{A}\times\mathbf{B})$.
+We finally obtain
+\begin{align*}
+\sin\gamma & = \frac{-\hat{\mathbf{z}}\!\cdot\!(\boldsymbol{v}_{0}\times\boldsymbol{v}_{1})}{\sqrt{1-(v_{z}^{1})^{2}}\sqrt{1-(\boldsymbol{v}_{0}\!\cdot\!\boldsymbol{v}_{1})^{2}}}\\
+& = \frac{v_{y}^{0}v_{x}^{1} - v_{x}^{0}v_{y}^{1}}{\sqrt{1-(v_{z}^{1})^{2}}\sqrt{1-(\boldsymbol{v}_{0}\!\cdot\!\boldsymbol{v}_{1})^{2}}}.
+\end{align*}
+
+
+\subsection{Stokes Parameters in Monte Carlo Simulation}
+
+In a Monte Carlo simulation the scattered photon is not
+distributed over the entire solid angle but is instead deflected
+into a single direction and attenuated by a factor equal to the
+albedo. The Stokes vector after scattering is therefore
+\[
+\tilde{\mathbf{S}}_{1} = \frac{a\,I_{0}}{I_{1}}\,\mathbf{S}_{1}
+   = \frac{a\,I_{0}}{I_{1}}\,\mathbf{L}(\gamma)\,\mathbf{R}(\theta)\,\mathbf{L}(-\phi)\,\mathbf{S}_{0},
+\]
+or
+\[
+\left(\begin{array}{c}
+\tilde{I}_{1}\\ \tilde{Q}_{1}\\ \tilde{U}_{1}\\ \tilde{V}_{1}
+\end{array}\right)
+= \frac{a\,I_{0}}{I_{1}}\!\left(\begin{array}{c}
+I_{1}\\ Q_{1}\\ U_{1}\\ V_{1}
+\end{array}\right).
+\]
+
+\end{document}

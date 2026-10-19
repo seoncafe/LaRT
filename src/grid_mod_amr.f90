@@ -1126,7 +1126,7 @@ contains
   !   'parallel_velocity'   : v = (Vx, Vy, Vz)                  (uniform bulk)
   !   'ssh'                 : Song, Seon & Hwang (2020) galaxy model
   !   'rotating_solid_body' : v = Vrot * (-y, x, 0) / rmax
-  !   'rotating_galaxy_halo': flat rotation curve (Vrot, rinner)
+  !   'rotating_galaxy_halo': v_phi = Vrot*r_cyl/rinner (r_cyl < rinner), Vrot (r_cyl >= rinner)
   !
   ! Only h_rank==0 calls this (vfx/vfy/vfz are MPI shared-memory windows).
   ! Velocities are stored as v / v_thermal (dimensionless), per AMR convention.

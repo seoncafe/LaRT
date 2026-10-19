@@ -1,0 +1,392 @@
+%% Branching of the Hydrogen Cascade after Lyman-Series Absorption
+%% Author: Kwang-Il Seon
+\documentclass[english,a4paper]{my_memo}
+\synctex=1
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{microtype}
+\usepackage{babel}
+\usepackage{booktabs}
+
+\begin{document}
+
+\title{Branching of the Hydrogen Cascade after Lyman-Series Absorption}
+\author{Kwang-Il Seon}
+\date{\docmoddate}
+\maketitle
+
+\tableofcontents
+\bigskip
+
+%=============================================================================
+\section{Introduction and Assumptions}
+%=============================================================================
+
+A Lyman-series absorption event promotes the hydrogen electron from the
+ground state to an excited $p$ level,
+\begin{equation}
+   1s \;\longrightarrow\; np , \qquad n \ge 2 ,
+\end{equation}
+which corresponds to Ly$\alpha$ ($n=2$), Ly$\beta$ ($n=3$), Ly$\gamma$
+($n=4$), and so on.  Once in the $np$ level, the electron decays
+radiatively.  The allowed electric-dipole downward channels from $np$ are
+to the $ms$ states ($m<n$) and to the $md$ states ($3 \le m < n$).  Each
+downward step lands the electron in a new bound level, from which it decays
+again; the process repeats until the electron reaches the ground state.  We
+call the complete sequence of radiative transitions from the initially
+excited $np$ level down to $1s$ the \emph{cascade}.
+
+Two terminal channels close the cascade and are physically distinct:
+\begin{itemize}
+   \item[(a)] \textbf{Direct Lyman emission.}  Whenever the electron reaches
+     an $n'p$ level, it may decay directly to the ground state,
+     $n'p \to 1s$, emitting a Lyman-series photon.  This ends the cascade on
+     the ground state.
+   \item[(b)] \textbf{Two-photon continuum.}  The cascade may instead route
+     the electron into the metastable $2s$ state.  Because $2s \to 1s$ is
+     electric-dipole forbidden, this level decays by \emph{two-photon}
+     emission, $A(2s \to 1s) = 8.229~\mathrm{s}^{-1}$, producing a broad
+     continuum rather than a spectral line.
+\end{itemize}
+
+Throughout we adopt the low-density nebular (Case-B-like) regime: a pure
+radiative cascade with no collisional $l$-redistribution, and with the $2s$
+state always decaying via two-photon emission.  In this limit the branching
+of the cascade is fixed entirely by the spontaneous transition
+probabilities of hydrogen, independent of density.  A useful example is
+Ly$\beta$: absorption into $3p$ can decay directly back to $1s$
+(re-emitting Ly$\beta$) or route through $3p \to 2s$, which is a component
+of H$\alpha$.  In the latter case the Ly$\beta$ absorption is physically
+converted into an H$\alpha$ photon ($3p \to 2s$) plus a two-photon
+($2s \to 1s$) continuum.
+
+%=============================================================================
+\section{Lyman-Series Oscillator Strengths}
+%=============================================================================
+
+Table~\ref{tab:fosc} lists the absorption oscillator strengths
+$f(1s \to np)$ of the hydrogen Lyman series, together with the transition
+wavelengths and the ratios relative to Ly$\alpha$.  For large $n$ the
+oscillator strength falls off asymptotically as $n^{-3}$, so successive
+Lyman lines weaken rapidly.
+
+It is important to note that the line-center opacity scales as the product
+$f\,\lambda$, not as $f$ alone.  Because the higher Lyman lines lie at
+shorter wavelengths, the opacity ratio is slightly smaller than the
+oscillator-strength ratio.  For Ly$\beta$ relative to Ly$\alpha$,
+\begin{equation}
+   \frac{\tau_0(\mathrm{Ly}\beta)}{\tau_0(\mathrm{Ly}\alpha)}
+   = 0.1901 \times \frac{1025.72}{1215.67}
+   = 0.160 ,
+\end{equation}
+rather than $0.190$.
+
+\begin{table}[htb]
+\centering
+\caption{Lyman-series absorption oscillator strengths $f(1s \to np)$.}
+\label{tab:fosc}
+\small
+\begin{tabular}{c l c c c}
+\toprule
+$n$ & line & $\lambda$ [\AA] & $f$ & $f/f(\mathrm{Ly}\alpha)$ \\
+\midrule
+2  & Ly$\alpha$      & 1215.67 & 0.4162   & 1.00000  \\
+3  & Ly$\beta$       & 1025.72 & 0.07910  & 0.19006  \\
+4  & Ly$\gamma$      & 972.54  & 0.02899  & 0.06966  \\
+5  & Ly$\delta$      & 949.74  & 0.01394  & 0.03349  \\
+6  & Ly$\epsilon$    & 937.80  & 0.007799 & 0.01874  \\
+7  & $1 \to 7$       & 930.75  & 0.004814 & 0.01157  \\
+8  & $1 \to 8$       & 926.23  & 0.003183 & 0.00765  \\
+9  & $1 \to 9$       & 923.15  & 0.002216 & 0.00532  \\
+10 & $1 \to 10$      & 920.96  & 0.001605 & 0.00386  \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+%=============================================================================
+\section{Method and Validation}
+%=============================================================================
+
+The spontaneous transition probabilities $A(nl \to n'l')$ were computed from
+the exact hydrogenic dipole radial integrals and calibrated on the
+analytically known value $A(2p \to 1s) = 6.2649 \times 10^{8}~\mathrm{s}^{-1}$,
+which fixes the Einstein-$A$ prefactor.  The absorption oscillator strengths
+follow from
+\begin{equation}
+   f(1s \to np) = \tfrac{2}{3}\,\Delta E\;\big|\langle np|\,r\,|1s\rangle\big|^2 ,
+\end{equation}
+evaluated in atomic units, where $\Delta E$ is the transition energy.  Every
+computed value reproduces the literature to four or five significant
+figures.  Table~\ref{tab:validate} demonstrates this agreement for a
+representative set of transitions spanning the Lyman, Balmer, and Paschen
+series; the computed and literature $A$ coefficients agree to within
+$0.0$--$0.4\%$.
+
+\begin{table}[htb]
+\centering
+\caption{Validation of computed Einstein $A$ coefficients (s$^{-1}$).}
+\label{tab:validate}
+\small
+\begin{tabular}{l l r r}
+\toprule
+transition & series & computed & literature \\
+\midrule
+$A(2p \to 1s)$ & Ly$\alpha$  & $6.2649 \times 10^{8}$ & $6.2649 \times 10^{8}$ \\
+$A(3p \to 1s)$ & Ly$\beta$   & $1.6725 \times 10^{8}$ & $1.6725 \times 10^{8}$ \\
+$A(3s \to 2p)$ & H$\alpha$   & $6.3136 \times 10^{6}$ & $6.3132 \times 10^{6}$ \\
+$A(3p \to 2s)$ & H$\alpha$   & $2.2448 \times 10^{7}$ & $2.2449 \times 10^{7}$ \\
+$A(3d \to 2p)$ & H$\alpha$   & $6.4651 \times 10^{7}$ & $6.4651 \times 10^{7}$ \\
+$A(4p \to 1s)$ & Ly$\gamma$  & $6.8187 \times 10^{7}$ & $6.8186 \times 10^{7}$ \\
+$A(4d \to 2p)$ & H$\beta$    & $2.0625 \times 10^{7}$ & $2.0625 \times 10^{7}$ \\
+$A(4f \to 3d)$ & Pa$\alpha$  & $1.3788 \times 10^{7}$ & $1.3785 \times 10^{7}$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+%=============================================================================
+\section{Direct Branching Ratios of the $np$ Levels}
+%=============================================================================
+
+Table~\ref{tab:branch} gives the direct branching ratios
+$b(np \to n'l') = A(np \to n'l')/A_{\rm tot}(np)$ of the initially excited
+$np$ level, expressed as percentages.  Here $A_{\rm tot}$ is the total
+spontaneous decay rate and $\tau = 1/A_{\rm tot}$ the radiative lifetime.
+These are the single-step probabilities out of the $np$ level, not yet the
+full cascade outcome (Section~\ref{sec:cascade}).
+
+Every $np$ level has exactly three kinds of downward channel, and the table
+groups them so that the three add up to $100\,\%$:
+(i)~the resonance line $np \to 1s$, a Lyman photon straight back to the ground
+state;
+(ii)~$np \to 2s$, which populates the metastable $2s$ level and therefore
+feeds the two-photon continuum;
+(iii)~the subordinate decays to any lower level with $m \ge 3$ (the $ms$ and
+$md$ states $3s, 3d, 4s, 4d, \dots$), from which the cascade continues.
+The last two columns single out the two largest subordinate channels,
+$np \to 3s$ and $np \to 3d$; these are \emph{already included} in the
+$m \ge 3$ column and are listed only to show where the subordinate weight
+goes.
+
+From $3p$ only the first two channels exist, because no $md$ state with
+$m \ge 3$ lies below $n = 3$.  Subordinate decay first appears at $4p$ and
+grows with $n$: the Lyman branch $np \to 1s$ falls monotonically from
+$100\,\%$ at $2p$ to $78.5\,\%$ at $10p$, the subordinate fraction rises to
+about $10\,\%$, and the two-photon feed $np \to 2s$ stays nearly constant
+near $11.5$--$11.9\,\%$ across the whole series.
+
+\begin{table}[htb]
+\centering
+\caption{Direct (single-step) decay of the $np$ levels, as branching
+percentages.  $\tau = 1/A_{\rm tot}$ is the radiative lifetime.  The three
+columns under ``Branching ratio'' are the probabilities that the first
+emitted photon is the Lyman line $np \to 1s$, feeds the metastable $2s$
+(and hence the two-photon continuum), or goes to a subordinate level with
+lower principal quantum number $m \ge 3$; \emph{these three sum to
+$100\,\%$}.  The two right-hand columns break out the two largest
+subordinate channels, $np \to 3s$ and $np \to 3d$, which are already counted
+in the $m \ge 3$ column.  ``--'' marks a channel that does not exist.}
+\label{tab:branch}
+\footnotesize
+\setlength{\tabcolsep}{5pt}
+\begin{tabular}{l r r c c c c c}
+\toprule
+      &            &                      & \multicolumn{3}{c}{Branching ratio (\%)} & \multicolumn{2}{c}{Largest subord. (\%)} \\
+\cmidrule(lr){4-6}\cmidrule(lr){7-8}
+$np$  & $\tau$ [ns] & $A_{\rm tot}$ [s$^{-1}$] & $\to 1s$ & $\to 2s$ & $\to m\!\ge\!3$ & $\to 3s$ & $\to 3d$ \\
+      &            &                      & (Lyman)  & (2-photon) & (subord.)     &          &          \\
+\midrule
+$2p$  & 1.596   & $6.2649 \times 10^{8}$ & 100.00 & --    & --    & --   & --   \\
+$3p$  & 5.271   & $1.8970 \times 10^{8}$ & 88.17  & 11.83 & --    & --   & --   \\
+$4p$  & 12.305  & $8.1267 \times 10^{7}$ & 83.90  & 11.90 & 4.20  & 3.77 & 0.43 \\
+$5p$  & 23.789  & $4.2037 \times 10^{7}$ & 81.78  & 11.77 & 6.45  & 3.90 & 0.36 \\
+$6p$  & 40.819  & $2.4499 \times 10^{7}$ & 80.53  & 11.67 & 7.80  & 3.90 & 0.32 \\
+$7p$  & 64.492  & $1.5506 \times 10^{7}$ & 79.72  & 11.59 & 8.69  & 3.89 & 0.30 \\
+$8p$  & 95.909  & $1.0427 \times 10^{7}$ & 79.17  & 11.53 & 9.30  & 3.87 & 0.29 \\
+$9p$  & 136.169 & $7.3438 \times 10^{6}$ & 78.77  & 11.49 & 9.74  & 3.86 & 0.28 \\
+$10p$ & 186.372 & $5.3656 \times 10^{6}$ & 78.47  & 11.46 & 10.07 & 3.85 & 0.27 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+%=============================================================================
+\section{Cascade Outcome Probabilities}
+\label{sec:cascade}
+%=============================================================================
+
+Following the cascade all the way to the ground state, every absorbed
+Lyman-series photon ends in exactly one of the two terminal channels of
+Section~1: either the $2s$ two-photon continuum, or a direct Lyman photon
+$n'p \to 1s$.  Table~\ref{tab:outcome} gives these total probabilities as a
+function of the initially excited level.
+
+The most striking feature is the near-constancy of the outcome.  The
+probability of ending in the two-photon continuum is
+\begin{equation}
+   P(\text{two-photon}) \approx 0.118 \quad (11.8\%) ,
+\end{equation}
+essentially independent of the initial principal quantum number $n$, and
+correspondingly
+\begin{equation}
+   P(\text{direct Lyman}) \approx 0.88 .
+\end{equation}
+Ly$\alpha$ ($2p$) is the sole exception: $2p$ can only decay to $1s$, so it
+never routes through $2s$ and always re-emits a Lyman photon.  For all
+higher Lyman lines, roughly one absorbed photon in eight is converted into
+the two-photon continuum, with the remainder re-emerging as a direct Lyman
+photon.  The two-photon probability actually peaks at $4p$ ($0.11897$) and
+then stays remarkably flat, remaining within $0.1180$--$0.1190$ across the
+entire series through $10p$; the direct-Lyman probability correspondingly
+sits at $\approx 0.881$--$0.882$.
+
+\begin{table}[htb]
+\centering
+\caption{Cascade outcome after $1s \to np$ absorption: total probability of
+the $2s$ two-photon continuum versus a direct Lyman photon.}
+\label{tab:outcome}
+\small
+\begin{tabular}{l c c}
+\toprule
+initial level & $P(\text{2-photon via } 2s)$ & $P(\text{direct Lyman } n'p \to 1s)$ \\
+\midrule
+$2p$  (Ly$\alpha$)   & 0.00000 & 1.00000 \\
+$3p$  (Ly$\beta$)    & 0.11834 & 0.88166 \\
+$4p$  (Ly$\gamma$)   & 0.11897 & 0.88103 \\
+$5p$  (Ly$\delta$)   & 0.11871 & 0.88129 \\
+$6p$  (Ly$\epsilon$) & 0.11848 & 0.88152 \\
+$7p$  ($1 \to 7$)    & 0.11831 & 0.88169 \\
+$8p$  ($1 \to 8$)    & 0.11818 & 0.88182 \\
+$9p$  ($1 \to 9$)    & 0.11808 & 0.88192 \\
+$10p$ ($1 \to 10$)   & 0.11800 & 0.88200 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+%=============================================================================
+\section{Cascade Route Decomposition}
+\label{sec:routes}
+%=============================================================================
+
+Rather than counting how often each individual transition is emitted, it is
+far more illuminating to follow the complete \emph{routes} the electron takes
+from the initially excited $np$ level down to the ground state.  A route is a
+chain $np \to \cdots \to 1s$; the transitions along it are exactly the photons
+emitted \emph{together} in one de-excitation, and the route probability is the
+product of the branching ratios of its steps.  Because every absorbed photon
+follows one and only one route to the ground state, the route probabilities
+sum to unity.
+
+The chains are forced by the dipole selection rule $\Delta l = \pm 1$: only
+$p$ states connect to the $1s$ ground state, so an electron that reaches an
+$s$ or $d$ state must first step to a lower $p$ state before it can reach
+$1s$.  This is why $3s$ does not decay to $1s$ directly but must follow
+$3s \to 2p \to 1s$, and it is what makes the routes fall into a few
+systematic families.
+
+Table~\ref{tab:routes} lists the dominant routes, organized into five
+families:
+(A)~the direct resonance decay $np \to 1s$;
+(B)~the metastable route $np \to 2s \to 1s$, which ends in the two-photon
+continuum;
+(C)~routes through one subordinate $ns$ state that end on Ly$\alpha$
+($\cdots \to 2p \to 1s$);
+(D)~routes through one subordinate $nd$ state that end on Ly$\alpha$; and
+(E)~routes through an $ns$ state that end on Ly$\beta$
+($\cdots \to 3p \to 1s$).
+The intermediate steps make the co-emitted photons explicit: e.g.\ the route
+$np \to 3s \to 2p \to 1s$ emits, in succession, a subordinate photon, an
+H$\alpha$ photon ($3s \to 2p$), and finally a Ly$\alpha$ photon
+($2p \to 1s$).  All routes not listed are collected in the ``other routes''
+residual; each has a probability below $\sim 0.3\%$, and they proliferate with
+$n$ (the $10p$ cascade has $1157$ distinct routes in all).
+
+Reading off the $10p$ column, for example: the absorbed Ly-10 photon is simply
+re-emitted as $10p \to 1s$ with probability $78.5\%$; it is converted into the
+two-photon continuum via $10p \to 2s \to 1s$ with probability $11.5\%$; and it
+degrades into an H$\alpha$-then-Ly$\alpha$ pair via $10p \to 3s \to 2p \to 1s$
+with probability $3.85\%$.  The route probabilities are remarkably insensitive
+to the initial level --- each family contributes nearly the same fraction
+whether the absorbed line is Ly$\gamma$ or Ly-10.
+
+\begin{table}[htb]
+\centering
+\caption{Dominant cascade routes after $1s \to np$ absorption.  Each row is a
+route --- a chain $np \to \cdots \to 1s$ whose transitions are the photons
+emitted \emph{together} in one de-excitation --- and the entries are the route
+probability (in \%) for each initially excited level.  Routes are grouped into
+families (A)--(E) by their structure; ``$1s\,(2\gamma)$'' marks the
+$2s \to 1s$ two-photon continuum.  ``--'' means the route is not open at that
+$n$.  Every column, including the ``other routes'' residual, sums to
+$100\%$.}
+\label{tab:routes}
+\footnotesize
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{l r r r r r r r r}
+\toprule
+route & $3p$ & $4p$ & $5p$ & $6p$ & $7p$ & $8p$ & $9p$ & $10p$ \\
+\midrule
+\multicolumn{9}{l}{\textit{(A) Direct resonance decay (final photon: the Ly-$n$ line)}}\\
+$np \to 1s$                    & 88.17 & 83.90 & 81.78 & 80.53 & 79.72 & 79.17 & 78.77 & 78.47 \\
+\addlinespace[2pt]
+\multicolumn{9}{l}{\textit{(B) Via metastable $2s$ (two-photon continuum)}}\\
+$np \to 2s \to 1s\,(2\gamma)$  & 11.83 & 11.90 & 11.77 & 11.67 & 11.59 & 11.53 & 11.49 & 11.46 \\
+\addlinespace[2pt]
+\multicolumn{9}{l}{\textit{(C) Via $ns$, ending on Ly$\alpha$ $(\to 2p \to 1s)$}}\\
+$np \to 3s \to 2p \to 1s$      & --    & 3.77  & 3.90  & 3.90  & 3.89  & 3.87  & 3.86  & 3.85  \\
+$np \to 4s \to 2p \to 1s$      & --    & --    & 1.02  & 1.06  & 1.07  & 1.06  & 1.06  & 1.06  \\
+$np \to 5s \to 2p \to 1s$      & --    & --    & --    & 0.45  & 0.47  & 0.47  & 0.46  & 0.46  \\
+$np \to 6s \to 2p \to 1s$      & --    & --    & --    & --    & 0.25  & 0.26  & 0.26  & 0.25  \\
+\addlinespace[2pt]
+\multicolumn{9}{l}{\textit{(D) Via $nd$, ending on Ly$\alpha$ $(\to 2p \to 1s)$}}\\
+$np \to 3d \to 2p \to 1s$      & --    & 0.43  & 0.36  & 0.32  & 0.30  & 0.29  & 0.28  & 0.27  \\
+$np \to 4d \to 2p \to 1s$      & --    & --    & 0.33  & 0.29  & 0.26  & 0.24  & 0.23  & 0.23  \\
+$np \to 5d \to 2p \to 1s$      & --    & --    & --    & 0.26  & 0.22  & 0.20  & 0.19  & 0.18  \\
+\addlinespace[2pt]
+\multicolumn{9}{l}{\textit{(E) Via $ns$, ending on Ly$\beta$ $(\to 3p \to 1s)$}}\\
+$np \to 4s \to 3p \to 1s$      & --    & --    & 0.64  & 0.67  & 0.67  & 0.67  & 0.67  & 0.66  \\
+$np \to 5s \to 3p \to 1s$      & --    & --    & --    & 0.28  & 0.29  & 0.29  & 0.29  & 0.29  \\
+\addlinespace[2pt]
+\multicolumn{9}{l}{\textit{Other routes (each below $0.3\%$)}}\\
+other routes                   & 0.00  & 0.00  & 0.20  & 0.58  & 1.28  & 1.95  & 2.44  & 2.81  \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+%=============================================================================
+\section{Discussion}
+%=============================================================================
+
+The near-constant $11.8\%$ conversion probability has a direct physical
+interpretation.  For Ly$\beta$, an absorption that does not simply re-emit
+Ly$\beta$ is instead converted, with probability $0.11834$, into an
+H$\alpha$ photon ($3p \to 2s$) plus a $2s \to 1s$ two-photon continuum.  The
+higher Lyman lines behave almost identically: about one absorbed photon in
+eight is permanently removed from the Lyman series and redistributed into
+subordinate lines and the two-photon continuum, while the remaining
+$\sim\!88\%$ re-emerges as a direct Lyman photon.
+
+Extending the analysis across the whole Lyman series through Ly-10
+($1 \to 10$) reinforces this picture.  The conversion probability to the $2s$
+two-photon continuum stays near $11.8$--$11.9\%$, essentially independent of
+which Lyman line is absorbed.  What does change with $n$ is the fraction of
+the absorbed photon's energy that is degraded into subordinate (Balmer,
+Paschen, \dots) lines during the longer cascade: this grows steadily with the
+initial principal quantum number, so that the total number of emitted photons
+per absorbed Lyman-series photon rises from exactly $1$ at Ly$\alpha$ to
+$\approx 1.20$ at Ly-10.  A higher Lyman-line absorption therefore returns a
+direct Lyman photon with nearly the same probability regardless of $n$, but it
+distributes progressively more of the cascade energy into the lower series as
+$n$ increases.
+
+This branching is central to the treatment of nebular and intergalactic
+Lyman pumping, and to Ly$\alpha$ radiative transfer more generally.  Higher
+Lyman-series photons that are absorbed are not conservatively scattered:
+a fixed fraction is destroyed as line photons and converted into the
+two-photon continuum and lower-series lines (for example, feeding H$\alpha$
+and the two-photon continuum from Ly$\beta$).  In a Monte Carlo transfer
+calculation this means that the excitation of $np$ levels by higher Lyman
+lines cannot be modeled as pure resonance scattering; the cascade branching
+of Tables~\ref{tab:outcome} and~\ref{tab:routes} determines how much Lyman
+flux is conserved and how much is converted, essentially independently of the
+initial level for $n \ge 3$.
+
+\end{document}

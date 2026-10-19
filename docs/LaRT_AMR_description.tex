@@ -1,0 +1,1126 @@
+%% LaRT AMR Technical Description
+%% Author: Kwang-Il Seon
+\documentclass[english,a4paper]{my_memo}
+\synctex=1
+\usepackage{listings}
+\usepackage{xcolor}
+
+\lstset{
+  basicstyle=\ttfamily\small,
+  keywordstyle=\color{blue}\bfseries,
+  commentstyle=\color{gray},
+  stringstyle=\color{olive},
+  frame=single,
+  breaklines=true,
+  numbers=left,
+  numberstyle=\tiny\color{gray},
+  language=[95]Fortran
+}
+
+\usepackage{babel}
+\begin{document}
+
+\title{AMR Extension of LaRT: Octree Structure and Raytrace Algorithm}
+\author{Kwang-Il Seon}
+\date{2026-04-23}
+\maketitle
+
+\tableofcontents
+\bigskip
+
+%=============================================================================
+\section{Overview}
+%=============================================================================
+
+LaRT (Lyman-alpha Radiative Transfer) is a Monte Carlo radiative transfer code
+for Lyman-$\alpha$ photon propagation in astrophysical media.
+The base code (\texttt{LaRT\_combined}) uses a uniform Cartesian grid.
+\texttt{LaRT\_v2.00} extends it with an Adaptive Mesh Refinement (AMR) octree
+grid, enabling direct use of outputs from cosmological simulation codes such as
+RAMSES.
+
+\begin{sloppypar}
+AMR mode is activated with \texttt{par\%grid\_type = 'amr'} in the input
+namelist (the legacy flag \texttt{par\%use\_amr\_grid = .true.} is still
+accepted as a deprecated alias).  Grid-type selection uses a Fortran~2003
+class hierarchy defined in \texttt{grid\_class.f90}: an abstract base type
+\texttt{grid\_base\_type} provides deferred type-bound procedures for all
+physics operations, and the concrete types \texttt{grid\_car\_type} and
+\texttt{grid\_amr\_type} implement them for Cartesian and AMR grids,
+respectively.  The outer simulation loop (\texttt{run\_simulation\_mod.f90})
+dispatches all calls through the polymorphic \texttt{grid} variable, and
+photon generation is handled by the module-specific routines
+\texttt{gen\_photon\_car} (module \texttt{photon\_mod\_car}) and
+\texttt{gen\_photon\_amr} (module \texttt{photon\_mod\_amr}).
+\end{sloppypar}
+
+The new source files are:
+\begin{center}
+\begin{tabular}{lp{\dimexpr\linewidth-190pt\relax}}
+\hline
+File & Role \\
+\hline
+\texttt{octree\_mod.f90}      & Octree data type, tree operations, cell-crossing routines \\
+\texttt{grid\_mod\_amr.f90}   & Grid creation, opacity normalization, frequency grid \\
+\texttt{raytrace\_amr.f90}    & Photon propagation through AMR cells \\
+\texttt{scattering\_amr.f90}  & Resonance and dust scattering (cell-by-cell parameters) \\
+\texttt{peelingoff\_amr.f90}  & Peel-off observer calculation \\
+\texttt{read\_generic\_amr.f90}& Reader for generic AMR data (text, FITS, HDF5) with optional physics columns \\
+\texttt{physics\_amr\_mod.f90}& Shared physics functions: CIE neutral fraction, Laursen+09 dust, Case~B emissivity \\
+\texttt{gen\_photon\_amr.f90} & Photon generation for AMR grid (module \texttt{photon\_mod\_amr}) \\
+\texttt{gen\_photon\_car.f90} & Photon generation for Cartesian grid (module \texttt{photon\_mod\_car}) \\
+\texttt{grid\_class.f90}      & OOP class hierarchy: abstract \texttt{grid\_base\_type},
+                                concrete \texttt{grid\_car\_type} and \texttt{grid\_amr\_type} \\
+\hline
+\end{tabular}
+\end{center}
+
+%=============================================================================
+\section{AMR Grid Data Structure}
+%=============================================================================
+
+\subsection{Octree Topology}
+
+The AMR grid is represented as a \emph{linear octree}: a flat Fortran array of
+cells indexed $1, 2, \ldots, N_\mathrm{cells}$.  Cell~1 is the root, which
+covers the entire computational box.  Each internal cell has exactly eight
+children obtained by bisecting the parent along all three coordinate axes.
+
+The child octant index is encoded as
+\begin{equation}
+  i_\mathrm{oct} = 1 + i_x + 2\,i_y + 4\,i_z,
+\end{equation}
+where $i_x = 1$ if $x \ge c_x$ (the cell center), otherwise $i_x = 0$, and
+similarly for $i_y$ and $i_z$.  Hence octant indices run from 1 to 8.
+
+\subsection{Refinement Constraints: Unrestricted Octree}
+\label{sec:refinement_constraints}
+
+Unlike RAMSES (and RASCAS, which reuses the RAMSES grid structure), which
+enforce a so-called \emph{2:1 balance} or \emph{graded refinement}
+constraint requiring that the refinement levels of any two face-adjacent
+leaf cells differ by at most one, the LaRT generic AMR octree is
+\emph{unrestricted}: any two adjacent leaves may differ by an arbitrary
+number of levels.  Neither the file reader
+(\texttt{read\_generic\_amr.f90}) nor the tree builder
+(\texttt{amr\_build\_tree}) imposes or checks the 2:1 condition; leaf
+cells are inserted at whatever level the input data specify.
+
+Support for arbitrary level jumps is built into the traversal layer:
+\begin{itemize}
+  \item The face-neighbor table (Section~\ref{sec:neighbor}) returns the
+        face neighbor on the same level when it is itself a leaf, a
+        \emph{coarser} leaf when refinement is absent on the other side,
+        or an \emph{internal} cell when the neighbor side is more refined.
+  \item \texttt{amr\_next\_leaf} (Section~\ref{sec:next_leaf}) handles the
+        more-refined case by descending the octree from the stored
+        internal cell through as many levels as needed until a leaf is
+        reached.  The descent cost is $O(\Delta\ell)$ with
+        $\Delta\ell = \ell_\mathrm{max} - \ell_i$, so any level difference
+        is accommodated at no algorithmic penalty beyond the descent
+        depth.
+\end{itemize}
+
+RAMSES snapshots arriving through \texttt{convert\_ramses\_to\_generic}
+are of course already 2:1 balanced and remain so in the generic file;
+data from sources that do not impose the constraint (manually constructed
+grids, the bundled Python generators such as
+\texttt{make\_amr\_sphere\_radial.py}, custom converters) are accepted
+as-is.
+
+\subsection{Arrays Stored per Cell}
+
+The Fortran derived type \texttt{amr\_grid\_type} (defined in
+\texttt{octree\_mod.f90}) stores the following arrays of size $N_\mathrm{cells}$
+for the tree topology:
+
+\begin{center}
+\begin{tabular}{lll}
+\hline
+Array & Dimension & Content \\
+\hline
+\texttt{parent(:)}      & $N_\mathrm{cells}$        & parent cell index (0 for root) \\
+\texttt{children(:,:)}  & $8 \times N_\mathrm{cells}$ & child indices; 0 = leaf \\
+\texttt{level(:)}       & $N_\mathrm{cells}$        & refinement level (0 = root) \\
+\texttt{cx, cy, cz}     & $N_\mathrm{cells}$        & cell center coordinates (code units) \\
+\texttt{ch(:)}          & $N_\mathrm{cells}$        & cell half-width (code units) \\
+\texttt{ileaf(:)}       & $N_\mathrm{cells}$        & $> 0$: leaf index; 0: internal \\
+\texttt{icell\_of\_leaf(:)} & $N_\mathrm{leaf}$     & cell index for each leaf \\
+\texttt{neighbor(:,:)}  & $6 \times N_\mathrm{cells}$ & face-neighbor table (see Section~\ref{sec:neighbor}) \\
+\hline
+\end{tabular}
+\end{center}
+
+Leaf cells ($\texttt{ileaf}(i) > 0$) carry physical data stored in separate
+arrays of size $N_\mathrm{leaf}$:
+
+\begin{center}
+\begin{tabular}{lll}
+\hline
+Array & Symbol & Physical meaning \\
+\hline
+\texttt{rhokap}  & $\bar\kappa_0$ & HI line-center opacity per code-unit length \\
+\texttt{rhokapD} & $\bar\kappa_d$ & dust opacity per code-unit length \\
+\texttt{Dfreq}   & $\Delta\nu_D$ & local Doppler frequency [Hz] \\
+\texttt{voigt\_a}& $a$           & Voigt damping parameter $a = A_{21}/(4\pi\Delta\nu_D)$ \\
+\texttt{vfx, vfy, vfz} & $\tilde{v}_x,\tilde{v}_y,\tilde{v}_z$ & bulk velocity / local $v_\mathrm{th}$ \\
+\hline
+\end{tabular}
+\end{center}
+
+\begin{sloppypar}
+The spectral output arrays (\texttt{Jout}, \texttt{Jin}, \texttt{Jabs}) have
+size $N_\nu$ (the number of frequency bins) and are also members of
+\texttt{amr\_grid\_type}.  All photon-weight accumulation in AMR mode
+goes into \texttt{amr\%J*} directly: \texttt{Jout} and \texttt{Jmu}
+from \texttt{raytrace\_amr.f90}, \texttt{Jabs} from
+\texttt{scattering\_amr.f90}, and \texttt{Jin} from
+\texttt{generate\_photon\_amr.f90}.  At reduction time
+\texttt{output\_reduce\_amr} (or \texttt{output\_reduce\_inside\_amr}
+on the HEALPix path) calls \texttt{MPI\_ALLREDUCE} on each
+\texttt{amr\%J*} and copies the result into the corresponding
+\texttt{g\%J*} alias so that the shared write-output routines see
+populated arrays.  (Note: in v2.00 the \texttt{Jin} accumulation site
+lives in the shared \texttt{generate\_photon.f90}; that path was
+previously writing to \texttt{grid\%Jin} unconditionally and was
+fixed in 2026-04-30 to dispatch on \texttt{par\%use\_amr\_grid}.
+v2.10 was unaffected because its \texttt{generate\_photon\_amr.f90}
+already writes \texttt{amr\%Jin} natively.)
+\end{sloppypar}
+
+\subsection{Coordinate Convention}
+
+All cell positions and path lengths are stored in \emph{code units} (kpc, pc, or
+whatever unit the input data use).  The conversion factor
+\texttt{par\%distance2cm} is used once when computing opacities:
+\begin{equation}
+  \bar\kappa_0 \;[\mathrm{code\text{-}unit}^{-1}]
+    = n_\mathrm{HI}\,[\mathrm{cm}^{-3}]
+      \times \frac{\sigma_0}{\Delta\nu_D}
+      \times d_\mathrm{cm},
+\end{equation}
+where $d_\mathrm{cm}$ is the number of centimeters per code unit.  After that,
+all quantities are dimensionless with respect to code units, exactly mirroring
+the Cartesian convention.
+
+The box is always \textbf{centered at the origin}: all leaf coordinates lie in
+$[-L_\mathrm{box}/2,\,+L_\mathrm{box}/2]$ on each axis, and the octree root
+spans the same range.  This is required because the peel-off geometry and the
+default point-source position (\texttt{xs\_point = ys\_point = zs\_point = 0})
+both assume $(0,0,0)$ to be the box center.  Input readers are responsible for
+mapping raw data to this centered convention before passing coordinates to
+\texttt{amr\_build\_tree}.
+
+%=============================================================================
+\section{Building the Octree}
+%=============================================================================
+
+\subsection{Tree Construction: \texttt{amr\_build\_tree}}
+\label{sec:build_tree}
+
+\begin{sloppypar}
+\texttt{amr\_build\_tree} takes flat arrays of leaf-cell center coordinates
+(\texttt{xleaf}, \texttt{yleaf}, \texttt{zleaf}), AMR levels
+(\texttt{leaf\_level}), and box bounds, and constructs the octree by inserting
+each leaf cell top-down from the root.
+\end{sloppypar}
+
+The algorithm is as follows:
+\begin{enumerate}
+  \item Initialize the root cell (index 1) with half-width $h = L_\mathrm{box}/2$.
+  \item For each leaf $\ell = 1, \ldots, N_\mathrm{leaf}$:
+  \begin{enumerate}
+    \item Start at the root ($\texttt{icell} = 1$).
+    \item For each refinement level from 0 to $\ell_\mathrm{leaf} - 1$:
+    \begin{enumerate}
+      \item Compute the octant index $i_\mathrm{oct}$ using the leaf center.
+      \item If \texttt{children($i_\mathrm{oct}$, icell)} is zero, create a new
+            internal node with half-width $h/2$ and center offset
+            $\pm h/2$ from the parent center.
+      \item Descend: $\texttt{icell} \leftarrow \texttt{children}(i_\mathrm{oct}, \texttt{icell})$.
+    \end{enumerate}
+    \item Mark the reached cell as leaf $\ell$: $\texttt{ileaf(icell)} = \ell$.
+  \end{enumerate}
+\end{enumerate}
+
+The array is grown dynamically (doubled) if the pre-allocated size is exceeded.
+
+\subsection{Face-Neighbor Precomputation: \texttt{amr\_build\_neighbors}}
+\label{sec:neighbor}
+
+After the tree is built, \texttt{amr\_build\_neighbors} pre-computes a
+$6 \times N_\mathrm{cells}$ neighbor table.  Entry
+$\texttt{neighbor}(f, i)$ stores the cell index of the neighbor of cell $i$
+across face $f$, using the face convention:
+\begin{equation}
+  f = 1{:}+x,\quad 2{:}-x,\quad 3{:}+y,\quad 4{:}-y,\quad 5{:}+z,\quad 6{:}-z.
+\end{equation}
+A value of 0 means the face is on the domain boundary.
+
+For each cell $i$, the routine probes the point just outside each face
+(offset $h \times 10^{-8}$ from the face) and descends the tree to the cell
+at level $\le \ell_i$ that contains that probe point:
+\begin{equation}
+  \texttt{neighbor}(f, i) = \texttt{amr\_find\_cell\_at\_level}
+    \!\left(c_i + h_f\hat{e}_f,\; \ell_i\right),
+\end{equation}
+where $h_f$ is the signed probe offset along face direction $f$ and
+$\hat{e}_f$ is the corresponding unit vector.
+
+The result may be a leaf cell at the same level, a leaf at a coarser level
+(if the grid is not refined there), or an internal cell at the same level
+(if the neighbor side is \emph{more} refined than cell $i$).  The last case
+is handled at runtime by \texttt{amr\_next\_leaf} (Section~\ref{sec:next_leaf}).
+
+This table is built once and then used for O(1) boundary crossings throughout
+the simulation.
+
+%=============================================================================
+\section{Cell-Crossing Algorithms}
+%=============================================================================
+
+\subsection{Finding a Leaf: \texttt{amr\_find\_leaf}}
+
+\texttt{amr\_find\_leaf}$(x, y, z)$ descends the octree from the root,
+choosing the correct child octant at each level using the octant formula
+(Equation~1), until it reaches a cell with $\texttt{ileaf} > 0$.
+The result is the leaf index $\ell \in \{1, \ldots, N_\mathrm{leaf}\}$.
+The depth is at most $\ell_\mathrm{max}$, the maximum AMR level.
+
+This function is used only at photon injection (once per photon) and as a
+fallback if \texttt{photon\%icell\_amr} is not yet set.
+
+\subsection{Cell-Exit Distance: \texttt{amr\_cell\_exit}}
+
+Given a photon at position $(x, y, z)$ inside cell $i$ with direction
+$(k_x, k_y, k_z)$, \texttt{amr\_cell\_exit} computes the distance $t_\mathrm{exit}$
+to the nearest cell face and identifies which face $f$ is crossed.
+
+For each axis $\alpha \in \{x, y, z\}$ with cell center $c_\alpha$ and
+half-width $h$, the distances to the $\pm$ faces are:
+\begin{equation}
+  t_\alpha^+ = \frac{c_\alpha + h - \alpha}{k_\alpha}, \quad
+  t_\alpha^- = \frac{c_\alpha - h - \alpha}{k_\alpha},
+\end{equation}
+with $t = \infty$ (implemented as \texttt{hugest}) when the direction component
+is zero or points away from the face.  The exit is the minimum over all six
+half-space times:
+\begin{equation}
+  t_\mathrm{exit} = \min(t_x^+,\, t_x^-,\, t_y^+,\, t_y^-,\, t_z^+,\, t_z^-),
+\end{equation}
+and $f$ is the index of the minimizing element (1–6 in the convention above).
+
+\subsection{Next Leaf After a Face Crossing: \texttt{amr\_next\_leaf}}
+\label{sec:next_leaf}
+
+\begin{sloppypar}
+After the photon crosses face $f$ of cell $i$ and the position has been updated
+to $(x, y, z)$ at the face, \texttt{amr\_next\_leaf}$(i, f, x, y, z)$ returns
+the leaf index of the cell the photon enters.  The algorithm is:
+\end{sloppypar}
+
+\begin{enumerate}
+  \item Look up $\texttt{ineigh} = \texttt{neighbor}(f, i)$.  If zero, the photon
+        has left the domain; return 0.
+  \item If $\texttt{ileaf(ineigh)} > 0$, the neighbor is already a leaf; return
+        $\texttt{ileaf(ineigh)}$.
+  \item Otherwise the neighbor is an internal cell at a finer level.  Descend:
+        \begin{enumerate}
+          \item Compute $i_\mathrm{oct}$ from the actual crossing position
+                $(x, y, z)$ and the center of \texttt{ineigh}.
+          \item $\texttt{ineigh} \leftarrow \texttt{children}(i_\mathrm{oct}, \texttt{ineigh})$.
+          \item Repeat until $\texttt{ileaf(ineigh)} > 0$.
+        \end{enumerate}
+  \item Return $\texttt{ileaf(ineigh)}$.
+\end{enumerate}
+
+Step~1 is O(1); the descent in step~3 traverses at most
+$\Delta\ell = \ell_\mathrm{max} - \ell_i$ extra levels, which is typically
+one or two.  In practice this makes cell-boundary crossings effectively O(1)
+for any AMR grid.
+
+%=============================================================================
+\section{Grid Initialization}
+%=============================================================================
+
+\texttt{grid\_create\_amr} in \texttt{grid\_mod\_amr.f90} performs the
+following sequence:
+
+\begin{enumerate}
+  \item \textbf{Read leaf-cell data.}  MPI rank~0 reads the generic AMR file
+        (text, FITS, or HDF5) via \texttt{read\_generic\_amr.f90} and broadcasts
+        all arrays---including any optional physics columns---to the other ranks.
+        Each rank therefore holds a full copy of the tree (appropriate for
+        moderate grid sizes).
+
+  \item \textbf{Build octree.}  Call \texttt{amr\_build\_tree} and
+        \texttt{amr\_build\_neighbors}.
+
+  \item \textbf{Compute cell-by-cell Doppler and Voigt parameters.}  For leaf $\ell$:
+        \begin{equation}
+          \Delta\nu_{D,\ell} = \frac{b_{D,\ell}}{\lambda_0},
+          \quad
+          b_{D,\ell} = \sqrt{\left(v_{\mathrm{th},1}\sqrt{T_\ell}\right)^2 + b_{\rm turb}^2},
+          \quad
+          a_\ell = \frac{A_{21}}{4\pi\,\Delta\nu_{D,\ell}},
+        \end{equation}
+        where $v_{\mathrm{th},1} = \sqrt{2k_B/m_H}$ is the thermal velocity per
+        $\sqrt{T}$ and $b_{\rm turb} = \texttt{par\%bturb}$ is a spatially uniform
+        turbulent velocity added in quadrature.  The thermal width uses the
+        \emph{cell-by-cell} data-file temperature $T_\ell$; \texttt{par\%bturb}~$\le 0$
+        recovers the pure thermal width.
+
+  \item \textbf{Compute cell-by-cell opacity and velocity.}
+        \begin{align}
+          \bar\kappa_{0,\ell} &= n_{\mathrm{HI},\ell}\,\frac{\sigma_0}{\Delta\nu_{D,\ell}}\,d_\mathrm{cm}, \\
+          \tilde{v}_{\alpha,\ell} &= \frac{v_{\alpha,\ell}[\mathrm{km\,s}^{-1}]}{b_{D,\ell}[\mathrm{km\,s}^{-1}]},
+        \end{align}
+        where $\sigma_0$ is the hydrogen Lyman-$\alpha$ cross-section at line
+        center and $d_\mathrm{cm}$ is centimeters per code unit.
+
+  \item \textbf{Normalize opacity to \texttt{taumax}.}  See Section~\ref{sec:taunorm}.
+
+  \item \textbf{Set up frequency grid and output arrays.}
+\end{enumerate}
+
+\subsection{Input Data Format}
+
+LaRT reads only the \emph{generic AMR format} via the module
+\texttt{read\_generic\_amr.f90}.  RAMSES binary data must be converted
+to this format using the standalone converter before running LaRT (see
+the user manual).
+
+The generic format supports text (\texttt{.dat}), FITS (\texttt{.fits},
+\texttt{.fits.gz}), and HDF5 (\texttt{.h5}, \texttt{.hdf5}).  Nine
+columns are mandatory (x, y, z, level, nH, T, vx, vy, vz); six
+optional columns (\texttt{metallicity}, \texttt{xHI}, \texttt{n\_e},
+\texttt{n\_ion}, \texttt{emissivity}, \texttt{ndust}) are detected
+by name in HDF5/FITS files and used directly when present.
+
+The code unit is set by \texttt{par\%distance\_unit} (e.g., \texttt{'kpc'}).
+Leaf coordinates must be centered at the origin,
+i.e., in $[-L_\mathrm{box}/2,\,+L_\mathrm{box}/2]$ on each axis.
+The Python \texttt{AMRGrid} class writes coordinates in this convention.
+
+\subsection{Biconical Geometry Mask}
+\label{sec:cone_mask}
+
+When the input parameter \texttt{par\%cone\_opening} $> 0$ (and $< 90$),
+a biconical geometry mask is applied after the cell-by-cell opacity is set up
+and before the optical-depth normalization.  For every leaf cell~$\ell$,
+if $|\cos\theta_\ell| < \cos(\texttt{cone\_opening})$
+(where $\theta_\ell$ is the polar angle of the cell center measured from
+the $z$-axis), both the line opacity $\rho\kappa_\ell$ and the dust
+opacity $\rho\kappa_{d,\ell}$ are set to zero.  This confines the
+scattering medium to two opposing cones along the $z$-axis with
+half-opening angle $\alpha_\mathrm{cone}$.
+
+The standalone AMR grid generator (\texttt{make\_amr\_sphere\_radial.x})
+also supports \texttt{-{}-cone\_opening}: leaves outside the cone are
+written with zero density and zero velocity, and cells intersecting the
+cone boundary surface are refined to \texttt{boundary\_level\_max} when
+\texttt{-{}-refine\_boundary} is active.
+
+\subsection{Tau Normalization by Pole Traversal}
+\label{sec:taunorm}
+
+The optical depth normalization convention in \texttt{LaRT\_v2.00} matches the
+Cartesian version: \texttt{taumax} is the line-center optical depth from the
+box center to the $+z$ boundary along the $z$-axis.
+
+After the raw opacities are set, a ray is traced from the box center in the
+$+z$ direction using the same AMR raytrace kernel:
+\begin{equation}
+  \tau_\mathrm{pole} = \sum_{\ell}
+    \bar\kappa_{0,\ell}\,\phi(0, a_\ell)\,\Delta s_\ell,
+\end{equation}
+where $\phi(x, a)$ is the Voigt profile at $x=0$ and $\Delta s_\ell$ is the
+path-length through leaf $\ell$ along the ray.  The normalization factor is
+\begin{equation}
+  f_\mathrm{norm} = \frac{\texttt{taumax}}{\tau_\mathrm{pole}},
+\end{equation}
+and all opacities are scaled: $\bar\kappa_{0,\ell} \leftarrow f_\mathrm{norm}\,\bar\kappa_{0,\ell}$.
+The same factor is applied to dust opacity if present.
+
+This pole-traversal approach is exact for any opacity distribution, in contrast
+to the volume-average approximation
+$\tau \approx \langle\bar\kappa_0\rangle\,L_\mathrm{box}$
+that underestimates $\tau_\mathrm{pole}$ for centrally concentrated clouds such
+as a sphere.
+
+%=============================================================================
+\section{Photon Propagation}
+%=============================================================================
+
+\subsection{Main Raytrace Routine: \texttt{raytrace\_to\_tau\_amr}}
+\label{sec:raytrace}
+
+This routine propagates a photon through the AMR grid until it accumulates a
+target optical depth $\tau_\mathrm{in}$ (sampled as $-\ln\xi$ for a uniform
+random $\xi$) or leaves the box.
+
+The photon state is represented by:
+\begin{itemize}
+  \item $(x, y, z)$ — current absolute position in code units,
+  \item $(k_x, k_y, k_z)$ — unit direction vector,
+  \item $x_\nu$ — frequency offset in units of the local Doppler width
+        (comoving frame of the current cell),
+  \item $\ell$ — current leaf index (\texttt{photon\%icell\_amr}).
+\end{itemize}
+
+The loop at each step $n$:
+\begin{enumerate}
+  \item Convert leaf index to cell index:
+        $i = \texttt{icell\_of\_leaf}(\ell)$.
+  \item Compute the exit distance and exit face:
+        $(t_\mathrm{exit}, f) = \texttt{amr\_cell\_exit}(i, x, y, z, k_x, k_y, k_z)$.
+  \item Evaluate the opacity at the current frequency:
+        \begin{equation}
+          \kappa = \bar\kappa_{0,\ell}\,\phi(x_\nu, a_\ell)
+                  + \bar\kappa_{d,\ell}
+                  \quad (\text{with dust, if present}),
+        \end{equation}
+        where $\phi(x, a)$ is the Voigt function.
+  \item Update accumulated optical depth:
+        $\tau \leftarrow \tau + \kappa\,t_\mathrm{exit}$.
+  \item \textbf{If $\tau \ge \tau_\mathrm{in}$}: backtrack to the exact
+        interaction point (Section~\ref{sec:overshoot}) and exit the loop.
+  \item Otherwise: advance position to the face,
+        \begin{equation}
+          (x, y, z) \leftarrow (x + t_\mathrm{exit}\,k_x,\;
+                                 y + t_\mathrm{exit}\,k_y,\;
+                                 z + t_\mathrm{exit}\,k_z).
+        \end{equation}
+  \item Look up the next leaf:
+        $\ell' = \texttt{amr\_next\_leaf}(i, f, x, y, z)$.
+  \item If $\ell' = 0$, the photon has escaped; set
+        \texttt{photon\%inside = .false.} and exit.
+  \item Apply the frequency shift (Section~\ref{sec:freqshift}):
+        $x_\nu \leftarrow x_\nu'$.
+  \item Set $\ell \leftarrow \ell'$ and continue.
+\end{enumerate}
+
+\subsection{Frequency Shift at Cell Boundaries}
+\label{sec:freqshift}
+
+Each cell has its own Doppler frequency $\Delta\nu_{D,\ell}$ (because cells
+can have different temperatures) and its own bulk velocity component along the
+photon direction,
+\begin{equation}
+  u_\ell = \tilde{v}_{x,\ell}\,k_x
+          + \tilde{v}_{y,\ell}\,k_y
+          + \tilde{v}_{z,\ell}\,k_z
+  \quad [\text{dimensionless, in units of local } v_\mathrm{th}].
+\end{equation}
+
+When crossing from cell $\ell$ (old) to cell $\ell'$ (new), the photon
+frequency must be transformed to the comoving frame of the new cell.  The
+physical frequency is invariant, so:
+\begin{equation}
+  \nu_\mathrm{phys} = \nu_0\left(1 + \frac{(x_\nu^{\rm old} + u_\ell)\,\Delta\nu_{D,\ell}}
+                                          {\nu_0}\right),
+\end{equation}
+and the new dimensionless frequency is:
+\begin{equation}
+  \boxed{
+  x_\nu^{\rm new} = (x_\nu^{\rm old} + u_\ell)
+                    \,\frac{\Delta\nu_{D,\ell}}{\Delta\nu_{D,\ell'}}
+                    - u_{\ell'}.
+  }
+\end{equation}
+This formula transforms between the comoving frames of two cells with
+different temperatures and bulk velocities in a single step.
+
+\subsection{Overshoot Correction}
+\label{sec:overshoot}
+
+When $\tau > \tau_\mathrm{in}$ after stepping across a cell, the photon
+actually stopped inside the cell.  The exact interaction distance is found
+by backtracking:
+\begin{equation}
+  \Delta s_\mathrm{back} = \frac{\tau - \tau_\mathrm{in}}{\kappa}.
+\end{equation}
+The total displacement from the entry point is then
+$d = d + t_\mathrm{exit} - \Delta s_\mathrm{back}$, and the final position is
+\begin{equation}
+  (x, y, z) \leftarrow (\texttt{photon\%}x + d\,k_x,\;
+                         \texttt{photon\%}y + d\,k_y,\;
+                         \texttt{photon\%}z + d\,k_z).
+\end{equation}
+Note that the position update is accumulated as a single floating-point
+addition from the \emph{original} entry point (not from successive face crossings),
+which preserves numerical precision.
+
+\subsection{Photon Escape and Spectrum Accumulation}
+
+When the photon leaves the box ($\ell' = 0$), the frequency is converted to
+the lab frame:
+\begin{equation}
+  x_\nu^\mathrm{lab} = x_\nu + u_\ell,
+\end{equation}
+then scaled to the reference Doppler frequency:
+\begin{equation}
+  x_\nu^\mathrm{ref} = x_\nu^\mathrm{lab}
+                       \,\frac{\Delta\nu_{D,\ell}}{\Delta\nu_{D,\mathrm{ref}}}.
+\end{equation}
+The frequency bin index is
+\begin{equation}
+  i_\nu = \left\lfloor
+    \frac{x_\nu^\mathrm{ref} - x_\mathrm{min}}{\delta x}
+  \right\rfloor + 1,
+\end{equation}
+and the photon weight is accumulated into $\texttt{amr\_grid\%Jout}(i_\nu)$.
+
+\subsection{Boundary Handling: Periodicity and Symmetry Planes}
+\label{sec:amr-boundary}
+
+When \texttt{amr\_next\_leaf} returns no neighbor at a face crossing
+(\texttt{il\_new} $\le 0$), the AMR raytrace inspects the same global
+flags that select the Cartesian \texttt{raytrace\_to\_tau\_car\_xyper},
+\texttt{\_xysym}, and \texttt{\_xyzsym} variants:
+
+\begin{description}
+  \item[\texttt{par\%xy\_periodic}] (e.g.\ \texttt{plane\_atmosphere}):
+        the photon position wraps to the opposite face on the $x$ and $y$
+        sides,
+        \begin{align*}
+          \text{face } +x &: \quad x \leftarrow x - \texttt{amr\%xrange}, \\
+          \text{face } -x &: \quad x \leftarrow x + \texttt{amr\%xrange}, \\
+          \text{face } +y &: \quad y \leftarrow y - \texttt{amr\%yrange}, \\
+          \text{face } -y &: \quad y \leftarrow y + \texttt{amr\%yrange},
+        \end{align*}
+        and the leaf is re-located via \texttt{amr\_find\_leaf}.  Faces
+        $\pm z$ remain escape boundaries.
+
+  \item[\texttt{par\%xy\_symmetry}] (mirror at $x=x_\mathrm{min}$ and
+        $y=y_\mathrm{min}$): on the $-x$ face the direction is reflected
+        ($k_x \to -k_x$); on the $-y$ face $k_y \to -k_y$.  In both
+        cases the photon stays in the same leaf
+        (\texttt{il\_new}~$=$~\texttt{il}).  Other faces remain escape
+        boundaries.
+
+  \item[\texttt{par\%xyz\_symmetry}] same as \texttt{xy\_symmetry} with
+        an additional $k_z \to -k_z$ on the $-z$ face.
+\end{description}
+
+\paragraph{Reflection assumption.}
+The reflection is treated as specular at the leaf face, which assumes
+that no leaf cell straddles the symmetry plane.  This holds for any
+generic AMR dataset whose octree root is built on the centered range
+$[-L/2, +L/2]$ and refined uniformly downward (the convention used by
+both the RAMSES and generic readers).
+
+\paragraph{Frequency shift across reflection.}
+For a cross-cell crossing the comoving-frame shift retains its usual
+form,
+\begin{equation*}
+  x_\nu' = (x_\nu + u_1)\,\frac{\Delta\nu_{D,\ell}}{\Delta\nu_{D,\ell'}} - u_2,
+\end{equation*}
+where $u_1$ uses the pre-crossing direction and $u_2$ uses the
+post-crossing direction.  When the photon reflects within the same
+leaf, $\Delta\nu_{D,\ell} / \Delta\nu_{D,\ell'} = 1$, so
+\begin{equation*}
+  x_\nu' = (x_\nu + u_1) - u_2,
+\end{equation*}
+where $u_2$ is recomputed with the reflected $\hat{\mathbf{k}}$.  This
+is equivalent to keeping the lab-frame frequency
+$x_\nu^\mathrm{lab} = x_\nu + u_1$ invariant under the direction flip,
+as required for a passive mirror plane.
+
+\paragraph{Final position.}
+\texttt{raytrace\_to\_tau\_amr} updates the running $(x,y,z)$ in place
+at every face crossing and at the in-cell overshoot exit, so the
+photon's final position remains correct after wraps and reflections
+without an external offset accumulator.
+
+\subsection{Other Raytrace Routines}
+
+Six additional routines in \texttt{raytrace\_amr\_mod} share the same AMR
+traversal kernel but accumulate different quantities:
+
+\begin{center}
+\begin{tabular}{ll}
+\hline
+Routine & Purpose \\
+\hline
+\texttt{raytrace\_to\_edge\_amr}            & Total $\tau$ to box edge (photon unchanged) \\
+\texttt{raytrace\_to\_edge\_tau\_gas\_amr}  & Gas-only $\tau$ to box edge \\
+\texttt{raytrace\_to\_edge\_column\_amr}    & $N_\mathrm{HI}$ and dust $\tau$ to box edge \\
+\texttt{raytrace\_to\_dist\_amr}            & Total $\tau$ to fixed distance $s$ \\
+\texttt{raytrace\_to\_dist\_tau\_gas\_amr}  & Gas-only $\tau$ to fixed distance $s$ \\
+\texttt{raytrace\_to\_dist\_column\_amr}    & $N_\mathrm{HI}$ and dust $\tau$ to fixed distance $s$ \\
+\hline
+\end{tabular}
+\end{center}
+
+All six routines propagate a copy of the photon state (photon is not modified)
+and apply the same frequency-shift formula at each cell crossing so that the
+Voigt opacity is evaluated at the correct comoving frequency in every cell.
+They share the same boundary handling described in
+Section~\ref{sec:amr-boundary}: local copies of $k_x, k_y, k_z$ are
+flipped on reflection so that \texttt{photon0} itself is never
+modified.
+
+%=============================================================================
+\section{Scattering}
+%=============================================================================
+
+The scattering routines in \texttt{scattering\_amr.f90} mirror the Cartesian
+versions but read physical parameters from \texttt{amr\_grid} arrays indexed
+by the leaf index \texttt{photon\%icell\_amr}.
+
+\subsection{Resonance Scattering}
+
+\begin{sloppypar}
+\texttt{scatter\_resonance\_nostokes\_amr} implements the resonance scattering
+algorithm (no Stokes polarization).  The scattering is handled by the procedure
+pointer \texttt{do\_resonance}, which is set at initialization to one of
+\texttt{do\_resonance1\_amr}, \texttt{do\_resonance2\_amr}, etc., depending on
+the line type.
+\end{sloppypar}
+
+\begin{enumerate}
+  \item \textbf{Sample the scattering atom velocity.}
+        The thermal velocity component of the atom along the photon direction
+        (in the cell comoving frame) is sampled from the redistribution
+        function via \texttt{rand\_resonance\_vz}:
+        \begin{equation}
+          u_z = x_\nu + u_\ell.
+        \end{equation}
+        The two perpendicular thermal velocity components $(u_x, u_y)$ are
+        drawn independently from a Gaussian with unit variance.
+
+  \item \textbf{Sample the scattering angle.}
+        The polar scattering angle $\theta$ (between the incoming and outgoing
+        photon directions) is drawn from the phase function
+        \begin{equation}
+          P(\cos\theta) = \frac{3}{8}E_1\cos^2\theta + \frac{4 - E_1}{8},
+        \end{equation}
+        via the function \texttt{rand\_resonance}$(E_1)$.  The parameter $E_1$
+        is a property of the atomic transition:
+        \begin{itemize}
+          \item $E_1 = 1$: pure Rayleigh scattering ($J=0 \to J=1 \to J=0$, e.g.\ He~\textsc{i}).
+          \item $0 < E_1 < 1$: mixed Rayleigh + isotropic
+                (e.g.\ Ly$\alpha$: $E_1 \approx 0$ for the $J=1/2$ branch,
+                $E_1 = 1$ for the $J=3/2$ branch, giving an effective
+                $E_1$ that depends on the occupation of upper sub-levels).
+          \item $E_1 = 0$: isotropic scattering.
+          \item $-1/2 \le E_1 < 0$: oblate phase function (forward and backward
+                directions suppressed).
+        \end{itemize}
+        The azimuthal angle $\phi$ is drawn uniformly from $[0, 2\pi)$.
+
+  \item \textbf{Compute the new photon frequency.}
+        In the atom frame the frequency after scattering is
+        \begin{equation}
+          x'_\nu = x_\nu^\mathrm{atom}
+                  + u_z \cos\theta
+                  + (u_x\cos\phi + u_y\sin\phi)\sin\theta,
+        \end{equation}
+        where $x_\nu^\mathrm{atom} = x_\nu - u_z$ is the frequency in the
+        atom rest frame.  An optional recoil correction
+        $\Delta x = -g_\mathrm{recoil}(1-\cos\theta)$ is applied if
+        \texttt{par\%recoil = .true.}
+
+  \item \textbf{Apply core-skip acceleration} if $|x_\nu| < x_\mathrm{crit}$.
+\end{enumerate}
+
+The core-skip threshold $x_\mathrm{crit}$ is computed cell-by-cell at every
+scattering event by \texttt{amr\_xcrit\_local(il, x, y, z, \dots)}
+following Smith et al.\ (2015, Eq.~35) and the RASCAS convention:
+\[
+   a\tau_{\rm cell} = a_{\rm V}(il)\,\mathtt{rhokap}(il)\,
+                      \Delta\ell_{\rm face},
+   \qquad
+   x_{\rm crit} =
+   \begin{cases}
+     (a\tau_{\rm cell})^{1/3}/5 & a\tau_{\rm cell} > 1 \\
+     0 & \text{otherwise}
+   \end{cases}
+\]
+where $\Delta\ell_{\rm face}$ is the minimum distance from the current
+photon position to any of the six leaf-cell faces, computed from the cell
+center $(c_x, c_y, c_z)$ and half-width $h$ as $\min(h-|x-c_x|, h-|y-c_y|,
+h-|z-c_z|)$.
+
+The old behavior --- a single volume-averaged
+$\langle x_{\rm crit}\rangle$ from
+$\langle a_{\rm V}\rangle\,\mathtt{tauhomo}$ stored in
+\texttt{amr\_grid\%xcrit} --- is retained behind
+\texttt{par\%core\_skip\_global = .true.}\ for benchmarking only.
+Inhomogeneous boxes such as the jellyfish galaxy require the cell-by-cell
+formula: $\langle a\tau\rangle$ is small there because most of the box
+is hot, sparse gas, so the volume-averaged $x_{\rm crit}$ collapses to
+zero and the boost never engages even though individual galaxy-core
+cells have $a\tau_{\rm cell}\gtrsim 10^9$.
+
+\subsection{Dust Scattering}
+
+\texttt{scatter\_dust\_nostokes\_amr} uses the standard
+Henyey--Greenstein phase function.  When dust is present, the probability of
+the interaction being a dust event is
+\begin{equation}
+  p_d = \frac{\bar\kappa_{d,\ell}}
+             {\bar\kappa_{0,\ell}\,\phi(x_\nu, a_\ell) + \bar\kappa_{d,\ell}},
+\end{equation}
+sampled at the scattering location (cell $\ell$).
+
+\subsection{Molecular-Hydrogen (H\texorpdfstring{$_2$}{2}) Absorption on the AMR Grid}
+
+The molecular-hydrogen effect on Ly$\alpha$ (H$_2$ Lyman/Werner-band pumping and
+destruction; see the user manual, \S\,``Molecular-Hydrogen Effect on Ly$\alpha$'')
+is fully supported on the AMR grid. \texttt{raytrace\_to\_tau\_amr} adds the H$_2$
+line opacity $\bar\kappa_{0,\ell}\,\kappa_{\rm H2}(x_\nu;\Delta\nu_{D,\ell})$ to the
+transport optical depth in each leaf, evaluated from the grid-agnostic core
+\texttt{h2\_kappa\_D(xfreq, Dfreq)} with the leaf Doppler width
+$\Delta\nu_{D,\ell}=$\,\texttt{amr\_grid\%Dfreq}$(\ell)$. The scattering dispatch
+adds a three-way split among \{H\,{\sc i} resonance, dust, H$_2$\}, and an H$_2$
+event is handled by \texttt{scatter\_h2} (which branches on \texttt{par\%use\_amr\_grid}
+for the leaf Doppler width). The peel-off sight-line integral
+(\texttt{raytrace\_to\_edge\_amr}) is likewise attenuated by H$_2$, and the
+absorbed-fraction budget is MPI-reduced and written in the AMR output path. The AMR
+and Cartesian absorbed fractions agree to $\sim1$--$2\%$ (octree volume averaging).
+
+\subsection{Multi-Level Resonance Transitions}
+
+\begin{sloppypar}
+For complex atoms (HeI, FeII) represented by multiple transitions, the AMR
+scattering module provides \texttt{do\_resonance4\_amr},
+\texttt{do\_resonance5\_amr}, and \texttt{do\_resonance6\_amr}, which follow
+the same logic as their Cartesian counterparts but use cell-by-cell Doppler
+frequencies and Voigt parameters.
+\end{sloppypar}
+
+%=============================================================================
+\section{Output Normalization}
+%=============================================================================
+
+After all photons are traced, the MPI reduction collects all frequency
+contributions via \texttt{MPI\_ALLREDUCE} into \texttt{amr\_grid\%Jout}
+(\texttt{output\_reduce\_amr} in \texttt{output\_sum\_rect.f90}).
+
+The normalized specific intensity (per unit frequency per steradian) is:
+\begin{equation}
+  J_\mathrm{out}(x_\nu) = \frac{\texttt{Jout}(i_\nu)}
+    {N_\mathrm{ph}\;\delta x\;2\pi\;A},
+\end{equation}
+where $N_\mathrm{ph}$ is the number of photons, $\delta x$ the frequency bin
+width, and
+\begin{equation}
+  A = 4\pi\,d_\mathrm{cm}^2
+\end{equation}
+is the surface area of a unit sphere in cm$^2$ (the factor $d_\mathrm{cm}$
+is \texttt{par\%distance2cm}).
+
+For dimensionless runs (\texttt{distance2cm = 1}, no \texttt{distance\_unit}),
+this reduces to $A = 4\pi$, making $J_\mathrm{out}$ independent of the
+arbitrary box size.  This matches the Cartesian convention
+($A = 4\pi\,r_\mathrm{max}^2\,d_\mathrm{cm}^2$) when
+$r_\mathrm{max} = L_\mathrm{box}/2$ and the same \texttt{distance2cm} is used.
+
+%=============================================================================
+\section{Core-Skip Acceleration}
+%=============================================================================
+
+Lyman-$\alpha$ photons scatter extremely frequently in the line core
+($|x_\nu| \ll 1$), where the optical depth per cell is large.  The
+core-skip algorithm (Laursen et al. 2009) exploits the fact that a photon in
+the core will scatter many times within a single cell without traveling far.
+When $|x_\nu| < x_\mathrm{crit}$, the frequency is redrawn from the
+wing distribution directly, skipping the core-scattering steps.
+
+In AMR mode, $x_\mathrm{crit}$ is computed from the mean opacity product:
+\begin{equation}
+  (a\tau_0)_\mathrm{cell}
+    = \bar{a}\;\bar\tau_0\;/\;N_\mathrm{cell,axis},
+\end{equation}
+where $N_\mathrm{cell,axis} = L_\mathrm{box} / (2\,h_\mathrm{root})$ is the
+number of root cells along one axis.  The threshold is then
+\begin{equation}
+  x_\mathrm{crit} =
+  \begin{cases}
+    0.02\,\exp\!\left[\xi\,(\ln(a\tau_0)_\mathrm{cell})^\chi\right] &
+      (a\tau_0)_\mathrm{cell} > 1, \\
+    0 & \text{otherwise},
+  \end{cases}
+\end{equation}
+with $(\xi, \chi) = (0.6, 1.2)$ for $(a\tau_0)_\mathrm{cell} \le 60$ and
+$(1.4, 0.6)$ otherwise.
+
+%=============================================================================
+\section{HEALPix Inside-Observer Mode}
+%=============================================================================
+
+When the user sets \texttt{par\%nside} $> 0$, \texttt{setup.f90} automatically
+enables \texttt{par\%observer\_located\_inside = .true.} and switches the
+entire output and peel-off chain to HEALPix all-sky maps.  This mode is
+intended for ``galactic'' observations where the observer sits at a chosen
+position $(o_x, o_y, o_z)$ \emph{inside} the medium; each escaping photon
+contributes to the all-sky map indexed by the direction from the observer
+back to the photon, computed with \texttt{vec2pix(observer\%nside, ...)}.
+
+For the AMR path, a parallel set of \texttt{\_inside\_amr} routines
+mirrors the Cartesian \texttt{\_inside} chain:
+\begin{center}
+{\small
+\begin{tabular}{ll}
+\hline
+Routine                                        & File \\
+\hline
+\texttt{peeling\_direct\_inside\_amr}          & \texttt{peelingoff\_amr.f90} \\
+\texttt{peeling\_dust\_nostokes\_inside\_amr}  & \texttt{peelingoff\_amr.f90} \\
+\texttt{peeling\_resonance\_nostokes\_inside\_amr} & \texttt{peelingoff\_amr.f90} \\
+\texttt{output\_reduce\_inside\_amr}           & \texttt{output\_sum\_heal.f90} \\
+\texttt{output\_normalize\_inside\_amr}        & \texttt{output\_sum\_heal.f90} \\
+\texttt{make\_sightline\_tau\_inside\_amr}     & \texttt{sightline\_tau\_heal.f90} \\
+\hline
+\end{tabular}
+}
+\end{center}
+
+\begin{sloppypar}
+In v2.10 (class-based dispatch), six \texttt{amr\_*} type-bound methods
+in \texttt{grid\_class.f90} branch on \texttt{par\%observer\_located\_inside}:
+\end{sloppypar}
+\begin{center}
+{\small
+\begin{tabular}{lll}
+\hline
+Method                       & inside path & outside path (default) \\
+\hline
+\texttt{amr\_output\_reduce}     & \texttt{output\_reduce\_inside\_amr}    & \texttt{output\_reduce\_amr} \\
+\texttt{amr\_output\_normalize}  & \texttt{output\_normalize\_inside\_amr} & \texttt{output\_normalize\_amr} \\
+\texttt{amr\_write\_output}      & \texttt{write\_output\_inside}          & \texttt{write\_output\_outside} \\
+\texttt{amr\_observer\_create}   & \texttt{observer\_create\_inside}       & \texttt{observer\_create\_outside} \\
+\texttt{amr\_observer\_destroy}  & \texttt{observer\_destroy\_inside}      & \texttt{observer\_destroy\_outside} \\
+\texttt{amr\_make\_sightline\_tau} & \texttt{make\_sightline\_tau\_inside\_amr} & \texttt{make\_sightline\_tau\_amr} \\
+\hline
+\end{tabular}
+}
+\end{center}
+
+The peeling helpers receive \texttt{amr} (\texttt{type(amr\_grid\_type),
+intent(in)}) as an explicit parameter rather than reading the global
+\texttt{amr\_grid}; this keeps the v2.10 OOP interface clean and
+removes the implicit module-global coupling.  Each peel routine
+computes the direction from the photon to the observer,
+\begin{equation}
+  \hat{k}_\mathrm{obs}
+    = \frac{\mathbf{r}_\mathrm{obs} - \mathbf{r}_\mathrm{ph}}
+           {|\mathbf{r}_\mathrm{obs} - \mathbf{r}_\mathrm{ph}|},
+\end{equation}
+\begin{sloppypar}
+applies the Doppler shift in the local cell using
+$\Delta\nu_D = $ \texttt{amr\%Dfreq(il)} and $\tilde{v} = $
+\texttt{amr\%vfx,y,z(il)}, traces the optical depth from the photon
+position to the observer with
+\texttt{call raytrace\_to\_dist\_amr(pobs, amr, r, tau)}, and deposits
+the peeled weight into either
+\texttt{observer(i)\%direc\_heal[\_2D]} (direct) or
+\texttt{observer(i)\%scatt\_heal[\_2D]} (scattered).
+\end{sloppypar}
+
+Peeling dispatch is performed inside the scatter / generate\_photon
+modules:
+\begin{center}
+{\footnotesize
+\begin{tabular}{lp{320pt}}
+\hline
+Module                       & Action \\
+\hline
+\texttt{generate\_photon\_amr.f90}
+  & if \texttt{par\%save\_peeloff} \\
+  & \quad if \texttt{par\%observer\_located\_inside}
+            $\to$ \texttt{peeling\_direct\_inside\_amr} \\
+  & \quad else if \texttt{point\_illumination/stellar\_illumination}
+            $\to$ corresponding \_amr \\
+  & \quad else $\to$ \texttt{peeling\_direct\_amr} \\
+\texttt{scattering\_amr.f90}
+  & if \texttt{par\%save\_peeloff} \\
+  & \quad if \texttt{par\%observer\_located\_inside} $\to$\newline
+            \hspace*{2em}\texttt{peeling\_\{dust,resonance\}\_nostokes\_inside\_amr} \\
+  & \quad else $\to$ \texttt{peeling\_\{dust,resonance\}\_nostokes\_amr} \\
+\hline
+\end{tabular}
+}
+\end{center}
+
+\paragraph{Source scope.}  The AMR \texttt{\_inside} path supports the
+same internal sources as the Cartesian \texttt{\_inside} path: \texttt{point},
+\texttt{uniform}, \texttt{gaussian}, \texttt{exponential}, \texttt{sersic},
+and \texttt{diffuse\_emissivity}.  External-illumination geometries
+(\texttt{point\_illumination}, \texttt{stellar\_illumination},
+\texttt{plane\_illumination}) are only meaningful for an observer outside
+the medium and remain restricted to the \texttt{\_outside} path.  Stokes
+polarization is not yet implemented for the HEALPix \texttt{\_inside}
+path (mirroring the Cartesian convention).
+
+\begin{sloppypar}
+\paragraph{Normalization.}  \texttt{output\_normalize\_inside\_amr} uses
+the AMR convention $A = 4\pi\,d_\mathrm{cm}^2$ (independent of $L_\mathrm{box}$)
+to normalize \texttt{Jout}, \texttt{Jin} and \texttt{Jabs}, and
+$A_\mathrm{pix} = \Omega_\mathrm{pix}\,d_\mathrm{cm}^2$ for the HEALPix
+observer pixels, identical to the Cartesian \texttt{output\_normalize\_inside}
+modulo the area choice.
+\end{sloppypar}
+
+\begin{sloppypar}
+\paragraph{Sightline tau.}  \texttt{make\_sightline\_tau\_inside\_amr}
+walks from the observer position to each of the six box faces
+(\texttt{$\pm$x}, \texttt{$\pm$y}, \texttt{$\pm$z}) by stepping along
+the relevant axis until reaching the
+\texttt{amr\%xmin/xmax/ymin/ymax/zmin/zmax} boundary, accumulating
+$\tau$ and $N(\mathrm{HI})$ via
+\texttt{raytrace\_to\_dist\_tau\_gas\_amr} and
+\texttt{raytrace\_to\_dist\_column\_amr}.
+\end{sloppypar}
+
+\begin{sloppypar}
+The outside-observer counterpart \texttt{make\_sightline\_tau\_amr}
+(in \texttt{sightline\_tau\_amr.f90}) is structurally analogous: for
+each pixel of the \texttt{(nxim, nyim)} detector grid it places a
+virtual photon at the far face of the AMR box and integrates inward
+toward the observer using \texttt{raytrace\_to\_edge\_tau\_gas\_amr}
+and \texttt{raytrace\_to\_edge\_column\_amr}.
+\end{sloppypar}
+
+\begin{sloppypar}
+\paragraph{$\tau_\mathrm{huge}$ early-exit (sight-line vs.\ photon
+transport).}  The AMR raytrace routines used by the photon-transport
+stage (\texttt{raytrace\_to\_tau\_amr}, \texttt{raytrace\_to\_edge\_amr},
+\texttt{raytrace\_to\_dist\_amr}) early-exit when the running optical
+depth exceeds the double-precision $\exp(-\tau)$ underflow point
+($\tau_\mathrm{huge} \approx 745.2$); accumulating further contributes
+nothing to the photon's transmission.  The sight-line variants
+\texttt{raytrace\_to\_edge\_tau\_gas\_amr} and
+\texttt{raytrace\_to\_dist\_tau\_gas\_amr} exist precisely to
+\emph{report} the integrated $\tau$, however large, and therefore run
+\emph{without} that cap (matching the Cartesian
+\texttt{raytrace\_to\_edge\_tau\_gas} and
+\texttt{raytrace\_to\_dist\_tau\_gas\_car} in \texttt{raytrace\_car.f90}).
+A short-lived bug (fixed 2026-05-04) had the cap inadvertently applied
+in \texttt{raytrace\_to\_edge\_tau\_gas\_amr}, capping outside-observer
+sight-line $\tau$ at $\sim$\,745 and producing AMR/Cartesian disagreement
+of an order of magnitude on the line-center maps.
+\end{sloppypar}
+
+\begin{sloppypar}
+\paragraph{Cleanup convention (\texttt{grid\_destroy\_amr}).}
+\texttt{grid\_destroy\_amr} now mirrors the Cartesian and clump
+\texttt{grid\_destroy} routines: it issues a single
+\texttt{destroy\_shared\_mem\_all()} (idempotent when
+\texttt{num\_windows == 0}), nullifies every shared-memory pointer
+field of \texttt{amr\_grid}, and Fortran-deallocates only the genuinely
+allocatable output arrays local to each rank
+(\texttt{Jout}/\texttt{Jin}/\texttt{Jabs}/\texttt{Jmu}).  Calling
+\texttt{destroy\_mem} on each shared-memory pointer individually (the
+old behavior) crashes whenever another module
+(\texttt{observer\_destroy\_outside}, \texttt{grid\_destroy\_clump})
+has already freed the global window registry: the array-by-array routine
+falls through to a Fortran \texttt{deallocate()} of MPI-window memory
+and trips ifort \texttt{severe (173)}.
+\end{sloppypar}
+
+\paragraph{Smoke test (uniform sphere, point source at origin,
+$T=10^4\,\mathrm{K}$, $\tau_0=10^4$, observer at $o_x=0.3$,
+$\mathrm{nside}=8$, $10^6$ photons).}
+\begin{center}
+\begin{tabular}{lcc}
+\hline
+Quantity                          & AMR              & Cartesian ($64^3$) \\
+\hline
+$\sum$ Jout                       & $8.5134 \times 10^{-2}$ & $8.5136 \times 10^{-2}$ \\
+$\sum$ Jin                        & $8.5135 \times 10^{-2}$ & $8.5136 \times 10^{-2}$ \\
+$\sum$ Scattered HEALPix          & $2592$           & $2322$ \\
+$\sum$ Direct HEALPix             & $5.14 \times 10^{-2}$ & $4.66 \times 10^{-2}$ \\
+\hline
+\end{tabular}
+\end{center}
+
+\noindent The \texttt{Jout}/\texttt{Jin} agreement matches the
+\texttt{\_outside} validation, and the $\sim 12\%$ difference in
+$\sum$~Scattered is consistent with the documented octree
+volume-averaging of the sphere boundary plus shot noise from
+$10^6$ photons.  The Direct HEALPix sum is dominated by very few
+unscattered photons at $\tau_0=10^4$.
+
+%=============================================================================
+\section{Validation}
+%=============================================================================
+
+The AMR implementation was validated against equivalent Cartesian runs
+for a uniform-density sphere of HI gas with a central point source
+($T = 10^4\,\mathrm{K}$, no dust).
+
+The AMR sphere is described by the generic text format with the same set of
+leaf cells at the same AMR level, providing effectively the same resolution
+as the $101^3$ Cartesian grid.  The Cartesian comparison uses
+$r_\mathrm{max} = L_\mathrm{box}/2$ with no \texttt{distance\_unit}.
+
+\begin{center}
+\begin{tabular}{ccccc}
+\hline
+$\tau_0$ & $J_\mathrm{out,max}^\mathrm{AMR}$
+         & $J_\mathrm{out,max}^\mathrm{CAR}$
+         & Ratio (AMR/CAR)
+         & Peak velocity \\
+\hline
+$10^2$   & $6.630 \times 10^{-3}$ & $6.836 \times 10^{-3}$ & 0.970 & $\pm 26.75\,\mathrm{km\,s}^{-1}$ \\
+$10^4$   & $7.144 \times 10^{-3}$ & $7.402 \times 10^{-3}$ & 0.965 & $\pm 38.21\,\mathrm{km\,s}^{-1}$ \\
+\hline
+\end{tabular}
+\end{center}
+
+Peak positions, column densities $N(\mathrm{HI})_\mathrm{pole}$, and
+$\tau_\mathrm{pole}$ agree exactly between AMR and Cartesian runs.  The
+$\sim 3$--$5\%$ amplitude difference is entirely attributable to the
+octree voxelisation of the sphere boundary: leaf cells that straddle the
+sphere edge carry only the average density, softening the sharp boundary.
+No normalization error is present.
+
+%=============================================================================
+\section{Summary of Key Design Choices}
+%=============================================================================
+
+\begin{enumerate}
+  \item \textbf{Flat linear octree.}  All cells (internal and leaf) are stored
+        in a single 1-indexed Fortran array.  Parent--child relationships are
+        maintained through integer index arrays.  This avoids pointer
+        indirection and is cache-friendly.
+
+  \item \textbf{Precomputed face-neighbor table.}  Built once before the
+        simulation loop.  Boundary crossings cost O(1) (plus O($\Delta\ell$)
+        descent into finer cells if the neighbor is more refined).
+
+  \item \textbf{Cell-by-cell Voigt parameters.}  Each leaf stores its own
+        $\Delta\nu_D$ and $a$, supporting arbitrary temperature distributions
+        without any approximation.
+
+  \item \textbf{Frequency shift at every cell crossing.}  The comoving-frame
+        frequency is updated at each boundary, so the Voigt opacity is always
+        evaluated in the correct local frame, including bulk velocity effects.
+
+  \item \textbf{Single floating-point accumulation of displacement.}  The
+        photon position is updated as $\mathbf{r}_0 + d\,\hat{k}$ rather than
+        as a sequence of increments, preserving numerical precision across
+        many cell crossings.
+
+  \item \textbf{OOP class hierarchy for AMR/Cartesian switching.}
+        A Fortran~2003 abstract base type \texttt{grid\_base\_type} (in
+        \texttt{grid\_class.f90}) declares all physics operations as deferred
+        type-bound procedures.  The concrete types \texttt{grid\_car\_type}
+        and \texttt{grid\_amr\_type} implement them by delegating to the
+        existing \texttt{\_car} and \texttt{\_amr} routines.  The polymorphic
+        variable \texttt{class(grid\_base\_type), allocatable :: grid} in
+        \texttt{main.f90} is allocated to the appropriate type at runtime based
+        on \texttt{par\%grid\_type}.  \texttt{setup.f90} no longer assigns any
+        global procedure pointers; all dispatch goes through \texttt{grid\%method()}
+        calls.
+
+  \item \textbf{Pole-traversal tau normalization.}  The AMR raytrace kernel
+        itself is used to compute $\tau_\mathrm{pole}$, giving an exact
+        normalization that is consistent with the Cartesian convention and
+        avoids volume-average errors.
+\end{enumerate}
+
+\end{document}

@@ -1,0 +1,1983 @@
+%% LaRT Clump Medium Technical Description — LaRT v2.10
+%% Author: Kwang-Il Seon
+\documentclass[english,a4paper]{my_memo}
+\synctex=1
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{microtype}
+\usepackage{booktabs}
+\usepackage{tabularx}
+
+\lstset{
+  basicstyle=\ttfamily\small,
+  keywordstyle=\color{blue}\bfseries,
+  commentstyle=\color{gray},
+  stringstyle=\color{olive},
+  frame=single,
+  breaklines=true,
+  breakatwhitespace=false,
+  numbers=left,
+  numberstyle=\tiny\color{gray},
+  numbersep=8pt,
+  xleftmargin=2em,
+  framexleftmargin=2em,
+  language=[95]Fortran
+}
+
+\usepackage{babel}
+\newcommand{\fdg}{\hbox{$.\!\!^\circ$}}
+\begin{document}
+
+\title{Clumpy Medium Extension of LaRT: Algorithm Description (v2.10)}
+\author{Kwang-Il Seon}
+\date{2026-04-26}
+\maketitle
+
+\tableofcontents
+\bigskip
+
+%=============================================================================
+\section{Overview}
+%=============================================================================
+
+The clumpy medium mode adds a population of $N$ non-overlapping spherical
+clumps inside a spherical domain of radius $R$.  Each clump is a sphere of
+radius $r_c$ with uniform Lyman-$\alpha$ opacity; the inter-clump medium is
+vacuum.
+
+In \textbf{LaRT\_v2.10} the mode is activated by setting
+\begin{lstlisting}
+par%grid_type = 'clump'
+\end{lstlisting}
+in the input namelist.  The legacy flag
+\begin{lstlisting}
+par%use_clump_medium = .true.
+\end{lstlisting}
+is still accepted and is mapped to \texttt{par\%grid\_type = 'clump'} during
+input parsing (backward compatibility with v2.00 input files).
+
+New source files introduced for this mode:
+\begin{center}
+\begin{tabular}{ll}
+\hline
+File & Role \\
+\hline
+\texttt{clump\_mod.f90}       & Clump population: init, RSA placement, CSR grid, raytrace helpers \\
+\texttt{raytrace\_clump.f90}  & Raytrace through the clump medium (DDA + sphere intersection) \\
+\texttt{grid\_mod\_clump.f90} & Grid setup: creates Cartesian shell grid, then calls \texttt{init\_clumps} \\
+\hline
+\end{tabular}
+\end{center}
+
+The OOP dispatch is handled by \texttt{grid\_class.f90} through the concrete
+type \texttt{grid\_clump\_type} (see \S\ref{sec:oop}).
+
+%=============================================================================
+\section{OOP Architecture (v2.10)}
+\label{sec:oop}
+%=============================================================================
+
+\subsection{Abstract base type}
+
+\texttt{grid\_class.f90} defines an abstract base type:
+\begin{lstlisting}
+type, abstract :: grid_base_type
+contains
+  procedure(raytrace_tau_if),  deferred :: raytrace_to_tau
+  procedure(raytrace_edge_if), deferred :: raytrace_to_edge
+  procedure(scatter_if),       deferred :: scattering
+  procedure(output_if),        deferred :: output_reduce
+  procedure(output_if),        deferred :: output_normalize
+  procedure(write_if),         deferred :: write_output
+  procedure(peel_simple_if),   deferred :: peeling_direct
+  ...
+  procedure(grid_init_if),     deferred :: grid_init
+  procedure(grid_destroy_if),  deferred :: grid_destroy
+end type grid_base_type
+\end{lstlisting}
+
+\subsection{Concrete clump type}
+
+\texttt{grid\_clump\_type} extends \texttt{grid\_base\_type}:
+\begin{lstlisting}
+type, extends(grid_base_type) :: grid_clump_type
+  type(grid_type) :: g     ! Cartesian shell grid (uniform clump parameters)
+contains
+  procedure :: raytrace_to_tau    => clump_raytrace_to_tau
+  procedure :: raytrace_to_edge   => clump_raytrace_to_edge
+  procedure :: add_escaped_to_jout=> clump_add_escaped_to_jout
+  procedure :: generate_photon    => clump_generate_photon
+  procedure :: scattering         => clump_scattering
+  procedure :: output_reduce      => clump_output_reduce
+  procedure :: output_normalize   => clump_output_normalize
+  procedure :: write_output       => clump_write_output
+  procedure :: observer_create    => clump_observer_create
+  procedure :: observer_destroy   => clump_observer_destroy
+  procedure :: make_sightline_tau => clump_make_sightline_tau
+  procedure :: grid_init          => clump_grid_init
+  procedure :: grid_destroy       => clump_grid_destroy
+end type grid_clump_type
+\end{lstlisting}
+
+\begin{sloppypar}
+All procedures delegate to the same underlying subroutines used in v2.00
+(\texttt{raytrace\_clump\_mod}, \texttt{scattering\_car}, etc.).
+\end{sloppypar}
+
+\subsection{Runtime selection in \texttt{main.f90}}
+
+Grid selection is performed once at startup:
+\begin{lstlisting}
+class(grid_base_type), allocatable :: grid
+
+select case (trim(par%grid_type))
+case ('clump')
+  allocate(grid_clump_type :: grid)
+case ('amr')
+  allocate(grid_amr_type :: grid)
+case default   ! 'car'
+  allocate(grid_car_type :: grid)
+end select
+
+call grid%grid_init()
+...
+call grid%output_reduce()
+call grid%output_normalize()
+call grid%write_output(trim(par%out_file))
+call grid%grid_destroy()
+\end{lstlisting}
+
+Scatter, peel-off, and observer routines are invoked identically for all
+grid types through the polymorphic \texttt{grid} variable.
+
+\subsection{Comparison with v2.00}
+
+In v2.00 the same dispatch was performed via module-level procedure pointers
+declared in \texttt{define.f90} and assigned in \texttt{setup\_procedure()}:
+\begin{lstlisting}
+! v2.00 approach (procedure pointers in define.f90)
+procedure(raytrace_tau_if), pointer :: raytrace_to_tau => null()
+...
+! setup.f90: setup_procedure()
+if (par%use_clump_medium) then
+  raytrace_to_tau => raytrace_to_tau_clump
+  ...
+end if
+\end{lstlisting}
+\begin{sloppypar}
+The v2.10 OOP approach is semantically equivalent but eliminates the global
+mutable state and makes the dispatch relationship explicit in the type system.
+The underlying physics routines (\texttt{clump\_mod.f90},
+\texttt{raytrace\_clump.f90}, \texttt{grid\_mod\_clump.f90}) are
+\emph{identical} between v2.00 and v2.10.
+\end{sloppypar}
+
+%=============================================================================
+\section{Physical Setup}
+%=============================================================================
+
+\subsection{Geometry}
+
+\begin{sloppypar}
+The outer domain is a sphere of radius $R = \texttt{par\%rmax}$ (code units).
+$N$ spherical clumps of radius $r_c = \texttt{par\%clump\_radius}$ are placed
+at random inside this sphere (non-overlapping).
+\end{sloppypar}
+
+A Cartesian grid of $N_x \times N_y \times N_z$ cells is created with the
+same bounding box $[-R, R]^3$.  Grid arrays ($\texttt{rhokap}$, $\texttt{Dfreq}$,
+$\texttt{voigt\_a}$, $\texttt{vf}$) are set to uniform values:
+\begin{itemize}
+  \item $\texttt{rhokap} = 0$ everywhere (opacity lives only inside clumps);
+  \item $\texttt{Dfreq} = \Delta\nu_D^{cl}$ (clump Doppler frequency);
+  \item $\texttt{voigt\_a} = a_V^{cl}$ (clump Voigt parameter);
+  \item $\texttt{vfx} = \texttt{vfy} = \texttt{vfz} = 0$.
+\end{itemize}
+Peel-off and scattering routines read these uniform grid values, so no
+special-casing is needed inside those modules.
+
+\subsection{Clump Count}
+
+The user specifies one of three equivalent parameters; the code derives $N$
+from whichever is set:
+
+\paragraph{From $f_\mathrm{cov}$ (covering factor):}
+The mean number of clumps intercepted by a radial ray from the center to the
+sphere surface is
+\begin{equation}
+  f_\mathrm{cov} = N\,\frac{\pi r_c^2}{\pi R^2}\cdot\frac{R}{\frac{4}{3}\pi R^3/(4\pi R^2)}
+  = \frac{3}{4}\,N\!\left(\frac{r_c}{R}\right)^2 ,
+\end{equation}
+hence
+\begin{equation}
+  N = \frac{4}{3}\,f_\mathrm{cov}\!\left(\frac{R}{r_c}\right)^2 .
+\end{equation}
+Input parameter: \texttt{par\%clump\_f\_cov}.
+
+\paragraph{From $f_\mathrm{vol}$ (volume filling factor):}
+\begin{equation}
+  f_\mathrm{vol} = N\left(\frac{r_c}{R}\right)^3 ,
+  \qquad N = f_\mathrm{vol}\!\left(\frac{R}{r_c}\right)^3 .
+\end{equation}
+Input parameter: \texttt{par\%clump\_f\_vol}.
+
+\paragraph{Direct specification:} \texttt{par\%clump\_N\_clumps}.
+
+\subsection{Clump Physical Parameters}
+
+The clump temperature $T_c$ defaults to $\texttt{par\%temperature}$ unless
+\texttt{par\%clump\_temperature} $> 0$.  Derived quantities:
+\begin{align}
+  v_\mathrm{th} &= v_{\mathrm{th},1}\sqrt{T_c},\quad
+                   v_{\mathrm{th},1} = \sqrt{2k_B/m_H}\approx 12.84\;\mathrm{km\,s^{-1}/\sqrt{10^4\,K}},\\
+  b_D^{cl} &= \sqrt{v_\mathrm{th}^2 + b_{\rm turb}^2},\quad b_{\rm turb} = \texttt{par\%bturb},\\
+  \Delta\nu_D^{cl} &= b_D^{cl} / (\lambda_0 \times \mathrm{km2um}),\\
+  a_V^{cl} &= \frac{A_{21}}{4\pi\,\Delta\nu_D^{cl}},
+\end{align}
+where $\lambda_0$ is the Lyman-$\alpha$ rest wavelength and $b_{\rm turb} =
+\texttt{par\%bturb}$ is the (spatially uniform) turbulent velocity added in
+quadrature to the clump thermal width ($\texttt{par\%bturb}\le 0$ recovers
+the pure thermal width).
+
+Three mutually exclusive parameters specify the opacity of each individual
+clump (the first positive value in the priority order wins):
+
+\paragraph{1.~\texttt{par\%clump\_tau0} — line-center optical depth (dimensionless):}
+The line-center $\tau$ of one clump from its center to its surface.
+\begin{equation}
+  \kappa_c = \frac{\tau_0}{\phi(0,a_V^{cl})\, r_c},
+\end{equation}
+where $\phi(x, a)$ is the Voigt profile at dimensionless frequency $x$.
+
+\paragraph{2.~\texttt{par\%clump\_NHI} — clump HI column density [cm$^{-2}$]:}
+The HI column density of a \emph{single clump} from its center to its surface.
+This must be clearly distinguished from the \emph{total system} column density
+(\texttt{par\%N\_HImax}), which is the average HI column density along a
+radial sightline through the entire clumpy sphere (center to outer boundary,
+averaged over all sightlines through the random clump population).
+
+Given $N_{\rm HI}^{cl} = n_H\,r_c\,d_{\rm cm}$, the opacity follows as
+\begin{equation}
+  \kappa_c = \frac{N_{\rm HI}^{cl}\,\sigma_0}{r_c},
+\end{equation}
+where $\sigma_0 \equiv \texttt{line\%cross0}/\Delta\nu_D^{cl}$ [cm$^2$] is the
+line-center cross-section.
+(\texttt{line\%cross0} $= \pi e^2 f/(m_e c\sqrt{\pi})$ has units [cm$^2$\,Hz];
+dividing by $\Delta\nu_D^{cl}$ [Hz] gives the physical cross-section [cm$^2$].)
+This is equivalent to $\tau_0 = N_{\rm HI}^{cl}\,\sigma_0\,\phi(0,a_V^{cl})$.
+Unlike \texttt{clump\_nH}, this option does \emph{not} require
+\texttt{par\%distance\_unit}.
+
+\paragraph{3.~\texttt{par\%clump\_nH} — hydrogen number density [cm$^{-3}$]:}
+$\kappa_c = n_H\,\sigma_0\,d_\mathrm{cm}$,
+where $\sigma_0 \equiv \texttt{line\%cross0}/\Delta\nu_D^{cl}$ [cm$^2$]
+(requires \texttt{par\%distance\_unit}).
+
+\paragraph{4.~System-level fallback (\texttt{par\%taumax}, \texttt{par\%tauhomo}, \texttt{par\%N\_HImax}, or \texttt{par\%N\_HIhomo}):}
+\label{par:taumax_fallback}
+If none of the clump inputs above are given, LaRT can fall back to
+any of four system-level targets (priority order, highest first):
+\texttt{par\%taumax}, \texttt{par\%tauhomo}, \texttt{par\%N\_gasmax}
+($=\texttt{par\%N\_HImax}$ for an HI line), and \texttt{par\%N\_gashomo}
+($=\texttt{par\%N\_HIhomo}$).  The path taken depends on whether the
+clump population is generated internally or loaded from a file:
+
+\textit{Generated case (no \texttt{clump\_input\_file}).}  For
+\texttt{par\%taumax} or \texttt{par\%N\_HImax}, \texttt{init\_clumps}
+back-solves the peak clump opacity so the radial-sightline target is
+realised.  For uniform clumps this inverts the closed forms
+\begin{equation}
+  \tau_\mathrm{max}      \;=\; \tfrac{4}{3}\,f_\mathrm{cov}\,\tau_{c,0},
+  \qquad
+  N_\mathrm{HI,max}      \;=\; \tfrac{4}{3}\,f_\mathrm{cov}\,N_\mathrm{HI}^{cl};
+\label{eq:taumax_uniform}
+\end{equation}
+for profile mode it inverts the radial quadrature
+\begin{equation}
+  \tau_\mathrm{max} \;=\;
+    \frac{4\pi}{3}\,A_\mathrm{norm}\,r_{c,0}^3\,\kappa_{c,0}\,\phi(0,a_V^{cl})
+    \,\int_{r_\mathrm{min}}^{R} S_n(r)\,S_r(r)^3\,S_d(r)\,dr,
+\end{equation}
+\begin{sloppypar}
+where $S_n$, $S_r$, $S_d$ are the number, radius, and density shape
+factors, and $A_\mathrm{norm}$ is fixed by the population spec
+(\texttt{clump\_N\_clumps}, \texttt{clump\_f\_vol}, or
+\texttt{clump\_f\_cov}) before opacity is computed.  An identical
+expression with $\phi(0,a)$ replaced by $\Delta\nu_D^{cl}/\sigma_0$
+governs \texttt{N\_HImax}.  \texttt{par\%tauhomo} /
+\texttt{par\%N\_gashomo} are not yet handled by the generated-case
+back-solve.
+\end{sloppypar}
+
+\textit{Loaded case (\texttt{par\%clump\_input\_file}).}  Clump
+opacities are loaded from the file as-is.  If any of the four system-level
+targets is specified, \texttt{rescale\_loaded\_clumps\_to\_target}
+computes the realised value of the selected target from the clump
+arrays via \texttt{compute\_clump\_scalars} (Eqs.~\ref{eq:tauhomo_perclump}
+and~\ref{eq:taumax_perclump} below) and multiplies every
+\texttt{cl\_rhokap(i)} by a single factor
+$\alpha = \mathrm{target}/\mathrm{realised}$, preserving the relative
+density structure of the file.  Priority among the four targets is
+\texttt{taumax} $>$ \texttt{tauhomo} $>$ \texttt{N\_gasmax} $>$
+\texttt{N\_gashomo}; only the chosen target is matched exactly, while the
+other three are subsequently derived consistently from the rescaled
+distribution.  If none of the four targets is set, the loaded
+\texttt{cl\_rhokap(i)} are used unchanged.
+
+\subsection{Derived Global Optical-Depth Quantities ($\tau_\mathrm{homo}$,
+$N_\mathrm{HI,homo}$, $\tau_\mathrm{max}$, $N_\mathrm{HI,max}$)}
+\label{subsec:tauhomo}
+
+LaRT carries four scalar parameters that describe the line-center
+optical depth and HI column density of the medium as a whole:
+\begin{description}
+\item[\texttt{par\%tauhomo}, \texttt{par\%N\_gashomo}] — the line-center
+  optical depth and HI column density of an equivalent
+  \emph{homogeneous} medium that contains the same total HI mass spread
+  uniformly over the sphere volume.
+\item[\texttt{par\%taumax}, \texttt{par\%N\_gasmax}] — the line-center
+  optical depth and HI column density along a single radial sightline
+  from the center to the $+z$ surface.
+\end{description}
+For a homogeneous medium these four numbers are equal up to geometric
+factors; for a clumpy medium \texttt{taumax} along any specific sightline
+fluctuates strongly (it can be zero if no clumps lie along the LOS, or
+many times the homogeneous value if several clumps are stacked), while
+\texttt{tauhomo} is a deterministic property of the medium (mass / volume).
+
+\paragraph{Unified definition for each clump.}
+\label{par:compute_clump_scalars}
+All four scalars are computed from the clump arrays
+$\{\kappa_i, a_{V,i}, \Delta\nu_{D,i}, r_i, \mathbf{r}_i\}$ by a single
+routine, \texttt{compute\_clump\_scalars}, regardless of whether the
+clumps were generated or loaded from a file:
+\begin{align}
+  \tau_\mathrm{homo}
+    &= \sum_i \frac{\kappa_i\,\phi(0,a_{V,i})\,r_i^3}
+                   {R^2 + R\,r_\mathrm{min} + r_\mathrm{min}^2},
+  \label{eq:tauhomo_perclump} \\
+  \tau_\mathrm{max}
+    &= \sum_i \frac{\kappa_i\,\phi(0,a_{V,i})\,r_i^3}
+                   {3\,\max(d_i^2,\,r_i^2)},
+  \label{eq:taumax_perclump}
+\end{align}
+with $d_i = |\mathbf{r}_i|$ (clump-centre distance from the box origin).
+$N_\mathrm{HI,homo}$ and $N_\mathrm{HI,max}$ use the same forms with
+$\phi(0,a_{V,i})$ replaced by $\Delta\nu_{D,i}/\sigma_0$.
+Equation~\eqref{eq:tauhomo_perclump} is the uniform-smear interpretation
+(every clump's opacity is redistributed over the shell of volume
+$V_\mathrm{shell}=\tfrac{4}{3}\pi(R^3-r_\mathrm{min}^3)$ and the smeared
+column is traversed radially across thickness $R-r_\mathrm{min}$).
+Equation~\eqref{eq:taumax_perclump} is the small-angle expected radial
+line-centre $\tau$ from the origin: each clump contributes its expected
+chord depth $\tfrac{4}{3}\kappa_i\phi(0,a_{V,i})r_i$ weighted by the solid
+angle $\pi r_i^2/d_i^2$ it subtends at the origin; the cap
+$\max(d_i^2,r_i^2)$ removes the divergence for a clump that straddles the
+origin.  In the limit of a uniform-isotropic distribution of identical
+clumps the two definitions coincide.
+
+\begin{sloppypar}
+The auto-detection of the simulation frequency range
+($\texttt{par\%xfreq\_max}/\texttt{xfreq\_min}$) inside
+\texttt{car\_setup\_freq\_grid} uses both quantities:
+\end{sloppypar}
+\begin{equation}
+  a_{\tau,3} = \left(a_V \cdot \tau_\mathrm{homo}\right)^{1/3},\qquad
+  x_\mathrm{max} \approx x_\mathrm{scale}(\tau_\mathrm{max}) \cdot a_{\tau,3}.
+\end{equation}
+Hence even when the user supplies \texttt{velocity\_min}/\texttt{velocity\_max}
+explicitly, having physically meaningful \texttt{tauhomo} and \texttt{taumax}
+is important for the FITS header to be informative and for the
+fall-back auto-range to produce a usable grid.
+
+\paragraph{Derivation in clump mode.}
+\begin{sloppypar}
+\texttt{init\_clumps()} is called BEFORE \texttt{grid\_create()} inside
+\texttt{grid\_create\_clump}, so the realised clump arrays
+$\{\kappa_i, a_{V,i}, \Delta\nu_{D,i}, r_i, \mathbf{r}_i\}$ are known by
+the time \texttt{compute\_clump\_scalars} (Eqs.~\ref{eq:tauhomo_perclump},
+\ref{eq:taumax_perclump}) is invoked from \texttt{grid\_create\_clump} to
+assign \texttt{par\%tauhomo}, \texttt{par\%taumax},
+\texttt{par\%N\_gashomo}, and \texttt{par\%N\_gasmax}.  When clumps
+populate the radial shell $r_\mathrm{min} \le r \le R$ (the default
+$\texttt{par\%rmin} = -999$ is treated as $r_\mathrm{min}=0$, recovering
+the full-sphere case), the volume filling factor and the LaRT covering
+factor are
+\end{sloppypar}
+\begin{equation}
+  f_\mathrm{vol} = \frac{N_c\,r_c^3}{R^3 - r_\mathrm{min}^3},\qquad
+  f_\mathrm{cov} = \frac{3}{4}\,
+                   \frac{N_c\,r_c^2}{R^2 + R\,r_\mathrm{min} + r_\mathrm{min}^2},
+\label{eq:fvol_fcov_shell}
+\end{equation}
+which with $r_\mathrm{min} = 0$ reduce to $N_c (r_c/R)^3$ and
+$\tfrac{3}{4} N_c (r_c/R)^2$.
+
+\textit{Uniform clumps (closed-form limit).}
+With all $\kappa_i = \kappa_c$, $a_{V,i} = a_V^{cl}$, $r_i = r_c$, the
+shell-aware sum over clumps
+Eq.~\eqref{eq:tauhomo_perclump} collapses to
+\begin{equation}
+  \tau_\mathrm{homo} = \tfrac{4}{3}\,f_\mathrm{cov}\,\tau_0,
+  \qquad
+  \tau_0 = \kappa_c\,\phi(0,a_V^{cl})\,r_c,
+\label{eq:tauhomo_shell}
+\end{equation}
+identical to the previous closed-form derivation.  For an isotropic
+uniform spatial distribution, the small-angle radial-sightline sum
+Eq.~\eqref{eq:taumax_perclump} has the same expectation (using
+$\langle 1/d_i^2\rangle = 3/(R^2+R\,r_\mathrm{min}+r_\mathrm{min}^2)$),
+so $\tau_\mathrm{homo}$ and $\tau_\mathrm{max}$ coincide to within
+finite-$N$ sampling noise.  The HI columns follow by replacing $\tau_0$
+with the clump column $N_\mathrm{HI}^{cl}$:
+\begin{equation}
+  N_\mathrm{HI,homo} = N_\mathrm{HI,max}^\mathrm{(expected)}
+    = \tfrac{4}{3}\,f_\mathrm{cov}\,N_\mathrm{HI}^{cl},\qquad
+  N_\mathrm{HI}^{cl} = \frac{\kappa_c\,\Delta\nu_D^{cl}}{\texttt{line\%cross0}}\;r_c.
+\end{equation}
+\begin{sloppypar}
+For the canonical test case (\texttt{clump\_NHI}~=~7.5e17\,cm$^{-2}$,
+$f_\mathrm{cov}=1$, $T=10^4$\,K) this gives
+$N_\mathrm{HI,homo} = 1.0\times10^{18}\,\mathrm{cm}^{-2}$,
+$\tau_\mathrm{homo} = 5.9\times10^{4}$, and $a_{\tau,3} = 3.0$.  When
+the user supplies $\texttt{par\%N\_HImax}$ (or $\texttt{par\%taumax}$)
+and lets \texttt{init\_clumps} back-solve $\kappa_c$ via the shell
+formula, the realised $N_\mathrm{HI,homo}$ matches the input target
+exactly (modulo \texttt{nint} rounding of $N_c$).  Example:
+\texttt{clump\_NHI18\_fcov1.in} with $\texttt{par\%rmin} = 0.1$,
+$f_\mathrm{cov} = 1$, $\texttt{par\%N\_HImax} = 1.0\times10^{18}$
+reports $N_\mathrm{gashomo} = 1.000\times10^{18}$ as expected.
+\end{sloppypar}
+
+\textit{Non-uniform clumps (loaded or profile mode).}
+For a population loaded from \texttt{par\%clump\_input\_file} the clump
+sums in Eqs.~\eqref{eq:tauhomo_perclump},~\eqref{eq:taumax_perclump} are
+evaluated directly on the actual $\{\kappa_i, r_i, \mathbf{r}_i\}$, so
+$\tau_\mathrm{homo}$ and $\tau_\mathrm{max}$ may differ meaningfully
+when the spatial distribution is anisotropic or concentrated (e.g.\ a
+biconical wind).  The reported \texttt{par\%tauhomo}/\texttt{par\%taumax}
+values then reflect the actual realised distribution and are always
+overwritten by \texttt{compute\_clump\_scalars}; if the user supplied
+one of the four targets, the rescale step
+(\S\ref{par:taumax_fallback}) ensures the chosen target is reproduced
+exactly, with the other three derived consistently.
+
+\subsection{Clump Velocities}
+
+Each clump's velocity is the sum of two independent components:
+\begin{equation}
+  \boldsymbol{v}_i = \boldsymbol{v}_\mathrm{sys}(\mathbf{r}_i) + \boldsymbol{v}_\mathrm{rand,i},
+\end{equation}
+where $\boldsymbol{v}_\mathrm{sys}$ is a position-dependent systematic flow
+(set by \texttt{par\%velocity\_type}) and $\boldsymbol{v}_\mathrm{rand}$ is an
+independent Gaussian random component (set by \texttt{par\%clump\_sigma\_v}).
+Either component can be zero.
+
+\paragraph{Random component:}
+If \texttt{par\%clump\_sigma\_v} $> 0$, each clump is assigned
+$\boldsymbol{v}_{\mathrm{rand},i} \sim \mathcal{N}(0,\sigma_v^2)$ per component
+(drawn in \texttt{generate\_clumps}).
+
+\begin{sloppypar}
+\paragraph{Systematic component (\texttt{velocity\_type}):}
+After RSA placement, \texttt{assign\_clump\_\allowbreak{}velocities\_from\_type} evaluates
+the flow velocity at each clump center and \emph{adds} it to the existing
+(possibly non-zero) velocity.  Supported types:
+\end{sloppypar}
+
+\begin{center}
+\begin{tabular}{lll}
+\hline
+\texttt{velocity\_type} & Formula & Parameters \\
+\hline
+\texttt{'hubble'} & $\boldsymbol{v} = V_\mathrm{exp}\,\mathbf{r}/R$ & \texttt{Vexp} \\
+\texttt{'constant\_radial'} & $\boldsymbol{v} = V_\mathrm{exp}\,\hat{\mathbf{r}}$ & \texttt{Vexp} \\
+\texttt{'power\_law'} & $\boldsymbol{v} = V_\mathrm{exp}(r/R)^{\alpha_V}\hat{\mathbf{r}}$ & \texttt{Vexp, velocity\_alpha} \\
+\texttt{'linear\_decelerate'} & $\boldsymbol{v} = V_\mathrm{exp}\frac{R-r}{R-r_\mathrm{min}}\hat{\mathbf{r}}$ & \texttt{Vexp} \\
+\texttt{'parallel\_velocity'} & $\boldsymbol{v} = (V_x, V_y, V_z)$ & \texttt{Vx, Vy, Vz} \\
+\texttt{'ssh'} & see below & \texttt{Vpeak, rpeak, DeltaV} \\
+\texttt{'rotating\_solid\_body'} & $\boldsymbol{v} = V_\mathrm{rot}(-y,x,0)/R$ & \texttt{Vrot} \\
+\texttt{'rotating\_galaxy\_halo'} & $v_\phi = V_\mathrm{rot}\min(r_\mathrm{cyl}/r_\mathrm{inner},1)$ about $z$ & \texttt{Vrot, rinner} \\
+\hline
+\end{tabular}
+\end{center}
+
+All velocity magnitudes are in km/s.  The \texttt{'ssh'} model (Song, Seon \&
+Hwang 2020) gives a linear rise inside $r_\mathrm{peak}$ and a Hubble-like
+outer flow:
+\begin{equation}
+  v(r) = \begin{cases}
+    V_\mathrm{peak}\,r / r_\mathrm{peak} & r < r_\mathrm{peak}, \\
+    V_\mathrm{peak} + \Delta V\,(r - r_\mathrm{peak})/(R - r_\mathrm{peak}) & r \ge r_\mathrm{peak}.
+  \end{cases}
+\end{equation}
+The \texttt{'rotating\_galaxy\_halo'} model uses the cylindrical radius
+$\rho = \sqrt{x^2+y^2}$ and gives solid-body rotation inside $r_\mathrm{inner}$
+and a flat curve ($v_\phi = V_\mathrm{rot}$) outside.
+
+%=============================================================================
+\section{Clump Placement: Random Sequential Addition (RSA)}
+%=============================================================================
+
+\subsection{Concept}
+
+Random Sequential Addition (RSA) is a simple stochastic algorithm for
+generating configurations of non-overlapping hard spheres.  Candidate
+positions are drawn at random one at a time; each is tested against all
+previously accepted clumps and either accepted (no overlap) or discarded
+irreversibly (overlap detected).  Because accepted positions are never moved,
+RSA requires no iterative relaxation.
+
+The non-overlap condition enforces a minimum center-to-center distance of
+$2r_c$.  RSA reliably converges for volume filling factors $f_\mathrm{vol}
+\lesssim 35\%$; above this threshold, the fraction of unblocked placement
+space decreases so steeply that placing the last few clumps may require
+enormous numbers of attempts.  The theoretical 3-D jamming limit for RSA is
+$f_\mathrm{vol} \approx 38\%$.
+
+\subsection{Uniform Sampling Inside the Shell}
+\label{sec:uniform_shell}
+
+Candidate positions must be distributed \emph{uniformly} inside the radial
+shell $r_\mathrm{min} \le r \le R$, where $r_\mathrm{min} = \max(0,\,
+\texttt{par\%rmin})$ and $R = \texttt{par\%rmax}$.  The default
+\verb|par%rmin = -999| is treated as $r_\mathrm{min} = 0$ and reproduces
+the original ``filled sphere'' behavior; setting $r_\mathrm{min} > 0$
+carves out an inner cavity in which no clumps are placed.
+
+This is achieved by box-rejection on the spherical shell:
+\begin{enumerate}
+  \item Draw $x_c$, $y_c$, $z_c$ each uniformly from $[-R,\, R]$.
+  \item Compute $d^2 = x_c^2 + y_c^2 + z_c^2$.
+  \item Accept if $r_\mathrm{min}^2 \le d^2 \le R^2$; otherwise draw again.
+\end{enumerate}
+The acceptance probability is
+\begin{equation}
+   \frac{\pi}{6}\,\frac{R^3 - r_\mathrm{min}^3}{R^3},
+\end{equation}
+which reduces to $\pi/6 \approx 52\%$ when $r_\mathrm{min} = 0$.  Box-rejection
+avoids trigonometric functions and yields an exactly uniform distribution
+in 3-D Cartesian space.
+
+\subsection{Fully-Inside Constraint}
+\label{sec:fully_inside}
+
+By default the placement requires the \emph{whole} clump to fit inside the
+shell, not just its center.  A clump of radius $r_c$ centered at distance
+$d$ from the box origin is accepted only when
+\begin{equation}
+   r_\mathrm{min} \;\le\; d - r_c \quad\text{and}\quad d + r_c \;\le\; R.
+\label{eq:fully_inside}
+\end{equation}
+This is controlled by the namelist switch
+\begin{lstlisting}
+par%clump_fully_inside = .true.   ! default
+par%rmin               = -999     ! default (no inner cavity)
+\end{lstlisting}
+\begin{itemize}
+\item Uniform-radius case: the placement shell is inset on both sides --
+      from $[r_\mathrm{min},\,R]$ to $[r_\mathrm{min} + r_c,\,R - r_c]$ --
+      so the box-rejection draw above samples uniformly inside the inset
+      shell.  All accepted clumps automatically satisfy
+      Eq.~\eqref{eq:fully_inside}; no sample-by-sample rejection is needed.
+\item Spatially-varying clump radii (\texttt{clump\_radius\_profile} not
+      \texttt{'constant'}): the inverse-CDF radial draw is built so that
+      $n_\mathrm{cl}(r) = 0$ for $r < r_\mathrm{min}$, ensuring centers
+      land in the shell automatically.  If
+      $d + r_c > R$ or $d - r_c < r_\mathrm{min}$, the sample is discarded
+      and a new pair is drawn.
+\item If $r_\mathrm{min} + 2 r_{c,\max} > R$ -- the shell is too narrow to
+      hold a single clump -- the run aborts with an error.  Likewise the
+      run aborts if the largest possible clump radius exceeds $R$ (a steep
+      \texttt{clump\_radius\_profile} would yield $r_c \ge R$ near the
+      surface).
+\end{itemize}
+
+Setting \verb|par%clump_fully_inside = .false.| restores the legacy
+behavior, in which only the clump center is required to lie in
+$[r_\mathrm{min},\,R]$.  Clumps near either boundary may then protrude
+past $r = R$ or into the cavity below $r = r_\mathrm{min}$; this
+reproduces results generated before these options were introduced.  As an
+illustration, the \texttt{clump\_radius\_powerlaw} test case
+(\texttt{par\%clump\_radius} $= 0.01$, $r_0 = 0.5$, $\alpha = -1$,
+$N = 10^4$, $R = 1$, $r_\mathrm{min} = 0$) yields $\sim 564$ outer-edge
+protruding clumps with the legacy setting and zero with the new default.
+
+The conversion of \texttt{clump\_f\_vol} or \texttt{clump\_f\_cov} to
+\texttt{N\_clumps} uses the shell volume $V_\mathrm{shell} = \tfrac{4}{3}\pi
+(R^3 - r_\mathrm{min}^3)$ and the shell sightline factor $R^2 + R\,
+r_\mathrm{min} + r_\mathrm{min}^2$, so $f_\mathrm{vol}$ and $f_\mathrm{cov}$
+refer to the shell rather than the full sphere.  With $r_\mathrm{min} = 0$
+these reduce exactly to the original $(R/r_c)^3$ and $(R/r_c)^2$
+expressions, preserving prior runs.  When \texttt{clump\_fully\_inside}
+is on, the realized $f_\mathrm{vol}$ and $f_\mathrm{cov}$ fall slightly
+below the target whenever $r_c$ is a non-trivial fraction of $R -
+r_\mathrm{min}$, since the available placement volume shrinks from
+$\tfrac{4}{3}\pi (R^3 - r_\mathrm{min}^3)$ to
+$\tfrac{4}{3}\pi \bigl[(R-r_c)^3 - (r_\mathrm{min}+r_c)^3\bigr]$.
+Specify a slightly larger $f_\mathrm{vol}$/$f_\mathrm{cov}$ if exact
+matching is required.
+
+\subsection{Placement Algorithm}
+
+\begin{lstlisting}
+do while (icl < N_clumps)
+
+  !--- Step 1: draw candidate inside the shell [rmin, R]
+  !            (with R, rmin inset by r_c when clump_fully_inside)
+  do
+    xc = (2.0*rand() - 1.0) * R_outer
+    yc = (2.0*rand() - 1.0) * R_outer
+    zc = (2.0*rand() - 1.0) * R_outer
+    d2 = xc**2 + yc**2 + zc**2
+    if (R_inner**2 <= d2 .and. d2 <= R_outer**2) exit
+  enddo
+
+  !--- Step 2: locate candidate in hash-grid cell (ig, jg, kg)
+  ig = int((xc - xmin) / cell_size)
+  jg = int((yc - ymin) / cell_size)
+  kg = int((zc - zmin) / cell_size)
+
+  !--- Step 3: check 27 neighboring cells for overlap
+  overlap = .false.
+  outer: do kg2 = kg-1, kg+1
+         do jg2 = jg-1, jg+1
+         do ig2 = ig-1, ig+1
+    if (out of bounds) cycle
+    jnb = head(ig2, jg2, kg2)       ! first clump in this hash cell
+    do while (jnb > 0)
+      if (dist2(xc,yc,zc, cl_x(jnb),cl_y(jnb),cl_z(jnb)) < (2*rc)**2) then
+        overlap = .true.; exit outer ! reject immediately on first overlap
+      endif
+      jnb = nxt(jnb)                ! follow linked list to next clump
+    enddo
+  enddo; enddo; enddo outer
+
+  if (overlap) cycle                ! reject: draw new candidate
+
+  !--- Step 4: accept -- record position and random velocity
+  icl = icl + 1
+  cl_x(icl) = xc;  cl_y(icl) = yc;  cl_z(icl) = zc
+  if (sigma_v > 0.0) then
+    cl_vx(icl) = sigma_v * gauss_random()  ! one independent draw per component
+    cl_vy(icl) = sigma_v * gauss_random()
+    cl_vz(icl) = sigma_v * gauss_random()
+  endif
+
+  !--- Step 5: prepend clump to the linked list for cell (ig, jg, kg)
+  nxt(icl)         = head(ig, jg, kg)
+  head(ig, jg, kg) = icl
+
+enddo
+\end{lstlisting}
+
+\subsection{Linked-List Hash Grid and the 27-Cell Rule}
+\label{sec:rsa_hash}
+
+Naively, checking candidate $n$ against all $n-1$ accepted clumps costs
+$O(n)$, giving $O(N^2)$ total work.  The linked-list hash grid reduces each
+overlap check to $O(1)$ expected cost by spatially indexing accepted clumps.
+
+The domain $[-R, R]^3$ is partitioned into $N_g^3$ uniform cells with
+\begin{equation}
+  N_g = \min\!\bigl(512,\; \lfloor N^{1/3} \rfloor + 1\bigr),
+  \qquad
+  \ell_\mathrm{RSA} = \frac{2R}{N_g}.
+  \label{eq:ng}
+\end{equation}
+Two integer arrays encode the linked lists: \texttt{head(i,j,k)} is the index
+of the first clump in cell $(i,j,k)$ (0 if empty), and \texttt{nxt(icl)} is
+the next clump in the same cell list (0 = end of list).  When a new clump is
+accepted (Step~5 above), it is prepended to the head of its cell's list in $O(1)$.
+
+\paragraph{Why 27 cells are sufficient.}
+Two clumps overlap iff their center separation is $< 2r_c$.  If the
+candidate lies in cell $(i,j,k)$, any overlapping clump must satisfy
+$|x_\mathrm{cl} - x_c| < 2r_c$.  Since $\ell_\mathrm{RSA} \ge 2r_c$ by
+construction (eq.~\ref{eq:ng}), the overlapping clump's cell index $i'$
+satisfies $i' \in \{i-1, i, i+1\}$, and likewise for $j'$ and $k'$.
+Checking all $3^3 = 27$ cells centered on $(i,j,k)$ is therefore both
+sufficient and complete --- no overlapping clump can lie outside this
+neighborhood.
+
+\paragraph{Cell-size constraint.}
+The 27-cell rule requires $\ell_\mathrm{RSA} \ge 2r_c$, i.e.\
+$N_g \le R/r_c$.  For the reference case ($R = 1$, $r_c = 0.01$):
+$R/r_c = 100$, $N_g = \lfloor 66667^{1/3}\rfloor + 1 = 42$,
+$\ell_\mathrm{RSA} = 2/42 \approx 0.048 \gg 2r_c = 0.02$. \checkmark
+
+\subsection{Acceptance Rate and Jamming Limit}
+
+As more clumps are placed, their exclusion zones (spheres of radius $2r_c$
+around each accepted clump) collectively block an increasing fraction of the
+placement domain.  The candidate acceptance probability $p_\mathrm{acc}$
+decreases monotonically with $f_\mathrm{vol}$ and approaches zero at the
+jamming limit.
+
+For the reference case ($f_\mathrm{cov}=5$, $r_c/R=0.01$, $N=66667$,
+$f_\mathrm{vol}=0.067$), the overall acceptance rate is $\approx 74\%$:
+roughly 90\,000 candidates are drawn to place 66\,667 clumps.  The algorithm
+remains practical for $f_\mathrm{vol} \lesssim 35\%$.
+
+\subsection{Multi-node Correctness}
+
+In a multi-node MPI run, naively executing RSA on each node independently
+would produce different clump layouts per node (each node has its own
+random-number state), corrupting photon transport across node boundaries.
+
+\begin{sloppypar}
+Clump positions are therefore generated \emph{only on global rank~0}
+(\texttt{p\_rank==0}).  The resulting \texttt{cl\_x/y/z} and
+\texttt{cl\_vx/vy/vz} arrays are then broadcast to all other node-head
+processes via six \texttt{MPI\_BCAST} calls on
+\texttt{mpar\%SAME\_HRANK\_COMM} (the communicator containing exactly one
+rank-0 process per node).  Ranks within the same node share the arrays
+through MPI-3 shared memory, requiring no further communication.  The CSR
+build is fully deterministic given the positions, so every node constructs
+the same acceleration grid without any additional broadcast.
+\end{sloppypar}
+
+This corrects an earlier bug in which \texttt{h\_rank==0} (the within-node
+head rank) triggered independent RSA passes on each node, producing different
+clump layouts per node.
+
+%=============================================================================
+\section{CSR Acceleration Grid}
+%=============================================================================
+
+\subsection{Motivation}
+
+During radiative transfer, a photon in vacuum must find the nearest clump
+along its current flight direction at every propagation step.  Checking all
+$N$ clumps per step would cost $O(N)$ per query and become prohibitive for
+large populations ($N \sim 10^4$--$10^5$).  The CSR acceleration grid
+pre-sorts clumps into spatial cells; the DDA traversal (\S\ref{sec:dda})
+then visits only the cells the ray crosses, and within each cell tests only
+the few registered clumps.  Together, DDA+CSR achieves $O(1)$ amortised cost
+per nearest-clump query, independent of $N$.
+
+\subsection{Data Structure: Compressed Sparse Row}
+
+Instead of a list-of-lists (which requires many small dynamic allocations),
+the clump lists for each cell are packed into two flat integer arrays in
+\emph{Compressed Sparse Row} (CSR) format --- the same layout used for
+sparse matrices:
+\begin{sloppypar}
+\begin{itemize}
+  \item \texttt{cg\_start(0:Ncell)}: \texttt{cg\_start(icell)} is the
+        1-based index of the first entry for cell \texttt{icell} in
+        \texttt{cg\_list}.  The entries for cell \texttt{icell} occupy
+        positions \texttt{cg\_start(icell) \ldots{} cg\_start(icell+1)-1};
+        their count is \texttt{cg\_start(icell+1) - cg\_start(icell)}.
+  \item \texttt{cg\_list(1:Ntot)}: flat concatenation of the clump-index lists for each cell.
+\end{itemize}
+\end{sloppypar}
+
+Retrieving the clump list for any cell is an $O(1)$ array slice with no
+pointer chasing.  To illustrate: suppose four cells contain the clumps
+$\{2,5\}$, $\{\}$, $\{1,3\}$, $\{4\}$ respectively:
+\begin{align*}
+  \texttt{cg\_start} &= [1,\;3,\;3,\;5,\;6], \\
+  \texttt{cg\_list}  &= [2,\;5,\;1,\;3,\;4].
+\end{align*}
+The clumps in cell~2 are \texttt{cg\_list(3:4)} $= \{1,3\}$.
+Both arrays reside in MPI-3 shared memory (one copy per compute node).
+
+\subsection{Cell Grid and Domain}
+\label{sec:csr_grid}
+
+The CSR grid reuses the same cell count $M = N_g$ as the RSA hash grid
+(\S\ref{sec:rsa_hash}), but covers a slightly larger domain
+$[-R - r_c,\; R + r_c]^3$ with uniform cell size
+\begin{equation}
+  \delta = \frac{2(R + r_c)}{M}.
+\end{equation}
+Expanding the domain by $r_c$ in each direction ensures two properties:
+\begin{enumerate}
+  \item A clump centered exactly on the outer sphere surface
+        ($|\mathbf{c}| = R$) fits entirely inside the grid.
+  \item A photon entering from outside the outer sphere starts inside a
+        valid grid cell, so the DDA traversal can begin immediately.
+\end{enumerate}
+
+\subsection{Clump Registration: AABB Overlap Test}
+\label{sec:aabb}
+
+A clump of radius $r_c$ centered at $(c_x, c_y, c_z)$ is registered in every
+cell whose axis-aligned bounding box (AABB) overlaps the clump sphere.
+Cell $(i,j,k)$ spans $[x_\mathrm{min}+i\,\delta,\; x_\mathrm{min}+(i+1)\,\delta]$
+along $x$.  The range of cell indices that overlap $[c_x - r_c,\; c_x + r_c]$ is
+\begin{equation}
+  i \;\in\; \left[
+    \left\lfloor\frac{c_x - r_c - x_\mathrm{min}}{\delta}\right\rfloor,\;
+    \left\lfloor\frac{c_x + r_c - x_\mathrm{min}}{\delta}\right\rfloor
+  \right],
+  \label{eq:aabb_range}
+\end{equation}
+and likewise for $j$ and $k$.  The clump is registered in every cell in the
+Cartesian product of these three index ranges.
+
+For the reference case ($r_c = 0.01$, $\delta \approx 0.048$, so
+$r_c/\delta \approx 0.21 < 1$), each clump's index range spans at most 2
+values per dimension, so a clump touches at most $2^3 = 8$ cells.  The total
+registration count satisfies $N \le N_\mathrm{tot} \le 8N$.
+
+\subsection{Two-Pass Construction}
+
+The CSR arrays are built in two sequential passes over all $N$ clumps,
+avoiding any intermediate list storage (the standard technique for CSR
+sparse-matrix assembly):
+
+\begin{sloppypar}
+\begin{description}
+  \item[Pass 1 (count):] Compute the cell ranges (eq.~\ref{eq:aabb_range})
+  for each clump and increment a counter \texttt{cnt(icell)} for every
+  touched cell.  Then compute the exclusive prefix sum:
+  \[
+    \texttt{cg\_start(0)} = 1, \qquad
+    \texttt{cg\_start(icell+1)} = \texttt{cg\_start(icell)} + \texttt{cnt(icell)}.
+  \]
+  Allocate \texttt{cg\_list} of length
+  $N_\mathrm{tot} = \texttt{cg\_start(Ncell)} - 1$ as an MPI-3
+  shared-memory window.
+
+  \item[Pass 2 (fill):] Repeat the same cell-range loop.  For each touched
+  cell, write the clump index at write pointer \texttt{ptr(icell)}, then
+  advance the pointer by one.  Initialize
+  \texttt{ptr(icell) = cg\_start(icell)} before this pass.
+\end{description}
+\end{sloppypar}
+
+\begin{lstlisting}
+!--- Pass 1: count registrations per cell
+cnt(:) = 0
+do icl = 1, N_clumps
+  i0 = max(0,   floor((cl_x(icl) - rc - xmin) / delta))
+  i1 = min(M-1, floor((cl_x(icl) + rc - xmin) / delta))
+  j0 = ...; j1 = ...                    ! analogous for y
+  k0 = ...; k1 = ...                    ! analogous for z
+  do k = k0,k1;  do j = j0,j1;  do i = i0,i1
+    cnt(cell_idx(i,j,k)) = cnt(cell_idx(i,j,k)) + 1
+  enddo;  enddo;  enddo
+enddo
+! exclusive prefix sum -> cg_start
+cg_start(0) = 1
+do icell = 0, Ncell-1
+  cg_start(icell+1) = cg_start(icell) + cnt(icell)
+enddo
+Ntot = cg_start(Ncell) - 1
+! allocate cg_list(Ntot) as MPI-3 shared-memory window
+
+!--- Pass 2: fill cg_list
+ptr(0:Ncell-1) = cg_start(0:Ncell-1)   ! one write pointer per cell
+do icl = 1, N_clumps
+  ... (same i0,i1,j0,j1,k0,k1 as Pass 1)
+  do k = k0,k1;  do j = j0,j1;  do i = i0,i1
+    ic = cell_idx(i,j,k)
+    cg_list(ptr(ic)) = icl
+    ptr(ic) = ptr(ic) + 1
+  enddo;  enddo;  enddo
+enddo
+! invariant: ptr(icell) == cg_start(icell+1) for all cells after Pass 2
+\end{lstlisting}
+
+%=============================================================================
+\section{Raytrace Through the Clump Medium}
+%=============================================================================
+
+\subsection{Overview}
+
+Photon propagation is split into two phases:
+
+\begin{enumerate}
+  \item \textbf{Advance through vacuum} -- use the DDA traversal of the CSR
+        grid (\S\ref{sec:dda}) to find the next clump hit.
+  \item \textbf{Traverse through a clump} -- accumulate optical depth along
+        a straight path through the sphere (\S\ref{sec:clump_traverse}).
+\end{enumerate}
+
+Frequency shifts due to individual clump bulk velocities are applied at
+clump entry and reversed at clump exit.
+
+\subsection{Ray--Sphere Intersection}
+
+Given a ray $\mathbf{p}(t) = \mathbf{o} + t\hat{\mathbf{k}}$ and a sphere
+centered at $\mathbf{c}$ with squared radius $r_c^2$, define
+$\mathbf{r} = \mathbf{o} - \mathbf{c}$, $b = \mathbf{r}\cdot\hat{\mathbf{k}}$,
+$\Delta = b^2 - |\mathbf{r}|^2 + r_c^2$.  If $\Delta < 0$ there is no
+intersection.  Otherwise
+\begin{equation}
+  t_\mathrm{entry} = -b - \sqrt{\Delta},\qquad
+  t_\mathrm{exit}  = -b + \sqrt{\Delta}.
+\end{equation}
+A hit is recorded when $t_\mathrm{exit} > 0$.
+
+\subsection{DDA Search for Next Clump}
+\label{sec:dda}
+
+The Amanatides \& Woo (1987) digital differential analyser (DDA) traverses
+the CSR cells along the ray in order of increasing path length.  For each
+cell, all registered clumps are tested with the ray--sphere formula.  The
+traversal stops as soon as the current cell's entry distance exceeds the
+best hit distance found so far.
+
+\begin{lstlisting}
+best_te  = huge;  best_icl = 0
+d        = 0     ! path length to current cell entry
+
+do while (.true.)
+   if (d > best_te .or. d > t_max) exit
+   ! test all clumps in current cell
+   do ip = cg_start(icell), cg_start(icell+1)-1
+      icl = cg_list(ip)
+      if (icl == skip_icl) cycle
+      call ray_sphere_isect(..., te, tx2, hit)
+      if (hit .and. tx2>0 .and. te<best_te) then
+         best_te=te; best_tx2=tx2; best_icl=icl
+      endif
+   enddo
+   ! advance to next cell (Amanatides & Woo)
+   if (tx<=ty .and. tx<=tz) then
+      d=tx; ci=ci+si; tx=tx+delx
+   elseif (ty<=tz) then
+      d=ty; cj=cj+sj; ty=ty+dely
+   else
+      d=tz; ck=ck+sk; tz=tz+delz
+   endif
+enddo
+\end{lstlisting}
+
+\subsection{Optical Depth Traversal}
+\label{sec:clump_traverse}
+
+\texttt{raytrace\_to\_tau\_clump} advances the photon until optical depth
+$\tau_\mathrm{in}$ is accumulated or the outer sphere is exited.
+
+\paragraph{Inside a clump ($\texttt{icell\_clump} > 0$):}
+The remaining path through the current clump is
+$s = t_\mathrm{exit}(\mathbf{p}, \hat{\mathbf{k}}, \mathrm{icl})$.
+Opacity at the current frequency:
+$\kappa = \kappa_c\,\phi(x, a_V)$.
+If $\tau_\mathrm{rem} \le \kappa s$, scatter at $\mathrm{d}s = \tau_\mathrm{rem}/\kappa$.
+Otherwise subtract $\kappa s$ from $\tau_\mathrm{rem}$, advance to clump exit,
+shift frequency back to the global frame, and continue in vacuum.
+
+\paragraph{In vacuum ($\texttt{icell\_clump} = 0$):}
+Call \texttt{find\_next\_clump} (DDA, \S\ref{sec:dda}) to find the nearest
+clump.  If none is found along the ray, advance to the sphere boundary and
+exit ($\texttt{photon\%inside} = \texttt{.false.}$).
+
+\paragraph{Frequency convention:}
+The photon frequency $x$ (in units of $\Delta\nu_D^{cl}$) is maintained in
+the local clump rest frame while inside a clump, and in the global frame in
+vacuum:
+\begin{align}
+  \text{at clump entry:}\quad &x \leftarrow x - u_\mathrm{los},\\
+  \text{at clump exit:}\quad  &x \leftarrow x + u_\mathrm{los},
+\end{align}
+where $u_\mathrm{los} = (\boldsymbol{v}_i \cdot \hat{\mathbf{k}})/v_\mathrm{th}$
+is the line-of-sight component of the host clump's bulk velocity in units
+of the clump thermal velocity $v_\mathrm{th}=\Delta\nu_D^{cl}\,\lambda_0$.
+
+\paragraph{Internal storage of clump bulk velocities:}
+\texttt{cl\_vx/y/z} are stored as $\boldsymbol{v}/v_\mathrm{th}$ (dimensionless),
+matching the Cartesian/AMR convention for \texttt{grid\%vfx} (which is also
+pre-normalized to $v/v_\mathrm{th}$ in \texttt{grid\_mod\_car.f90}).  The
+clump velocity assignment routines fill the arrays in km/s; \texttt{init\_clumps}
+divides by \texttt{cl\_vtherm} after the \texttt{MPI\_BCAST} step so that
+all subsequent raytrace and peel-off code can use \texttt{cl\_v*} directly
+in $u_\mathrm{los}$ without dividing on each call.  The user-facing FITS
+output (Section~\ref{sec:clump_fits}) multiplies back by
+\texttt{cl\_vtherm} to keep the stored \texttt{VX}/\texttt{VY}/\texttt{VZ}
+columns in km/s.
+
+\paragraph{Jout accumulation:}
+When the photon exits the outer sphere (\texttt{photon\%inside} becomes
+\texttt{.false.}), the photon weight is accumulated into the escape spectrum:
+\begin{equation}
+  J_\mathrm{out}[i_x] \mathrel{+}= w,\qquad
+  i_x = \left\lfloor \frac{x - x_\mathrm{min}}{\delta x}\right\rfloor + 1,
+\end{equation}
+where $x$ is the photon frequency (global frame, in units of $\Delta\nu_D$)
+and $w$ is the photon weight.  This mirrors the behavior of
+\texttt{raytrace\_to\_tau\_car}, where Jout is accumulated upon grid exit.
+There are three exit paths (clump-then-sphere exit, already-outside-sphere,
+and no-clump-found), all handled identically.
+
+\subsection{Optical Depth to Edge}
+
+\texttt{raytrace\_to\_edge\_clump} computes $\tau$ from the current position
+to the sphere boundary without moving the photon (read-only input).  The same
+DDA logic is used; frequency shifts at clump entry/exit are tracked locally.
+This is called by peel-off routines and by the forced-first-scatter
+initialization in \texttt{run\_simulation\_mod}.
+
+%=============================================================================
+\section{Peel-Off Observations}
+%=============================================================================
+
+\begin{sloppypar}
+Peel-off is handled by the standard \texttt{peelingoff\_rect} routines
+(\texttt{peeling\_direct\_outside},
+\texttt{peeling\_resonance\_\allowbreak{}nostokes\_outside},
+etc.).  Each of those routines invokes a small mode-aware helper
+\texttt{peel\_raytrace\_to\_edge} (in the same module) which, in
+clump mode, calls \texttt{raytrace\_to\_edge\_clump} -- not the
+Cartesian \texttt{raytrace\_to\_edge\_car\_dispatch} -- so that the
+peel-off attenuation accumulates the actual clump opacity along the
+photon-to-observer line of sight (\texttt{grid\%rhokap} is zero in
+clump mode and would silently make the Cartesian dispatch return
+$\tau = 0$, leaving every peeled-off photon unattenuated; this was a
+silent regression in the v2.10 class-based refactor vs the v2.00
+procedure-pointer dispatch and is now fixed).  The clump call passes
+the optional argument \texttt{tau\_max\,=\,tau\_huge\_clump}~$\approx 745$
+so the integration bails out once $\exp(-\tau)$ underflows in double
+precision; the sight-line wrappers
+\texttt{raytrace\_to\_edge\_tau\_gas\_clump} /
+\texttt{raytrace\_to\_dist\_tau\_gas\_clump} omit \texttt{tau\_max} and
+therefore report the FULL integrated tau (sight-line FITS output is
+unaffected by the cap).
+\end{sloppypar}
+
+\paragraph{Overlap-aware peel-off attenuation.}
+\begin{sloppypar}
+When \texttt{has\_overlap = .true.}, \texttt{peel\_raytrace\_to\_edge}
+accumulates optical depth from \emph{all} clumps that intersect the
+photon-to-observer segment.  The non-overlap
+\texttt{raytrace\_to\_edge\_clump} would under-count attenuation when
+overlapping neighbours are present because it exits as soon as it
+leaves the current clump.  \texttt{peel\_raytrace\_to\_edge} therefore
+branches on \texttt{has\_overlap} and calls
+\texttt{raytrace\_to\_edge\_clump\_overlap} (with
+\texttt{tau\_max\,=\,tau\_huge\_clump}) in the overlap case.  This
+variant uses the same event-list walk as the main raytrace
+(Section~\ref{sec:overlap}) and correctly sums contributions from every
+clump crossed along the line of sight.
+\end{sloppypar}
+
+The observer distance defaults to $d = 100\,R$ and the image pixel size is
+set so that the full sphere subtends the image:
+\begin{equation}
+  \delta\theta = \frac{1}{N_x/2}\arcsin\!\left(\frac{R}{d}\right)\;\mathrm{[rad]}
+  \approx \frac{R}{d\,(N_x/2)}\;\mathrm{[rad]}.
+\end{equation}
+For $R=1$, $d=100$, $N_x=129$: $\delta\theta \approx 0\fdg0089$, covering
+$\pm 0\fdg57$ (total $1\fdg14$), which exactly spans the sphere.
+
+\paragraph{Clump-aware lab-frame conversion:}
+At the moment a peel-off is computed, \texttt{photon\%xfreq} is in the
+host clump's rest frame (non-overlap path) or in the global lab frame
+(overlap path; see \S\ref{sec:xfreq_convention}).
+The peel-off output must be in the lab (observer) frame, hence the
+routines compute
+\begin{equation}
+  x_\mathrm{ref} = x_\mathrm{photon} + u_1,\qquad
+  u_1 = \boldsymbol{v}_\mathrm{cell}\cdot\hat{\mathbf{k}}_\mathrm{obs}/v_\mathrm{th}.
+\end{equation}
+For the standard Cartesian path $\boldsymbol{v}_\mathrm{cell}$ comes from
+\texttt{grid\%vfx/y/z}; in clump mode \texttt{grid\%vfx/y/z} are zero
+everywhere (the inter-clump medium is vacuum and the bulk velocities live
+on the clumps), so the peel-off routines branch on
+\texttt{par\%use\_clump\_medium .and. photon\%icell\_clump > 0} and use
+the host clump's velocity instead:
+\begin{equation}
+  u_1 = \texttt{cl\_vx}(\mathrm{icl})\,k_x + \texttt{cl\_vy}(\mathrm{icl})\,k_y + \texttt{cl\_vz}(\mathrm{icl})\,k_z,
+\end{equation}
+where \texttt{icl}~=~\texttt{photon\%icell\_clump}.
+
+This branch applies both to photons that scattered inside a clump (the
+usual case) and to photons \emph{born} inside a clump.  Since
+\texttt{generate\_photon\_car} now sets \texttt{icell\_clump} and shifts
+\texttt{xfreq} into the clump rest frame at birth whenever the birth
+point falls inside a clump (non-overlap path),
+\texttt{peel\-ing\_di\-rect\_out\-side} picks up the same branch.
+Before this fix, \texttt{icell\_clump} was always 0 at birth, so the
+direct peel-off spectrum was binned in the clump rest frame instead of
+the lab frame, producing a systematically shifted line profile.
+
+Without this branch the peel-off spectra would remain in the clump frame
+while \texttt{grid\%Jout} (the angular average) is in the lab frame,
+producing a systematically narrower peel-off line profile whenever the
+clump bulk velocity field is non-trivial (e.g.\ rotating-halo or
+Hubble-flow runs).
+
+\paragraph{FITS WCS for the 3D peel-off cube:}
+The peel-off cube is allocated as
+\texttt{obs\%scatt(par\%nxfreq, par\%nxim, par\%nyim)}, so the FITS file
+has \texttt{NAXIS1}~=~\texttt{nxfreq} (wavelength), \texttt{NAXIS2}~=~\texttt{nxim}
+(RA), \texttt{NAXIS3}~=~\texttt{nyim} (DEC).  The header carries a
+three-axis WCS:
+\begin{center}
+\begin{tabular}{l|lll}
+\hline
+Axis & \texttt{CTYPE} & \texttt{CUNIT} & step \\
+\hline
+\texttt{NAXIS1} & \texttt{WAVE}    & \texttt{Angstrom} & $\texttt{CD1\_1} = -\,\delta\lambda$ \\
+\texttt{NAXIS2} & \texttt{RA-{}-TAN} & \texttt{deg}    & $\texttt{CD2\_2} = \delta\theta_x$ \\
+\texttt{NAXIS3} & \texttt{DEC-TAN} & \texttt{deg}      & $\texttt{CD3\_3} = \delta\theta_y$ \\
+\hline
+\end{tabular}
+\end{center}
+\texttt{CD1\_1} is negative because $x_\mathrm{freq}$ increases with the
+pixel index while wavelength
+$\lambda(x) = (1 - v_\mathrm{th}\,x/c)\,\lambda_0$ decreases with~$x$.
+\texttt{CRPIX1}~=~$1$, \texttt{CRVAL1}~=~\texttt{grid\%wavelength(1)}
+(largest wavelength, at pixel~1).  The scalar header keywords
+\texttt{XFREQ1}, \texttt{XFREQ2}, \texttt{DXFREQ}, and \texttt{DWAVE} are
+also retained for backward compatibility with existing analysis scripts
+that compute the spectral axis from those instead of from the WCS.
+
+%=============================================================================
+\section{FITS Output of Clump Information}
+\label{sec:clump_fits}
+%=============================================================================
+
+\begin{sloppypar}
+When \texttt{par\%save\_clump\_info = .true.}, the subroutine
+\texttt{write\_clumps\_fits} (in \texttt{clump\_mod.f90}) writes a binary-table
+FITS file \texttt{<base>\_clumps.fits.gz} containing:
+\end{sloppypar}
+
+\paragraph{BinTable columns:}
+\texttt{X}, \texttt{Y}, \texttt{Z} (clump centers, code units) and
+\texttt{VX}, \texttt{VY}, \texttt{VZ} (bulk velocities, km/s) are always
+written.  The internal arrays \texttt{cl\_vx/y/z} are stored
+dimensionlessly as $\boldsymbol{v}/v_\mathrm{th}$;
+\texttt{write\_clumps\_fits} multiplies each component by
+\texttt{cl\_vtherm} before writing so that the file always carries
+velocities in km/s.
+
+In addition the clump physical columns \texttt{R\_CLUMP},
+\texttt{RHOKAP}, and \texttt{TEMP} are written when they carry useful
+spatial variation.  For each one independently the relative spread
+$(\max-\min)/|\mathrm{mean}|$ is compared against $10^{-3}$; if the
+column is below that threshold (i.e.\ effectively constant) it is dropped
+and only the corresponding header keyword (\texttt{CL\_RAD},
+\texttt{RHOKAP}, \texttt{TEMP\_CL}) is kept.  The diagnostic line printed
+by \texttt{write\_clumps\_fits} reports the decision for each column, e.g.
+
+\begin{lstlisting}
+ Clumps: clump columns saved (R_CLUMP/RHOKAP/TEMP) =  T F F
+\end{lstlisting}
+
+When \texttt{read\_clumps\_fits} consumes the file and a column is
+absent, the corresponding \texttt{cl\_*} array is filled uniformly with
+the header-keyword value.  This makes the read path equally able to
+handle:
+(i)~pre-Phase-6 files which never had these columns;
+(ii)~new files where a column was dropped because it was constant; and
+(iii)~externally produced files where the column carries genuine
+clump-to-clump variation.
+
+For the \texttt{RHOKAP} slot the read path additionally accepts
+\texttt{DENSITY} and \texttt{DENS} as alternative column names: the
+priority order is
+\texttt{RHOKAP} $\to$ \texttt{DENSITY} $\to$ \texttt{DENS}, with the
+header keyword \texttt{RHOKAP} as the final fallback.  This lets clump
+files generated by external pipelines that label the clump opacity
+proxy differently be consumed without renaming columns.  The semantic
+interpretation depends on which column was actually used:
+\begin{itemize}
+\item \texttt{RHOKAP} (and the header-keyword fallback) is taken as
+      line-centre opacity per code unit, identical to the convention
+      written by \texttt{write\_clumps\_info}, and stored directly into
+      $\kappa_i$.
+\item \texttt{DENSITY} / \texttt{DENS} are taken as the neutral-hydrogen
+      (or analog-ion) number density $n_{HI,i}$ [cm$^{-3}$] and
+      converted to opacity via
+      \begin{equation}
+        \kappa_i \;=\; n_{HI,i} \cdot \frac{\texttt{line\%cross0}}{\Delta\nu_{D,i}}
+                                \cdot \texttt{par\%distance2cm},
+      \label{eq:nH_to_rhokap}
+      \end{equation}
+      using the clump Doppler frequency $\Delta\nu_{D,i}$ derived
+      from $T_i$ and the line-centre cross section
+      $\texttt{line\%cross0}$.  When \texttt{par\%distance\_unit} (and
+      therefore \texttt{par\%distance2cm}) is not specified, the
+      conversion is undefined; the read path emits a warning and falls
+      back to treating the values as $\kappa_i$ (the legacy
+      interpretation).
+\end{itemize}
+
+\paragraph{Header keywords (in the BinTable HDU):}
+\begin{center}
+\begin{tabular}{lll}
+\hline
+Keyword & Value & Description \\
+\hline
+\texttt{N\_CLUMPS} & $N$ & number of clumps (realized) \\
+\texttt{SPHERE\_R} & $R$ & outer sphere radius (code units) \\
+\texttt{CL\_RAD}   & $r_c$ & clump radius (code units) \\
+\texttt{F\_VOL}    & $f_\mathrm{vol}$ & volume filling factor (realized) \\
+\texttt{F\_COV}    & $f_\mathrm{cov}$ & covering factor (realized) \\
+\texttt{TAU0}      & $\tau_0$ & line-center $\tau$ per clump \\
+\texttt{SIGMA\_V}  & $\sigma_v$ & bulk velocity dispersion (km/s) \\
+\texttt{TEMP\_CL}  & $T_c$ & clump temperature used (K) \\
+\texttt{RHOKAP}    & $\kappa_c$ & opacity per code unit \\
+\texttt{CL\_DFREQ} & $\Delta\nu_D^{cl}$ & Doppler frequency (Hz) \\
+\texttt{VTHERM}    & $v_\mathrm{th}$ & thermal velocity (km/s) \\
+\texttt{VOIGT\_A}  & $a_V$ & Voigt damping parameter \\
+\texttt{RMAX}      & $R$ & \texttt{par\%rmax} (input) \\
+\texttt{IN\_FCOV}  & \texttt{par\%clump\_f\_cov} & input covering factor \\
+\texttt{IN\_FVOL}  & \texttt{par\%clump\_f\_vol} & input filling factor \\
+\texttt{IN\_NCL}   & \texttt{par\%clump\_N\_clumps} & input $N$ \\
+\texttt{IN\_NHI}   & \texttt{par\%clump\_NHI} & clump $N_{\rm HI}$ (cm$^{-2}$, clump center to surface) \\
+\texttt{IN\_NH}    & \texttt{par\%clump\_nH} & input $n_H$ (cm$^{-3}$) \\
+\texttt{IN\_TEMP}  & \texttt{par\%clump\_temperature} & input $T_c$ (K) \\
+\texttt{DISTUNIT}  & \texttt{par\%distance\_unit} & distance unit (\texttt{kpc}/\texttt{pc}/\dots) \\
+\texttt{DIST\_CM}  & \texttt{par\%distance2cm} & 1 code unit in cm \\
+\hline
+\end{tabular}
+\end{center}
+
+\texttt{DISTUNIT} and \texttt{DIST\_CM} carry the distance unit and the
+code-unit-to-cm conversion factor at the time the file was written.  When
+\texttt{read\_clumps\_fits} loads a file, it uses these keywords as
+fallback values for \texttt{par\%distance\_unit} / \texttt{par\%distance2cm}:
+if the user supplied a distance unit in the input namelist
+(\texttt{par\%distance\_unit /= ''} \emph{and} \texttt{par\%distance2cm > 1}),
+the namelist value is kept; otherwise the file keywords are adopted.  This
+matters in particular for the DENSITY/DENS-to-opacity conversion in
+Eq.~\ref{eq:nH_to_rhokap}: without a known distance scale, the read path
+falls back to interpreting the column as $\kappa_i$ (with a warning).
+External pipelines that write LaRT-compatible HDF5 must store string
+attributes as \emph{fixed-length} ASCII (e.g.\ h5py's
+\texttt{string\_dtype(encoding='ascii', length=N)}); variable-length
+strings are detected and skipped, since the HDF5 Fortran binding cannot
+read them through the same call path used here.
+
+Note: column data are written first (which creates the BinTable HDU);
+header keywords are then written into that same HDU.  FITS keyword names
+must not exceed 8 characters.
+
+%=============================================================================
+\section{Input Parameters Summary}
+\label{sec:input_params}
+%=============================================================================
+
+\begin{tabularx}{\linewidth}{llX}
+\hline
+Parameter & Default & Description \\
+\hline
+\texttt{par\%grid\_type}        & \texttt{'car'} & \texttt{'clump'} selects clump mode (v2.10) \\
+\texttt{par\%use\_clump\_medium}& \texttt{.false.} & deprecated alias: maps to \texttt{grid\_type='clump'} \\
+\texttt{par\%rmax}              & ---  & outer sphere radius (code units) \\
+\texttt{par\%clump\_radius}     & ---  & clump radius $r_c$ (code units) \\
+\texttt{par\%clump\_f\_cov}     & $-1$ & covering factor (input; specify one of f\_cov/f\_vol/N\_clumps) \\
+\texttt{par\%clump\_f\_vol}     & $-1$ & volume filling factor (input) \\
+\texttt{par\%clump\_N\_clumps}  & $-1$ & number of clumps (input, direct) \\
+\texttt{par\%clump\_tau0}       & $-1$ & line-center $\tau$ of one clump (center to surface) \\
+\texttt{par\%clump\_NHI}        & $-1$ & clump $N_{\rm HI}$ (cm$^{-2}$, clump center to surface; no \texttt{distance\_unit} needed) \\
+\texttt{par\%clump\_nH}         & $-1$ & clump $n_H$ (cm$^{-3}$; requires \texttt{distance\_unit}) \\
+\texttt{par\%clump\_temperature}& $-1$ & clump $T$ (K); $<0$ $\Rightarrow$ \texttt{par\%temperature} \\
+\texttt{par\%clump\_sigma\_v}   & $0$  & random velocity $\sigma$ per component (km/s) \\
+\texttt{par\%velocity\_type}    & \texttt{''} & systematic flow type (see \S3.4) \\
+\texttt{par\%Vexp}              & $0$  & expansion speed for \texttt{hubble}/\texttt{constant\_radial}/\texttt{power\_law}/\texttt{linear\_decelerate} (km/s) \\
+\texttt{par\%velocity\_alpha}   & $1$  & power-law exponent for \texttt{power\_law} velocity type \\
+\texttt{par\%Vx, Vy, Vz}        & $0$  & bulk velocity for \texttt{parallel\_velocity} (km/s) \\
+\texttt{par\%Vpeak}             & $0$  & peak speed for \texttt{ssh} (km/s) \\
+\texttt{par\%rpeak}             & $0$  & peak radius for \texttt{ssh} (code units) \\
+\texttt{par\%DeltaV}            & $0$  & outer velocity increment for \texttt{ssh} (km/s) \\
+\texttt{par\%Vrot}              & $0$  & rotation speed for rotating models (km/s) \\
+\texttt{par\%rinner}            & $0$  & solid-body radius for \texttt{rotating\_galaxy\_halo} \\
+\texttt{par\%save\_clump\_info} & \texttt{.false.} & write clump FITS file \\
+\texttt{par\%clump\_input\_file} & \texttt{''} & if non-empty, load the clump population from this FITS file (see \S\ref{sec:standalone_make_clumps}) instead of generating internally \\
+\hline
+\end{tabularx}
+
+\smallskip\noindent\textbf{Example input (v2.10 OOP interface):}
+\begin{lstlisting}
+&parameters
+ par%grid_type        = 'clump'
+ par%rmax             = 1.0
+ par%clump_radius     = 0.01
+ par%clump_f_cov      = 5.0
+ par%clump_tau0       = 1.0e3
+ par%temperature      = 1.0e4
+ par%clump_sigma_v    = 0.0
+ par%no_photons       = 1e6
+ par%spectral_type    = 'voigt'
+ par%nxfreq           = 301
+ par%velocity_min     = -100.0
+ par%velocity_max     =  100.0
+ par%nx = 11, par%ny = 11, par%nz = 11
+ par%save_clump_info  = .true.
+ par%out_file         = 'clump_tau3_fcov5.fits.gz'
+/
+\end{lstlisting}
+
+\smallskip\noindent\textbf{Backward-compatible input (v2.00 style, accepted by v2.10):}
+\begin{lstlisting}
+&parameters
+ par%use_clump_medium = .true.    ! mapped to par%grid_type = 'clump'
+ par%rmax             = 1.0
+ par%clump_radius     = 0.01
+ par%clump_f_cov      = 5.0
+ par%clump_tau0       = 1.0e3
+ par%temperature      = 1.0e4
+ par%no_photons       = 1e6
+ par%spectral_type    = 'voigt'
+ par%nxfreq           = 301
+ par%velocity_min     = -100.0
+ par%velocity_max     =  100.0
+ par%nx = 11, par%ny = 11, par%nz = 11
+ par%save_clump_info  = .true.
+ par%out_file         = 'clump_tau3_fcov5.fits.gz'
+/
+\end{lstlisting}
+
+%=============================================================================
+\section{Memory Layout}
+%=============================================================================
+
+\begin{sloppypar}
+Clump positions, velocities, and CSR arrays are allocated as MPI-3
+shared-memory windows via \texttt{create\_shared\_mem} from
+\texttt{memory\_mod}, giving one copy per compute node rather than per MPI
+rank.  On systems with multiple ranks per node this significantly reduces
+memory usage for large clump populations.
+\end{sloppypar}
+
+\begin{sloppypar}
+Cleanup is performed by \texttt{destroy\_clumps} which calls
+\texttt{destroy\_shared\_mem\_all} (collective \texttt{MPI\_WIN\_FREE} across
+all ranks) followed by explicit \texttt{nullify} of all pointers.  The
+individual \texttt{destroy\_mem} is not used because
+\texttt{MPI\_WIN\_SHARED\_QUERY} returns the rank-0 base address, which
+differs from the local pointer on non-root ranks.
+\end{sloppypar}
+
+%=============================================================================
+\section{Validation and Examples}
+%=============================================================================
+
+\begin{sloppypar}
+The directory \texttt{examples/clump\_sphere/} contains a suite of six
+reference runs covering the main parameter space.  All use $R=1$, $r_c=0.01$,
+$10^6$ photons, and \texttt{par\%grid\_type = 'clump'}:
+\end{sloppypar}
+
+\begin{center}
+\begin{tabular}{lll}
+\hline
+Input file & $\tau_0$ & Notes \\
+\hline
+\texttt{clump\_tau3\_fcov5.in}        & $10^3$ & $f_\mathrm{cov}=5$, static (reference) \\
+\texttt{clump\_tau4\_fcov5.in}        & $10^4$ & $f_\mathrm{cov}=5$, static \\
+\texttt{clump\_tau3\_fcov20.in}       & $10^3$ & $f_\mathrm{cov}=20$, dense covering \\
+\texttt{clump\_tau3\_fcov5\_hubble.in}& $10^3$ & $f_\mathrm{cov}=5$, Hubble $V_\mathrm{exp}=200$ km/s \\
+\texttt{clump\_tau3\_fcov5\_sigv.in}  & $10^3$ & $f_\mathrm{cov}=5$, $\sigma_v=50$ km/s \\
+\texttt{clump\_tau3\_fcov5\_peel.in}  & $10^3$ & $f_\mathrm{cov}=5$, peel-off $129\times129$ \\
+\hline
+\end{tabular}
+\end{center}
+
+Run with \texttt{bash run.sh} (uses 4 MPI ranks by default) or individually:
+\begin{verbatim}
+cd LaRT_v2.10/examples/clump_sphere
+mpirun -np 4 ../../LaRT.x clump_tau3_fcov5.in
+\end{verbatim}
+Python post-processing:
+\begin{verbatim}
+python plot_clump.py          # all runs
+python plot_clump.py clump_tau3_fcov5   # single run
+\end{verbatim}
+
+For the reference case ($f_\mathrm{cov}=5$, $\tau_0=10^3$):
+\begin{itemize}
+  \item Realized $f_\mathrm{cov} \approx 5.00$, $f_\mathrm{vol} \approx 0.067$;
+  \item RSA acceptance rate $\sim 74\%$, $N=66667$ clumps placed;
+  \item Mean scattering count $\approx 6400$ per photon;
+  \item Wall time $\approx 3.75$ min (10 ranks, $10^5$ photons).
+\end{itemize}
+
+The escaped spectrum $J_\mathrm{out}(x)$ shows the characteristic double-peak
+expected for a clumpy Lyman-$\alpha$ source.  The peel-off output
+(\texttt{\_obs.fits.gz}) contains \texttt{Scattered} (HDU~0) and
+\texttt{Direct} (HDU~1) spectral image cubes of shape $(301, 129, 129)$.
+
+\begin{sloppypar}
+\paragraph{Sight-line tau in clump mode:}
+A clump-aware sight-line traversal is now implemented in
+\texttt{sightline\_tau\_clump.f90}; the type-bound dispatch
+\texttt{clump\_make\_sightline\_tau} (v2.10) and the procedure-pointer
+assignment in \texttt{setup\_procedure} (v2.00) route to it whenever
+\texttt{par\%save\_sightline\_tau = .true.}.  The standalone driver
+\texttt{make\_sightline\_tau.x} consumes the same input file and writes
+\texttt{<base>\_tau.fits.gz} (\texttt{TAU\_gas}, \texttt{N\_gas},
+optionally \texttt{TAU\_dust}).  See
+\path{examples/sightline_tau/clump_sightline.in} for a complete
+reference run.
+\end{sloppypar}
+
+\begin{sloppypar}
+\paragraph{Peel-off vs.\ Jmu validation:}
+The notebook \texttt{verify\_peel\_jmu.ipynb}
+(in \texttt{examples/clump\_sphere/})
+checks that the integrated peel-off Stokes-$I$ spectrum matches the
+sky-mean of \texttt{Jmu} (the angle-binned escape spectrum).  Cells
+covering $f_\mathrm{cov} = 1$, $2$, and $5$ confirm that the measured
+\texttt{Scatt/Jmu} reproduces the analytic single-scattering escape
+fraction $1 - \exp(-f_\mathrm{cov})$ to ~1 \% across four observer
+$\beta$ angles.  The $f_\mathrm{cov} = 5$ case in particular validates
+the new \texttt{tau\_huge\_clump = 745.2} cap added to the peel-off
+raytrace (Sect.~``Peel-off''): even at $\tau_\mathrm{max} \sim 6.7\times10^3$
+the cap preserves the answer because every capped contribution has
+$\exp(-\tau) \approx 0$.
+\end{sloppypar}
+
+%=============================================================================
+\section{Spatially-Varying Clump Properties}
+%=============================================================================
+
+The default clump population is uniform in radius, internal density, and
+spatial number density.  Three optional radial-profile inputs allow each
+of these to vary as a function of distance from the box center.  When all
+three profile flags are set to \texttt{'constant'} (the default) the
+behavior is identical to the uniform implementation.
+
+\subsection{Input parameters}
+
+\begin{lstlisting}
+par%clump_radius_profile  = 'constant' | 'powerlaw' (or 'power_law')
+                            | 'gaussian' | 'exponential' | 'file'
+par%clump_density_profile = (same options ; controls n_H(r) inside clump)
+par%clump_number_profile  = (same options ; controls spatial n_cl(r))
+par%clump_radius_alpha,   par%clump_radius_r0    ! r0 <= 0 -> rmax
+par%clump_density_alpha,  par%clump_density_r0   ! r0 <= 0 -> rmax
+par%clump_number_alpha,   par%clump_number_r0    ! r0 <= 0 -> rmax
+par%clump_profile_file    = ''   ! 5-column tabulated profile
+par%cone_opening          = 0.0  ! bicone half-opening angle [deg]; 0 = sphere
+\end{lstlisting}
+
+When \texttt{cone\_opening} $> 0$, clumps are placed only inside the
+biconical region ($|\cos\theta| \ge \cos\alpha_{\rm cone}$, both
+hemispheres along the $z$-axis).  Angular positions are sampled
+directly from $\cos\theta \in [\cos\alpha_{\rm cone},\,1]$ (no
+rejection needed).  When \texttt{clump\_fully\_inside = .true.}, clumps
+whose sphere would protrude outside the cone boundary are additionally
+rejected: the angular subtension $\delta = \arcsin(r_c/r)$ of the clump
+is used to verify that
+$\cos(\theta_c + \delta) \ge \cos\alpha_{\rm cone}$.
+
+When \texttt{r0} $\leq 0$ (the default), it is automatically set to
+\texttt{par\%rmax} (i.e.\ \texttt{sphere\_R}), so that $f(r_\mathrm{max})=1$
+for the power-law, Gaussian, and exponential profiles.
+
+Built-in shapes (same convention on each axis; $f$ multiplies the
+user-supplied peak value):
+\begin{align*}
+\text{constant}    &: f(r) = 1, \\
+\text{powerlaw}    &: f(r) = \bigl(\max(r,r_{\rm fl})/\max(r_0,r_{\rm fl})\bigr)^{-\alpha},
+                       \quad r_{\rm fl} = 0.05\,r_0, \\
+\text{gaussian}    &: f(r) = \exp\bigl[-(r/r_0)^2\bigr], \\
+\text{exponential} &: f(r) = \exp(-r/r_0).
+\end{align*}
+For \texttt{'file'}, the named ASCII file should contain
+columns \texttt{r}, \texttt{r\_cl\_factor}, \texttt{n\_H\_factor},
+\texttt{T[K]}, \texttt{n\_cl\_shape}, one row per radial sample point, and
+the relevant column is interpolated linearly.
+
+\subsection{Covering factor under non-uniformity}
+
+The covering factor with non-uniform profiles is defined as the radial
+line-of-sight integral
+\begin{equation}
+   f_{\rm cov} \;=\; \int_{0}^{R}\!  n_{c}(r)\,\pi\,r_{c}(r)^{2}\,dr,
+\end{equation}
+which reduces to the uniform formula $\tfrac{3}{4}\,N\,(r_{c}/R)^{2}$
+when all three profiles are constant. See
+\texttt{covering\_\hspace{0pt}factor\_\hspace{0pt}definitions.tex}
+for the derivation and alternatives.
+
+\subsection{Implementation outline}
+
+\begin{sloppypar}
+\begin{itemize}
+\item Clump physical quantities (\texttt{cl\_radius}, \texttt{cl\_rhokap},
+      \texttt{cl\_voigt\_a}, \texttt{cl\_Dfreq}, \texttt{cl\_vtherm},
+      \texttt{cl\_temperature}) are MPI shared-memory arrays of
+      dimension \texttt{N\_clumps}; reference scalars
+      (\texttt{cl\_*\_ref}) carry the peak values.
+\item Clump positions are sampled by inverse CDF on
+      $n_{c}(r)\,4\pi r^{2}$, with isotropic angles. The RSA
+      27-neighbor overlap test compares
+      $(r_{c}^{i}+r_{c}^{j})^{2}$ so non-uniform clump radii are
+      handled correctly.
+\item \texttt{N\_clumps} is derived in two ways: closed-form for the
+      uniform case, numerical quadrature with the LOS $f_{\rm cov}$
+      definition otherwise.  Any one of \texttt{clump\_N\_clumps},
+      \texttt{clump\_f\_vol}, \texttt{clump\_f\_cov} can be specified;
+      the other two are obtained from quadrature.
+\item Clump opacity in the temperature-varying case picks up the
+      Doppler-frequency rescaling
+      \begin{equation}
+        \rho\kappa(\mathbf{r}) = \rho\kappa_{\rm peak}\,
+        \frac{n_H}{n_{H,{\rm peak}}}\,
+        \frac{\Delta\nu_D^{\rm ref}}{\Delta\nu_D(\mathbf{r})},
+      \end{equation}
+      so that the local cross-section
+      $\sigma_0/\Delta\nu_D$ is consistent with the local thermal
+      width.
+\item The clump FITS table now includes clump
+      \texttt{R\_CLUMP}, \texttt{RHOKAP}, \texttt{TEMP} columns in
+      addition to positions and velocities. Stdout prints the realized
+      $f_{\rm vol}$, $f_{\rm cov}$, $r_{c}$ range, mean
+      $\tau_{\rm per\,clump}$, and integrated HI mass.
+\end{itemize}
+\end{sloppypar}
+
+\subsection{Example inputs}
+
+\begin{lstlisting}
+! Gaussian-concentrated clump cloud (constant clump radius)
+par%clump_number_profile = 'gaussian'
+par%clump_number_r0      = 0.4
+par%clump_f_cov          = 5.0
+
+! Clump radius growing linearly with r (constant n_cl).
+! Specifying clump_f_cov lets the profile-aware quadrature back-solve
+! the spatial normalization; N_clumps is reported from the integral.
+par%clump_radius_profile = 'powerlaw'
+par%clump_radius_alpha   = -1.0
+par%clump_radius_r0      = 0.5
+par%clump_f_cov          = 1.0
+\end{lstlisting}
+For full working setups see, in \texttt{examples/clump\_sphere/}:
+\begin{itemize}
+\item \texttt{clump\_powerlaw\_density.in}
+\item \texttt{clump\_radius\_powerlaw.in}
+\end{itemize}
+
+%=============================================================================
+\section{Standalone Clump Generator (\texttt{make\_clumps.x})}
+\label{sec:standalone_make_clumps}
+%=============================================================================
+
+The clump-generation pathway used inside LaRT is also exposed as a
+self-contained standalone executable so that a clump population can be
+produced once and reused across many transport runs (or shared with
+external analyses).  The driver source is \texttt{make\_clumps.f90};
+build with
+
+\begin{lstlisting}
+make make_clumps        # builds make_clumps.x
+\end{lstlisting}
+
+Unlike previous releases, the driver no longer links against MPI or the
+LaRT physics stack: the link footprint is limited to \texttt{define.o},
+\texttt{fitsio\_mod.o}, \texttt{hdf5io\_mod.o}, \texttt{iofile\_mod.o},
+and \texttt{voigt\_mod.o}.  The RNG is an inlined xorshift64$^{\star}$
+generator (deterministic, MPI-free) so the FITS/HDF5 table is no longer
+byte-identical to the one produced by a regular \texttt{LaRT.x} run with
+\texttt{par\%save\_clump\_info}~=~\texttt{.true.}; it is, however,
+schema-identical and statistically equivalent (matched $f_{\rm cov}$,
+$f_{\rm vol}$, $\tau_0$, line, and velocity field).
+
+\smallskip\noindent\textbf{Usage.}  The driver no longer reads a
+namelist.  All parameters are supplied as command-line flags (one flag
+per \texttt{par\%clump\_*} field plus the relevant global parameters),
+mirroring the Python port:
+
+\begin{lstlisting}
+# uniform sphere with covering factor 5, Lyman-alpha tau_0 = 1e3
+./make_clumps.x --rmax 1.0 --clump_radius 1e-3 \
+                --clump_f_cov 5 --clump_tau0 1e3 \
+                --temperature 1e4 --line_id ly_alpha \
+                --seed 12345 -o run_clumps.fits.gz
+
+# biconical Hubble outflow, 45 deg half-opening
+./make_clumps.x --rmax 1.0 --clump_radius 0.02 \
+                --clump_f_cov 2 --cone_opening 45 \
+                --clump_tau0 1e3 --velocity_type hubble --Vexp 200 \
+                -o bicone_clumps.h5
+\end{lstlisting}
+
+Run \texttt{./make\_clumps.x --help} for the full flag list.  The output
+filename's extension selects the container: \texttt{.fits} /
+\texttt{.fits.gz} produce a FITS binary table, while \texttt{.h5} /
+\texttt{.hdf5} produce an HDF5 table; the on-disk schema (header
+keywords + columns) is identical in both cases and matches
+\S\ref{sec:clump_fits}, including the column-skipping rule for
+\texttt{R\_CLUMP} / \texttt{RHOKAP} / \texttt{TEMP}.
+
+\paragraph{Loading the file from LaRT.}
+Pass the path through \texttt{par\%clump\_input\_file}:
+\begin{lstlisting}
+&parameters
+ par%grid_type        = 'clump'
+ par%rmax             = 1.0
+ par%clump_radius     = 0.01
+ par%clump_tau0       = 1.0e3
+ par%temperature      = 1.0e4
+ par%no_photons       = 1e6
+ par%spectral_type    = 'voigt'
+ par%nxfreq           = 301
+ par%nx = 11, par%ny = 11, par%nz = 11
+ par%out_file         = 'clump_run.fits.gz'
+
+ ! Reuse a previously generated population
+ par%clump_input_file = 'clumps_input_clumps.fits.gz'
+/
+\end{lstlisting}
+When \texttt{par\%clump\_input\_file} is non-empty,
+\texttt{init\_clumps} skips the profile detection and RSA-generation
+path entirely.  The population is read from the FITS file and
+distributed across MPI ranks using the standard host-comm /
+\texttt{SAME\_HRANK\_COMM} pattern; the CSR acceleration grid is then
+rebuilt deterministically on every node.  The internal
+\texttt{generate\_clumps} routine is left untouched so that runs
+without \texttt{clump\_input\_file} reproduce previous results
+byte-for-byte.
+
+\paragraph{Supported features.}
+The Fortran driver supports the full clump configuration space:
+\begin{sloppypar}
+\begin{itemize}
+\item uniform and radial-profile (\texttt{powerlaw}, \texttt{gaussian},
+      \texttt{exponential}) placement;
+\item biconical geometry via \texttt{--cone\_opening} (with
+      \texttt{--clump\_fully\_inside} enforcing the cone-edge
+      angular-subtension test);
+\item all opacity-input modes (\texttt{--clump\_tau0},
+      \texttt{--clump\_NHI}, \texttt{--clump\_nH},
+      \texttt{--taumax}, \texttt{--N\_HImax});
+\item the full line catalogue used by LaRT (\texttt{--line\_id});
+\item the same systematic-velocity families as the LaRT engine
+      (\texttt{hubble}, \texttt{constant\_radial}, \texttt{power\_law},
+      \texttt{linear\_decelerate}, \texttt{parallel\_velocity},
+      \texttt{ssh}, \texttt{rotating\_solid\_body},
+      \texttt{rotating\_galaxy\_halo}) on top of the Gaussian
+      \texttt{--clump\_sigma\_v} random component.
+\end{itemize}
+\end{sloppypar}
+
+\paragraph{Python equivalent (\texttt{make\_clumps.py}).}
+A pure-Python port of the same generator lives at
+\texttt{python/make\_clumps.py}; it exposes an essentially identical
+flag set and writes the same FITS/HDF5 schema described in
+\S\ref{sec:clump_fits} (\texttt{EXTNAME='Clumps'}, columns
+\texttt{X/Y/Z/VX/VY/VZ} plus the optional
+\texttt{R\_CLUMP/RHOKAP/TEMP} survivors, full header keyword set
+including \texttt{CONE\_OP} and \texttt{LINE\_ID}).  Either driver's
+output is directly consumable by LaRT via
+\texttt{par\%clump\_input\_file}.  The two drivers use independent RNG
+implementations, so for a given seed they produce statistically
+equivalent but not bit-identical populations; pick whichever fits the
+host environment (no Fortran toolchain $\rightarrow$ Python; no Python
+$\rightarrow$ Fortran).
+
+\paragraph{Reproducibility.}
+Both drivers are deterministic in \texttt{--seed}: re-running with the
+same flag set and the same seed reproduces the table bit-for-bit.
+Cross-driver (Fortran vs.\ Python) and cross-version (this release vs.\
+the legacy LaRT-internal generator) reproducibility is only
+statistical, not bitwise.
+
+%=============================================================================
+\section{Standalone Sight-line Tau Calculator (\texttt{make\_sightline\_tau.x})}
+\label{sec:standalone_sightline_tau}
+%=============================================================================
+
+A second standalone driver, \texttt{make\_sightline\_tau.f90}, builds
+the sight-line maps for each observer without running the Monte Carlo photon
+loop.  The output FITS file matches the layout produced by an ordinary
+LaRT run with \texttt{par\%save\_sightline\_tau~=~.true.}\ (see the
+LaRT user manual, \S Observers and Peel-off):
+
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+HDU & Content \\
+\midrule
+\texttt{TAU\_gas}  & gas optical depth $\tau(\nu, x, y)$ \\
+\texttt{N\_gas}    & HI column density $N_{\rm HI}(x, y)$ \\
+\texttt{TAU\_dust} & dust optical depth $\tau_{\rm dust}(x, y)$ (only when \texttt{par\%DGR}$>0$) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\smallskip\noindent\textbf{Build and run.}
+\begin{lstlisting}
+make sightline_tau                            # builds make_sightline_tau.x
+mpirun -np N ./make_sightline_tau.x sl.in     # writes <base>_tau.fits.gz
+\end{lstlisting}
+
+\paragraph{Clump-mode wiring.}
+The default sight-line path inside LaRT (\texttt{sightline\_tau\_rect})
+uses Cartesian box-face geometry and the
+\texttt{raytrace\_\hspace{0pt}to\_\hspace{0pt}edge\_\hspace{0pt}car}
+dispatch.  In clump mode \texttt{grid\%rhokap}$=0$ everywhere; opacity
+lives in \texttt{cl\_rhokap(:)} and is reached only by the CSR DDA
+traversal in \texttt{raytrace\_clump.f90}.  A new module,
+\texttt{sightline\_tau\_clump.f90}, mirrors
+\texttt{sightline\_tau\_amr.f90} but for clump mode: it intersects the
+bounding sphere of radius \texttt{sphere\_R} (instead of the AABB),
+initializes \texttt{photon\%icell\_clump = 0}, and dispatches to the
+correct raytrace variant.
+
+\begin{sloppypar}
+In v2.10 the type-bound \texttt{clump\_make\_sightline\_tau} calls this
+module; in v2.00 the procedure pointer \texttt{make\_sightline\_tau} is
+set to \texttt{make\_sightline\_tau\_clump} inside the
+\texttt{use\_clump\_medium} branch of \texttt{setup\_procedure}.
+
+When \texttt{has\_overlap = .false.} (default, non-overlapping clumps),
+\texttt{make\_sightline\_tau\_clump} calls
+\texttt{raytrace\_to\_edge\_tau\_gas\_clump} and
+\texttt{raytrace\_to\_edge\_column\_clump} directly.
+When \texttt{has\_overlap = .true.}, the overlap-aware variants
+\texttt{raytrace\_to\_edge\_tau\_gas\_clump\_overlap} and
+\texttt{raytrace\_to\_edge\_column\_clump\_overlap} are used instead,
+ensuring that the sightline $\tau(\nu)$ and $N_\mathrm{HI}$ maps
+correctly account for overlapping opacities.  In v2.10 an inline
+\texttt{if (has\_overlap)} check selects the variant directly.
+In v2.00 \texttt{sightline\_tau\_clump.f90} calls the global procedure
+pointers \texttt{raytrace\_to\_edge\_tau\_gas} and
+\texttt{raytrace\_to\_edge\_column}; these are upgraded to the \_overlap
+variants by \texttt{setup\_clump\_overlap()} (called from \texttt{main.f90}
+after \texttt{grid\_create\_clump()} sets \texttt{has\_overlap}).
+\end{sloppypar}
+
+\paragraph{Example inputs.}
+\begin{itemize}
+\item \texttt{examples/clump\_sphere/clump\_sightline\_test.in}
+\item \texttt{examples/sphere/sphere\_sightline\_test.in}
+\end{itemize}
+
+%=============================================================================
+\section{Overlap-Aware Raytrace}
+\label{sec:overlap}
+%=============================================================================
+
+\subsection{Motivation}
+
+The RSA placement algorithm guarantees that internally generated clumps
+never overlap.  However, clump populations loaded from an external FITS
+file via \texttt{par\%clump\_input\_file} carry no such guarantee.  The
+original raytrace assumed non-overlap and produced incorrect results
+when two clumps shared volume:
+\begin{itemize}
+\item At clump-A exit, \texttt{photon\%icell\_clump} was reset to $0$ (vacuum)
+      without checking whether the photon was simultaneously inside clump~B.
+\item The opacity in the overlap region was under-counted.
+\item Frequency shifts at clump boundaries were mis-applied.
+\end{itemize}
+
+\subsection{Physical Interpretation}
+
+Two overlapping clumps with distinct bulk velocities $\boldsymbol{v}_1$ and
+$\boldsymbol{v}_2$ are treated as two independent gas components coexisting
+at the same spatial location -- the standard multi-component RT picture.
+The total line opacity at global-frame frequency $x$ along direction
+$\hat{k}$ is
+\begin{equation}
+  \kappa_\mathrm{total}(x)
+  = \sum_i \rho\kappa_i\, H\!\bigl(x - u_{\mathrm{los},i},\, a_i\bigr),
+  \qquad u_{\mathrm{los},i} = \frac{\boldsymbol{v}_i \cdot \hat{k}}{\Delta\nu_{D,i}}.
+\end{equation}
+When a scattering event falls in an overlap region the interacting atom
+belongs to one specific clump, chosen by opacity-weighted sampling:
+\begin{equation}
+  P(\text{scatter in clump }i) = \kappa_i(x) / \kappa_\mathrm{total}(x).
+\end{equation}
+
+\subsection{Frequency Convention}
+\label{sec:xfreq_convention}
+
+The two raytrace paths use different conventions for \texttt{photon\%xfreq}.
+
+\paragraph{Non-overlap path (\texttt{has\_overlap = .false.}):}
+\texttt{photon\%xfreq} tracks the \emph{current rest frame} of the photon:
+\begin{itemize}
+  \item In inter-clump vacuum: global (lab) frame.
+  \item Inside a clump: that clump's rest frame.
+\end{itemize}
+Frame transitions occur at every clump boundary crossing:
+\begin{align}
+  \text{entry:} &\quad \texttt{photon\%xfreq} \mathrel{-}= u_\mathrm{los}
+      &&(\text{global} \to \text{clump frame}), \\
+  \text{exit:}  &\quad \texttt{photon\%xfreq} \mathrel{+}= u_\mathrm{los}
+      &&(\text{clump frame} \to \text{global}).
+\end{align}
+The Voigt opacity evaluation uses \texttt{photon\%xfreq} directly because
+it is already in the clump frame.  Photons \emph{born inside a clump} are
+handled symmetrically: \texttt{generate\_photon} calls
+\texttt{active\_set\_at\_point} at birth; if the birth point falls inside a
+clump, \texttt{photon\%icell\_clump} is set to the host clump index and
+\texttt{photon\%xfreq} is shifted into the clump rest frame immediately,
+before the first peel-off call.
+
+\paragraph{Unit convention for clump temperature.}
+\texttt{photon\%xfreq} is carried globally in units of
+$\Delta\nu_{D,\text{ref}}\equiv\texttt{cl\_Dfreq\_ref}$, the reference
+Doppler frequency.  Clump arrays use their own local units:
+$\texttt{cl\_voigt\_a}(i) = \Gamma/(4\pi\,\Delta\nu_{D,i})$, and
+$\texttt{cl\_vx/y/z}(i) = v_i/v_\text{th}^{(i)}$ with
+$v_\text{th}^{(i)} = \lambda_0\,\Delta\nu_{D,i}$.  When the clump
+temperature varies along the radius
+($\Delta\nu_{D,i}\neq\Delta\nu_{D,\text{ref}}$) the Voigt evaluation and
+the bulk-velocity Doppler shift each require a rescale to remain
+self-consistent:
+\begin{align}
+  H\!\bigl(x,\,a_i\bigr)\bigr|_{x_\mathrm{loc}}
+    &\quad\text{with}\quad
+    x_\mathrm{loc} = \texttt{photon\%xfreq}
+                     \cdot \frac{\Delta\nu_{D,\text{ref}}}{\Delta\nu_{D,i}},
+    \\
+  u_\mathrm{los}
+    &= \bigl(\texttt{cl\_vx}(i)\,k_x
+            + \texttt{cl\_vy}(i)\,k_y
+            + \texttt{cl\_vz}(i)\,k_z\bigr)
+       \cdot \frac{\Delta\nu_{D,i}}{\Delta\nu_{D,\text{ref}}}.
+\end{align}
+Both expressions reduce to the previous (unrescaled) forms when
+$\Delta\nu_{D,i} = \Delta\nu_{D,\text{ref}}$, so uniform-$T$ runs are
+unaffected.  The two helpers
+\begin{lstlisting}
+voigt_clump(xfreq, icl)        ! returns H(x_loc, cl_voigt_a(icl))
+ulos_clump(icl, kx, ky, kz)    ! returns u_los (REF Doppler units)
+\end{lstlisting}
+in \texttt{clump\_mod} apply the rescaling once and are used wherever a
+Voigt opacity or a clump-boundary frequency shift is needed:
+\texttt{raytrace\_clump} (non-overlap and overlap paths),
+\texttt{peelingoff\_rect} (clump-frame peel-off conversion),
+\texttt{generate\_photon} (birth-inside-clump shift), and the
+\texttt{scatter\_resonance\_clump\_*} overlap wrappers.
+
+\paragraph{Resonance scattering: \texttt{do\_resonance\_*\_clump} variants.}
+The line-type-dependent dispatch routine \texttt{do\_resonance} samples
+the absorbing-atom velocity \texttt{uz}, the atom-frame frequency
+\texttt{xfreq\_atom}, and the multiplet branch (where applicable).
+For Cartesian and AMR grids it reads
+$\texttt{grid\%voigt\_a}$ and $\texttt{grid\%Dfreq}$ per cell.  In the
+clump medium these grid arrays are filled uniformly with the reference
+values and would therefore ignore clump $T$ entirely.  A separate
+module \texttt{line\_clump\_mod} provides clump-aware variants
+\texttt{do\_resonance\{1,2,4,5,6,HD\}\_clump} that read
+\texttt{cl\_voigt\_a(icl)} and \texttt{cl\_Dfreq(icl)} directly, rescale
+\texttt{photon\%xfreq} to clump-local Doppler-width units for sampling,
+and convert the returned \texttt{uz} and \texttt{xfreq\_atom} back to
+REF units before returning.  \texttt{setup\_procedure} wires these
+variants per \texttt{line\%line\_type} when
+\texttt{par\%use\_clump\_medium = .true.}.  The caller
+(\texttt{scatter\_resonance\_\{nostokes,stokes\}}) additionally scales
+the perpendicular thermal velocities $u_x, u_y$ by
+$\Delta\nu_{D,i}/\Delta\nu_{D,\text{ref}}$ and computes the recoil
+shift using \texttt{cl\_Dfreq(icl)} so that the entire scattering kernel
+is consistent with the local clump temperature.
+
+\paragraph{Overlap path (\texttt{has\_overlap = .true.}):}
+\texttt{photon\%xfreq} is \emph{always} in the global (lab) frame.  The
+clump Doppler shift is applied on the fly inside
+\texttt{sum\_kap\_active} and \texttt{collect\_ray\_events\_overlap}:
+\begin{equation}
+  x_\mathrm{cl} = x_{\mathrm{freq},g} - u_{\mathrm{los},i},
+\end{equation}
+evaluated independently for each active clump $i$.  This is necessary
+because the photon may be simultaneously inside several clumps with
+different bulk velocities, so there is no single ``current clump frame''.
+\begin{sloppypar}
+The Doppler shift at scatter time is handled by the wrapper routines
+\texttt{scatter\_resonance\_clump\_nostokes} /
+\texttt{scatter\_resonance\_clump\_stokes} (selected by
+\texttt{par\%use\_stokes}).
+\end{sloppypar}
+
+\paragraph{Consequence for peel-off:}
+The lab-frame conversion
+$x_\mathrm{ref} = \texttt{photon\%xfreq} + u_1$
+requires $u_1 = \boldsymbol{v}_\mathrm{cl}\cdot\hat{\mathbf{k}}_\mathrm{obs}/v_\mathrm{th}$
+when \texttt{photon\%icell\_clump}~$> 0$ (non-overlap; xfreq in clump frame),
+and $u_1 = 0$ when \texttt{photon\%icell\_clump}~$= 0$
+(vacuum inter-clump region, or the overlap path where xfreq is always in
+the lab frame).
+
+\paragraph{Design note:}
+Unifying both paths to the global-frame convention is feasible in
+principle---the non-overlap path would compute
+$x_\mathrm{cl} = x_{\mathrm{freq},g} - u_\mathrm{los}$ at each opacity
+evaluation instead of at entry/exit boundaries.  This is currently not
+recommended: the non-overlap path is well-tested, the clump frame
+convention is natural when only one clump is active at a time, and the
+change would require rewriting all seven \texttt{raytrace\_*\_clump}
+functions.  It could be revisited if future requirements make a unified
+global-frame convention desirable.
+
+\subsection{Overlap Detection}
+
+After the CSR grid is built, \texttt{check\_has\_overlap()} scans all
+clump pairs using the existing CSR 27-neighbor structure ---
+$\mathcal{O}(N \times k_\mathrm{nb})$ time.  The result is stored in the
+module variable \texttt{has\_overlap} (default \texttt{.false.}).  For
+RSA-generated populations \texttt{has\_overlap} is never set to
+\texttt{.true.}: zero runtime overhead for the common case.
+
+\subsection{Event-Based Segment Raytrace}
+
+\texttt{collect\_ray\_events\_overlap} performs a full DDA scan -- no
+early exit -- and collects every clump intersection as a sorted list of
+$(t, i_\mathrm{cl}, \pm 1)$ events (entry or exit).  Clumps that already
+contain the ray origin emit only an EXIT event.
+\texttt{active\_set\_at\_point} queries the CSR 27-neighbor cells to find
+all clumps containing the starting point, initializing the active set.
+
+\texttt{raytrace\_to\_tau\_clump\_overlap} then walks the sorted event
+list:
+\begin{enumerate}
+\item For the current interval $[t_\mathrm{cur}, t_\mathrm{next}]$,
+      compute $\kappa_\mathrm{total}$ from the active set.
+\item If $\kappa_\mathrm{total} \cdot \Delta t \ge \tau_\mathrm{rem}$,
+      advance to the scatter point; choose the owner clump by
+      opacity-weighted sampling via \texttt{sample\_owner\_clump}; store
+      the owner in \texttt{photon\%icell\_clump}; return.
+\item Otherwise subtract $\kappa_\mathrm{total} \cdot \Delta t$ from
+      $\tau_\mathrm{rem}$ and update the active set at the event boundary.
+\end{enumerate}
+The read-only variants (\texttt{\_edge\_*} and \texttt{\_dist\_*}) use
+the same event list but simply accumulate $\tau$ or $N_\mathrm{HI}$
+without a scatter decision.
+
+\subsection{Enabling Overlap for Internally Generated Clumps}
+
+A new parameter allows the RSA overlap rejection to be bypassed:
+\begin{lstlisting}
+par%clump_allow_overlap = .true.   ! default: .false.
+\end{lstlisting}
+When \texttt{.true.}, clumps are placed at uniformly random positions
+without checking for overlap.  After placement,
+\texttt{check\_has\_overlap()} is called automatically; if any
+overlapping pair is found the overlap-aware raytrace is engaged.
+
+A typical test configuration using large clumps and a low covering
+factor to guarantee overlaps quickly:
+\begin{lstlisting}
+par%clump_allow_overlap = .true.
+par%clump_radius        = 0.3     ! large clumps
+par%clump_f_cov         = 2.0     ! few clumps -> fast placement
+par%no_photons          = 1e5     ! fast MC run
+\end{lstlisting}
+\begin{sloppypar}
+Reference example inputs are in \texttt{examples/clump\_sphere/}:
+\texttt{clump\_overlap\_mono.in},
+\texttt{clump\_overlap\_sigv.in},
+\texttt{clump\_overlap\_peel.in}.
+\end{sloppypar}
+
+\subsection{Performance Notes}
+
+\begin{center}
+\begin{tabular}{ll}
+\hline
+Scenario & Overhead \\
+\hline
+RSA-generated, non-overlap & None -- original code path \\
+File-loaded, no overlap & \texttt{check\_has\_overlap()} once at init; original raytrace \\
+Overlap present & Event-based raytrace; $\mathcal{O}(n_\mathrm{active})$ per segment \\
+\hline
+\end{tabular}
+\end{center}
+
+\end{document}

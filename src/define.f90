@@ -252,7 +252,7 @@ public
      real(kind=wp) :: source_rscale = 0.0_wp
      real(kind=wp) :: sersic_m      = 1.0_wp
      real(kind=wp) :: Reff          = 0.0_wp
-     !--- parameters for the rotating galaxy halo model in Kim et al.
+     !--- parameters for the rotating galaxy halo model in Kym et al. (2026, arXiv:2609.08396), Eq. (1).
      real(kind=wp) :: Vrot          = 0.0_wp
      real(kind=wp) :: rinner        = 0.0_wp
      !---

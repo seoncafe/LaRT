@@ -924,7 +924,7 @@ contains
         enddo
         enddo
      else if (trim(par%velocity_type) == 'rotating_galaxy_halo') then
-        !--- rotating galaxy halo model in Kim et al.
+        !--- rotating galaxy halo model in Kym et al. (2026, arXiv:2609.08396), Eq. (1).
         !--- Vrot is the maximum rotation velocity at r = rinner in units of km/s.
         do k=1,grid%nz
         do j=1,grid%ny

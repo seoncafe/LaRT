@@ -59,7 +59,7 @@ Usage
     # Solid-body rotation about z-axis (Garavito-Camargo+2014)
     python make_amr_sphere_radial.py --velocity rotating_solid_body --vrot 150
 
-    # Flat rotation curve above rinner (Kim et al.)
+    # Flat rotation curve above rinner (Kym et al. (2026, arXiv:2609.08396), Eq. (1))
     python make_amr_sphere_radial.py --velocity rotating_galaxy_halo --vrot 200 --rinner 0.3
 
     # Compare radial-only vs radial+boundary, save slice plots
@@ -211,7 +211,7 @@ def make_velocity_fn(law, rmax, v_exp=0.0, velocity_alpha=1.0, vrot=0.0, rinner=
         return fn
 
     if law == 'rotating_galaxy_halo':
-        # Kim et al.: flat rotation curve above rinner (rotation about z-axis).
+        # Kym et al. (2026, arXiv:2609.08396), Eq. (1): flat rotation curve above rinner (rotation about z-axis).
         # rxy < rinner : solid-body  vx=-Vrot*y/rinner, vy=Vrot*x/rinner
         # rxy >= rinner: flat curve  vx=-Vrot*y/rxy,    vy=Vrot*x/rxy
         # vz = 0;  velocity zero outside sphere
@@ -825,7 +825,7 @@ def parse_args():
                          '  power_law            : v_r = V_exp * (r/rmax)^velocity_alpha\n'
                          '  linear_decelerate    : v_r = V_exp * (rmax-r)/(rmax-rmin)\n'
                          '  rotating_solid_body  : solid-body rotation about z (Garavito-Camargo+2014)\n'
-                         '  rotating_galaxy_halo : flat rotation above rinner (Kim et al.)')
+                         '  rotating_galaxy_halo : flat rotation above rinner (Kym et al. (2026, arXiv:2609.08396), Eq. (1))')
     vg.add_argument('--vexp', type=float, default=0.0,
                     help='[hubble/constant_radial/power_law] '
                          'characteristic speed [km/s] (default: 0). Negative = inflow.')

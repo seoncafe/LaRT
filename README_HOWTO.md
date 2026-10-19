@@ -260,7 +260,7 @@ They can be used even when a realistic density is given.
 | `'linear_decelerate'` | V(r) = Vexp * (rmax - r) / (rmax - rmin); V=Vexp at rmin, V=0 at rmax |
 | `'ssh'` | Song, Seon, Hwang (2020); two-zone radial profile |
 | `'rotating_solid_body'` | V = Vrot * r_cyl / rmax |
-| `'rotating_galaxy_halo'` | Solid-body core (r < rinner) + flat rotation curve |
+| `'rotating_galaxy_halo'` | V = Vrot * r_cyl / rinner for r_cyl < rinner, V = Vrot outside (Kym et al. 2026, Eq. 1) |
 | `'parallel_velocity'` | V = (Vx, Vy, Vz) constant bulk velocity |
 
 **Parameters:**

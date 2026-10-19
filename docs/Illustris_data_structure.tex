@@ -1,0 +1,974 @@
+%% Illustris/IllustrisTNG Data, the Converter, and the LaRT AMR Interface
+%% Author: Kwang-Il Seon
+\documentclass[english,a4paper]{my_memo}
+\synctex=1
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{longtable}
+
+\lstdefinestyle{pythonstyle}{
+  basicstyle=\ttfamily\small,
+  keywordstyle=\color{blue}\bfseries,
+  commentstyle=\color{gray}\itshape,
+  stringstyle=\color{olive},
+  frame=single,
+  breaklines=true,
+  numbers=left,
+  numberstyle=\tiny\color{gray},
+  language=Python,
+  morekeywords={self,True,False,None}
+}
+\lstdefinestyle{shellstyle}{
+  basicstyle=\ttfamily\small,
+  frame=single,
+  breaklines=true,
+  language={}
+}
+\lstdefinestyle{fortranstyle}{
+  basicstyle=\ttfamily\small,
+  keywordstyle=\color{blue}\bfseries,
+  commentstyle=\color{gray}\itshape,
+  stringstyle=\color{olive},
+  frame=single,
+  breaklines=true,
+  numbers=left,
+  numberstyle=\tiny\color{gray},
+  language=[95]Fortran,
+  morekeywords={read,write,open,close,allocate,deallocate}
+}
+\lstset{style=pythonstyle}
+
+\begin{document}
+
+\title{Illustris/IllustrisTNG Data, the Converter, and the LaRT AMR Interface}
+\author{Kwang-Il Seon}
+\date{2026-05}
+\maketitle
+
+\tableofcontents
+\bigskip
+
+%=============================================================================
+\section{Overview of Illustris and IllustrisTNG}
+\label{sec:overview}
+%=============================================================================
+
+The Illustris \cite{vogelsberger2014,nelson2015} and IllustrisTNG
+\cite{nelson2019,pillepich2018} projects are large-scale cosmological
+magneto-hydrodynamic simulations of galaxy formation and evolution.
+They use the \textsc{Arepo} moving-mesh code \cite{springel2010}, which
+solves the Euler equations on an unstructured Voronoi tessellation that
+moves with the local fluid velocity.
+
+The key difference from AMR codes (such as RAMSES) is that the spatial
+discretization is an unstructured Voronoi mesh rather than a structured
+octree.  Each gas cell is a convex Voronoi polyhedron defined by a
+generator point; the cell positions, volumes, and all physical
+quantities are stored directly in HDF5 snapshot files.
+
+\subsection{Simulation Variants}
+
+The publicly available simulation suites include:
+
+\begin{center}
+\begin{tabular}{llll}
+\toprule
+\textbf{Suite} & \textbf{Runs} & \textbf{Box (cMpc)} & \textbf{Ref.} \\
+\midrule
+Illustris    & Illustris-1, -2, -3        & 75         & \cite{vogelsberger2014} \\
+IllustrisTNG & TNG50-1 to -4              & 51.7       & \cite{nelson2019} \\
+             & TNG100-1 to -3             & 110.7      &  \\
+             & TNG300-1 to -3             & 302.6      &  \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+IllustrisTNG improved upon Illustris with updated AGN feedback (kinetic
+and thermal modes), refined supernova feedback, and inclusion of
+magnetic fields.
+
+%=============================================================================
+\section{Data Format}
+\label{sec:format}
+%=============================================================================
+
+Both Illustris and IllustrisTNG store data as HDF5 files containing
+raw snapshots, group catalogs, merger trees, and supplementary data
+catalogs.  This section focuses on the snapshot format, which is the
+input to the LaRT converter.
+
+\subsection{Snapshot Structure}
+
+Each snapshot is split across multiple HDF5 chunk files.  A single
+chunk file has the following top-level groups:
+
+\begin{center}
+\begin{tabular}{lp{10cm}}
+\toprule
+\textbf{HDF5 Group} & \textbf{Contents} \\
+\midrule
+\texttt{Header}       & Metadata: particle counts, box size, cosmological parameters,
+                        redshift, scale factor \\
+\texttt{Parameters}   & Simulation setup parameters (optional) \\
+\texttt{Configuration}& Code configuration details (optional) \\
+\texttt{PartType0}    & Gas cells (Voronoi mesh elements) \\
+\texttt{PartType1}    & Dark matter particles \\
+\texttt{PartType3}    & Tracer particles \\
+\texttt{PartType4}    & Stars and wind particles \\
+\texttt{PartType5}    & Black holes \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+API cutout files (downloaded from the TNG web interface) have a
+similar structure but contain only particles/cells belonging to the
+requested halo or subhalo.
+
+\subsection{Header Attributes}
+
+The \texttt{Header} group contains the following attributes relevant to
+the converter:
+
+\begin{center}
+\begin{tabular}{llp{7.5cm}}
+\toprule
+\textbf{Attribute} & \textbf{Type} & \textbf{Description} \\
+\midrule
+\texttt{BoxSize}        & float64 & Simulation box side length [ckpc/$h$] \\
+\texttt{HubbleParam}    & float64 & Hubble parameter $h$ (e.g.\ 0.6774) \\
+\texttt{Redshift}       & float64 & Snapshot redshift $z$ \\
+\texttt{Time}           & float64 & Scale factor $a = 1/(1+z)$ \\
+\texttt{Omega0}         & float64 & Matter density parameter $\Omega_0$ \\
+\texttt{OmegaLambda}    & float64 & Dark energy density parameter $\Omega_\Lambda$ \\
+\texttt{NumPart\_Total} & int32[6]& Total particle counts per type \\
+\texttt{NumPart\_ThisFile} & int32[6] & Particle counts in this chunk \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Gas Cell Fields (\texttt{PartType0})}
+\label{sec:fields}
+
+Table~\ref{tab:fields} lists the \texttt{PartType0} datasets used by
+the converter, along with their Illustris code units and the conversion
+formulas to physical (CGS/kpc/km\,s$^{-1}$) units.
+
+\begin{longtable}{p{4.5cm}p{3.8cm}p{6.2cm}}
+\caption{Gas cell fields in \texttt{PartType0} relevant to LaRT.
+Comoving coordinates use scale factor $a$ and Hubble parameter $h$
+from the snapshot header.}
+\label{tab:fields} \\
+\toprule
+\textbf{Dataset} & \textbf{Code Units} & \textbf{Physical Conversion} \\
+\midrule
+\endfirsthead
+\toprule
+\textbf{Dataset} & \textbf{Code Units} & \textbf{Physical Conversion} \\
+\midrule
+\endhead
+\texttt{Coordinates}
+  & ckpc/$h$ (comoving)
+  & $x_\mathrm{phys}[\mathrm{kpc}] = x_\mathrm{code} \times a / h$ \\[3pt]
+
+\texttt{Density}
+  & $(10^{10}\,M_\odot/h) / (\mathrm{ckpc}/h)^3$
+  & $\rho_\mathrm{cgs} = \rho_\mathrm{code} \times
+     10^{10}\,M_\odot\,h^2 / (a\;\mathrm{kpc}_\mathrm{cm})^3$ \\[3pt]
+
+\texttt{Masses}
+  & $10^{10}\,M_\odot/h$
+  & $M[\mathrm{g}] = M_\mathrm{code} \times 10^{10}\,M_\odot / h$ \\[3pt]
+
+\texttt{InternalEnergy}
+  & (km/s)$^2$
+  & $T = (\gamma - 1)\,u\times 10^{10}\,\mu / k_B$
+    (see \S\ref{sec:temperature}) \\[3pt]
+
+\texttt{Velocities}
+  & km\,$\sqrt{a}$\,/\,s
+  & $v_\mathrm{phys}[\mathrm{km/s}] = v_\mathrm{code} \times \sqrt{a}$ \\[3pt]
+
+\texttt{GFM\_Metallicity}
+  & dimensionless
+  & Total metal mass fraction $Z$ (not relative to solar) \\[3pt]
+
+\texttt{NeutralHydrogen-}\newline\texttt{Abundance}
+  & dimensionless
+  & Neutral hydrogen fraction $x_\mathrm{HI} \in [0,1]$
+    (from TNG on-the-fly chemistry) \\[3pt]
+
+\texttt{ElectronAbundance}
+  & dimensionless
+  & $x_e = n_e / n_\mathrm{H}$ \\[3pt]
+
+\texttt{Volume}
+  & (ckpc/$h$)$^3$
+  & $V_\mathrm{phys}[\mathrm{kpc}^3] = V_\mathrm{code} \times (a/h)^3$ \\[3pt]
+
+\texttt{StarFormationRate}
+  & $M_\odot$/yr
+  & Instantaneous SFR; cells with SFR $> 0$ are on the effective
+    equation of state (see \S\ref{sec:ism}) \\
+\bottomrule
+\end{longtable}
+
+\subsection{Voronoi Mesh Geometry}
+
+Unlike AMR codes where cell geometry is defined by the octree level
+and position, Arepo cells are Voronoi polyhedra.  The \texttt{Coordinates}
+field gives the Voronoi generator (control point) position, and the
+\texttt{Volume} field gives the cell volume directly.  Cell faces and
+neighbor connectivity are \emph{not} stored in the snapshot files;
+they must be reconstructed from the Delaunay triangulation if needed.
+
+For the purposes of converting to an octree, the key insight is that
+the Voronoi tessellation defines a spatial partition: every point
+in the simulation domain belongs to exactly one cell, determined by
+which generator is closest.  This property is exploited by the
+nearest-neighbor assignment in the converter (Section~\ref{sec:assignment}).
+
+
+%=============================================================================
+\section{Unit Conversions}
+\label{sec:units}
+%=============================================================================
+
+Illustris/TNG stores all quantities in \textbf{comoving coordinates with
+$h$-factors}.  The converter transforms them to physical units suitable
+for LaRT.
+
+\subsection{Positions}
+
+\begin{equation}
+x_\mathrm{phys}[\mathrm{kpc}]
+  = x_\mathrm{code}[\mathrm{ckpc}/h] \times \frac{a}{h}
+\end{equation}
+
+After conversion, coordinates are recentered so the galaxy center lies
+at the origin (centered convention, range $[-L/2, +L/2]$).
+
+\subsection{Density and Hydrogen Number Density}
+
+\begin{align}
+\rho_\mathrm{cgs}[\mathrm{g/cm}^3]
+  &= \rho_\mathrm{code} \times
+     \frac{10^{10}\,M_\odot \times h^2}
+          {(a \times \mathrm{kpc}_\mathrm{cm})^3} \\[6pt]
+n_\mathrm{H}[\mathrm{cm}^{-3}]
+  &= \frac{\rho_\mathrm{cgs} \times X_\mathrm{H}}{m_\mathrm{H}}
+\end{align}
+
+where $X_\mathrm{H} = 0.76$ is the primordial hydrogen mass fraction
+and $m_\mathrm{H} = 1.6726 \times 10^{-24}$\,g.
+
+\subsection{Temperature}
+\label{sec:temperature}
+
+Illustris stores the specific thermal energy
+$u$\,[\,(km/s)$^2$\,=\,$10^{10}$\,erg/g\,].  The temperature is
+computed from $u$ and the electron abundance $x_e$:
+
+\begin{align}
+\mu &= \frac{4\,m_p}{1 + 3\,X_\mathrm{H} + 4\,X_\mathrm{H}\,x_e} \\[6pt]
+T[\mathrm{K}] &= \frac{(\gamma - 1)\,u\times 10^{10}\,\mu}{k_B}
+\end{align}
+
+where $\gamma = 5/3$, $m_p = 1.6726\times 10^{-24}$\,g, and
+$k_B = 1.3807\times 10^{-16}$\,erg\,K$^{-1}$.
+When the \texttt{ElectronAbundance} field is unavailable, the converter
+assumes fully neutral gas ($x_e = 0$).
+
+\subsection{Velocities}
+
+\begin{equation}
+v_\mathrm{phys}[\mathrm{km/s}]
+  = v_\mathrm{code}[\mathrm{km}\,\sqrt{a}\,/\,\mathrm{s}]
+    \times \sqrt{a}
+\end{equation}
+
+\subsection{Volume and Effective Cell Size}
+
+\begin{equation}
+V_\mathrm{phys}[\mathrm{kpc}^3]
+  = V_\mathrm{code}[(\mathrm{ckpc}/h)^3] \times \left(\frac{a}{h}\right)^3
+\end{equation}
+
+The effective spherical radius of a Voronoi cell is:
+\begin{equation}
+r_\mathrm{eff} = \left(\frac{3\,V_\mathrm{phys}}{4\pi}\right)^{1/3}
+\label{eq:reff}
+\end{equation}
+
+This is used by the resolution-matching refinement criterion
+(\S\ref{sec:refine_resolution}).
+
+
+%=============================================================================
+\section{ISM Treatment: Star-Forming Cells}
+\label{sec:ism}
+%=============================================================================
+
+In Illustris/TNG, gas cells with $\mathrm{SFR} > 0$ are placed on an
+effective equation of state (EOS) that represents the unresolved
+multiphase interstellar medium \cite{springel-hernquist2003}.  Their
+\texttt{InternalEnergy} encodes an effective pressure, not the actual
+ISM temperature.  The computed temperature for these cells can be
+$\sim 10^5$--$10^7$\,K, which is unphysical for the ISM.
+
+The converter provides three treatments via \texttt{--sfr-treatment}:
+
+\begin{itemize}
+\item \texttt{cap-temperature} (default): cap $T$ at a user-specified
+  value (default $2\times 10^4$\,K) for all cells with $\mathrm{SFR}>0$.
+  This is the most common approach in Ly$\alpha$ RT post-processing
+  \cite{laursen2009}.
+
+\item \texttt{exclude}: remove all star-forming cells.  This is more
+  aggressive but avoids any ambiguity.
+
+\item \texttt{as-is}: use the computed temperature without modification.
+  Not recommended for Ly$\alpha$ RT but included for completeness.
+\end{itemize}
+
+%=============================================================================
+\section{Conversion to Octree AMR}
+\label{sec:conversion}
+%=============================================================================
+
+LaRT uses an octree AMR grid for photon propagation.  The Voronoi mesh
+of Illustris is unstructured and cannot be used directly.  The converter
+builds an adaptive octree and assigns physical quantities from the
+Voronoi data using the following steps.
+
+\subsection{Step 1: Data Loading and Unit Conversion}
+
+The converter reads \texttt{PartType0} fields from the input HDF5 file
+(either a snapshot chunk or an API cutout) and converts all quantities
+to physical units as described in Section~\ref{sec:units}.
+
+Coordinates are recentered so that the galaxy center is at the origin.
+If \texttt{--center} is not specified, the centroid of the gas cell
+distribution is used.  If \texttt{--boxsize} is not specified, the
+bounding box of the data is computed with a 10\% margin.
+
+\subsection{Step 2: KD-Tree Construction}
+
+A KD-tree \cite{bentley1975} is built from the Voronoi generator
+positions using \texttt{scipy.spatial.cKDTree}.  This tree enables
+$O(\log N)$ nearest-neighbor queries from any point in the domain.
+
+\subsection{Step 3: Adaptive Octree Refinement}
+\label{sec:refine}
+
+The octree is built using the \texttt{AMRGrid} class from
+\texttt{AMR\_grid.py}.  Two refinement criteria are available, applied
+in sequence:
+
+\subsubsection{Density and Velocity Gradient Refinement}
+\label{sec:refine_gradient}
+
+A cell is refined if the relative variation across its sub-cell probe
+points exceeds a threshold:
+\begin{equation}
+\delta = \frac{q_\mathrm{max} - q_\mathrm{min}}
+              {q_\mathrm{max} + q_\mathrm{min} + \epsilon}
+       > \delta_\mathrm{thresh}
+\end{equation}
+where $q$ is the density (or velocity magnitude), and $\epsilon$ is a
+small floor to prevent division by zero.  The default threshold is
+$\delta_\mathrm{thresh} = 0.3$.  The density and velocity criteria are
+combined with logical OR: a cell is refined if \emph{either} criterion
+is satisfied.
+
+All cells are first uniformly refined to a minimum level
+(\texttt{--level-min}, default 3) before the gradient criterion is
+applied.
+
+\subsubsection{Resolution-Matching Refinement}
+\label{sec:refine_resolution}
+
+If \texttt{--match-resolution} is specified, an octree cell is
+additionally refined whenever its half-width exceeds a factor $f$
+(default 1.0) times the effective Voronoi cell radius $r_\mathrm{eff}$
+(Equation~\ref{eq:reff}) of the nearest Voronoi cell:
+\begin{equation}
+h_\mathrm{cell} > f \times r_\mathrm{eff,nearest}
+\end{equation}
+
+This ensures the octree resolution matches or exceeds the native
+Voronoi resolution of the simulation.
+
+\subsection{Step 4: Property Assignment}
+\label{sec:assignment}
+
+Physical quantities ($n_\mathrm{H}$, $T$, $v_x$, $v_y$, $v_z$, and any
+requested physics columns) are assigned to each grid point (octree
+leaf-cell center or Cartesian cell center) by one of two methods,
+selected with \texttt{--resample-method}.
+
+\subsubsection*{Nearest-neighbor (default)}
+
+With \texttt{--resample-method nearest} (the default), the value at a
+grid point is taken from the single Voronoi generator nearest to it,
+found by a KD-tree query.  This is the \textbf{physically exact}
+assignment for a Voronoi tessellation: by definition, the Voronoi cell
+of generator $\mathbf{g}_i$ is the set of all points closer to
+$\mathbf{g}_i$ than to any other generator, so the nearest-neighbor
+query recovers the correct cell ownership.  Sharp density and velocity
+discontinuities that the moving mesh preserves (contact
+discontinuities, shock fronts, outflow boundaries) are reproduced
+without blurring.
+
+\subsubsection*{Gaussian kernel smoothing}
+
+With \texttt{--resample-method gaussian}, the value at a grid point
+$\mathbf{r}$ is a volume-weighted Gaussian average over the $K$ nearest
+Voronoi cells (\texttt{--kernel-neighbors}, default $K=32$):
+\begin{equation}
+A(\mathbf{r}) =
+  \frac{\sum_{i=1}^{K} V_i\,A_i\,
+        \exp\!\left(-d_i^2 / 2 h_i^2\right)}
+       {\sum_{i=1}^{K} V_i\,
+        \exp\!\left(-d_i^2 / 2 h_i^2\right)},
+\label{eq:gauss_gather}
+\end{equation}
+where $d_i = |\mathbf{r} - \mathbf{g}_i|$, $V_i$ is the Voronoi cell
+volume, and $h_i$ is the cell-by-cell smoothing length.  The cell volume
+weight $V_i$ keeps the average mass-conservative when cells of very
+different sizes contribute.  If the weight sum underflows to zero (a
+grid point far from all $K$ neighbors), the converter falls back to the
+nearest-neighbor value.
+
+The smoothing length is \textbf{adaptive} by default, scaling with the
+local Voronoi resolution,
+\begin{equation}
+h_i = f_\mathrm{kern}\,r_{\mathrm{eff},i},
+\label{eq:adaptive_h}
+\end{equation}
+where $r_{\mathrm{eff},i}$ is the effective cell radius
+(Equation~\ref{eq:reff}) and $f_\mathrm{kern}$ is set by
+\texttt{--kernel-size-factor} (default 1.0).  Because TNG/Arepo cells
+span two to three orders of magnitude in size between the dense ISM and
+the diffuse halo, the adaptive length smooths each region on its own
+native scale.  A single fixed smoothing length (in output coordinate
+units) can instead be forced with \texttt{--kernel-size~$H$}, which
+overrides the adaptive scaling and sets $h_i = H$ for all cells.
+
+Gaussian smoothing is appropriate when a continuous field is desired
+(e.g., to suppress the cell-to-cell ``staircase'' in coarsely refined
+regions, or to mimic SPH-like kernel fields).  It necessarily softens
+the sharp Voronoi discontinuities, so nearest-neighbor remains the
+default for fidelity to the moving-mesh structure.
+
+\subsection{Step 5: Optional Physics Computation}
+
+When \texttt{--compute-physics} is specified, the following optional
+columns are computed and appended to the output:
+
+\begin{itemize}
+\item \textbf{Neutral fraction} ($x_\mathrm{HI}$): from TNG native
+  \texttt{NeutralHydrogenAbundance} (\texttt{--ionization from\_illustris}),
+  or computed via the CIE formula (\texttt{--ionization cie}), or set
+  to 1 (\texttt{--ionization full\_neutral}).
+
+\item \textbf{Electron density} ($n_e$): from TNG
+  \texttt{ElectronAbundance} (if using \texttt{from\_illustris}), or
+  $n_e = n_\mathrm{H}(1 - x_\mathrm{HI})$.
+
+\item \textbf{Emissivity} (controlled by \texttt{--emissivity-line}):
+  \begin{itemize}
+  \item \texttt{lya} (default): Case~B Ly$\alpha$ recombination plus
+    collisional excitation.
+  \item \texttt{civ}: CIE C\,\textsc{iv} $\lambda\lambda$1548,1550
+    collisional excitation.  Ion fraction from Gnat \& Sternberg (2007),
+    collision strength $\Omega_\mathrm{eff} = 7.5$ from Aggarwal \& Keenan
+    (2004), C/H solar abundance from Asplund et al.\ (2009).
+    Requires metallicity.
+  \item \texttt{ovi}: CIE O\,\textsc{vi} $\lambda\lambda$1032,1038
+    collisional excitation.  Ion fraction from Gnat \& Sternberg (2007),
+    collision strength $\Omega_\mathrm{eff} = 3.8$ from Aggarwal \& Keenan
+    (2004), O/H solar abundance from Asplund et al.\ (2009).
+    Requires metallicity.
+  \end{itemize}
+  The CIE metal-line emissivity is:
+  $\varepsilon = n_\mathrm{ion} \times n_e \times q(T)$
+  \,[photons\,cm$^{-3}$\,s$^{-1}$],
+  where $n_\mathrm{ion} = n_\mathrm{H}\,(Z/Z_\odot)\,A_X\,f_\mathrm{ion}(T)$
+  and $q(T) = 8.629\times10^{-6}/(g_l\sqrt{T})\;\Omega\;\exp(-\Delta E/kT)$.
+  CIE is appropriate for hot gas ($T \gtrsim 10^5$\,K) where these ions
+  peak; for cooler gas the UV background dominates and PIE tables would
+  be more accurate.
+
+\item \textbf{Dust density}: Laursen et al.\ (2009) \cite{laursen2009}
+  prescription: $n_\mathrm{dust} = (Z/Z_\mathrm{ref})\times
+  (n_\mathrm{HI} + f_\mathrm{ion}\,n_\mathrm{HII})$
+  with $Z_\mathrm{ref} = 0.0134$, $f_\mathrm{ion} = 0.01$.
+
+\item \textbf{Metallicity}: cell-by-cell $Z$ from \texttt{GFM\_Metallicity}.
+\end{itemize}
+
+\subsubsection{PIE vs.\ CIE Neutral Fraction}
+\label{sec:pie_vs_cie}
+
+The choice of ionization model (\texttt{--ionization}) has a dramatic
+effect on the resulting optical depth and therefore on the simulation
+run time:
+
+\begin{description}
+\item[\texttt{from\_illustris} (PIE):] TNG computes
+  \texttt{NeutralHydrogenAbundance} at runtime using
+  photoionization equilibrium (PIE) with the Faucher-Gigu\`{e}re et
+  al.\ (2009) metagalactic UV/X-ray background.  At low densities
+  ($n_\mathrm{H} \lesssim 10^{-2}\;\mathrm{cm^{-3}}$), the UV field
+  ionizes hydrogen efficiently and $x_\mathrm{HI}$ is small.  However,
+  at higher densities the gas self-shields against the UV background,
+  keeping $x_\mathrm{HI} \approx 1$ even when $T \sim 10^4$\,K.
+  Star-forming cells (SFR~$> 0$) sit on an effective equation of state
+  and their $x_\mathrm{HI}$ may not be physically meaningful;
+  the \texttt{--sfr-treatment} option mitigates this by capping $T$
+  or excluding those cells.
+
+  Because self-shielded dense gas retains $x_\mathrm{HI} \approx 1$,
+  the PIE neutral fraction typically yields very high line-center optical
+  depths ($\tau_\mathrm{pole} \sim 10^{7}$--$10^{8}$), making
+  Ly$\alpha$ RT simulations expensive.
+
+\item[\texttt{cie} (CIE):] The neutral fraction is computed from the
+  collisional ionization equilibrium (CIE) formula, which depends only
+  on temperature.  Gas with $T \gtrsim 2\times10^4$\,K is almost
+  fully ionized ($x_\mathrm{HI} \ll 1$), regardless of density.
+  This drastically reduces the optical depth in the warm/hot halo gas
+  and is appropriate when the UV background is negligible (e.g., within
+  a galactic wind or at high redshift before reionization).
+  CIE is also useful for testing and benchmarking purposes because the
+  lower optical depth leads to faster simulations.
+
+\item[\texttt{full\_neutral}:] All hydrogen is assumed neutral
+  ($x_\mathrm{HI} = 1$).  This maximizes the optical depth and is
+  mainly useful for idealized tests.
+\end{description}
+
+In practice, the physically correct choice depends on the environment
+being modeled.  For circumgalactic medium (CGM) studies where the UV
+background plays a key role, \texttt{from\_illustris} is preferred.
+For hot outflows or testing purposes, \texttt{cie} provides a faster
+and still physically motivated alternative.
+
+\subsection{Step 6: Output}
+
+The converter writes the standard LaRT generic AMR format (HDF5, FITS,
+or plain text), identical to the output of
+\texttt{convert\_ramses\_to\_generic.py}.  See the RAMSES data structure
+document for the full schema specification.
+
+\begin{center}
+\begin{tabular}{lp{9cm}}
+\toprule
+\textbf{Dataset} & \textbf{Description} \\
+\midrule
+\texttt{x, y, z}    & Octree leaf-cell center [kpc, centered] \\
+\texttt{level}       & AMR refinement level \\
+\texttt{gasDen}      & $n_\mathrm{H}$ [cm$^{-3}$] \\
+\texttt{T}           & Temperature [K] \\
+\texttt{vx, vy, vz}  & Velocity [km/s] \\
+\texttt{metallicity} & Metal mass fraction $Z$ (optional) \\
+\texttt{xHI}         & Neutral fraction $x_\mathrm{HI}$ (optional) \\
+\texttt{n\_e}        & Electron density [cm$^{-3}$] (optional) \\
+\texttt{emissivity}  & Line emissivity [cm$^{-3}$\,s$^{-1}$] (optional; Ly$\alpha$, C\,\textsc{iv}, or O\,\textsc{vi}) \\
+\texttt{ndust}       & Dust pseudo-number density [cm$^{-3}$] (optional) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+%=============================================================================
+\section{Converter Usage}
+\label{sec:usage}
+%=============================================================================
+
+The converter script is located at:
+\begin{lstlisting}[style=shellstyle]
+LaRT_v2.00/python/AMR_grid/convert_illustris_to_generic.py
+\end{lstlisting}
+
+\subsection{Basic Usage (Local File)}
+
+\begin{lstlisting}[style=shellstyle]
+python convert_illustris_to_generic.py cutout.hdf5 \
+    -o galaxy.h5 \
+    --output-unit kpc \
+    --level-max 8 \
+    --compute-physics \
+    --ionization from_illustris \
+    --plot
+\end{lstlisting}
+
+\subsection{API Download Mode}
+
+The converter can download subhalo cutouts from the IllustrisTNG
+public API.  A free API key is required (register at
+\texttt{tng-project.org/users/register/}).
+
+\begin{lstlisting}[style=shellstyle]
+python convert_illustris_to_generic.py \
+    --api-key YOUR_API_KEY \
+    --simulation TNG50-1 \
+    --snap 99 \
+    --subhalo-id 0 \
+    -o galaxy.h5 \
+    --compute-physics
+\end{lstlisting}
+
+\subsection{Full Command-Line Reference}
+
+\begin{longtable}{p{4.5cm}p{2.5cm}p{7cm}}
+\toprule
+\textbf{Flag} & \textbf{Default} & \textbf{Description} \\
+\midrule
+\endfirsthead
+\toprule
+\textbf{Flag} & \textbf{Default} & \textbf{Description} \\
+\midrule
+\endhead
+
+\texttt{input\_file}  & (positional) & Input HDF5 file (cutout or snapshot chunk) \\
+\texttt{-o, --output}  & (required) & Output file (.h5, .fits.gz, or .dat) \\
+\texttt{--output-unit}  & \texttt{kpc} & Unit of output coordinates \\
+\midrule
+\multicolumn{3}{l}{\textit{Grid type}} \\
+\texttt{--grid-type}  & \texttt{amr} & Output grid type: \texttt{amr} (adaptive octree)
+  or \texttt{cartesian} (uniform $N^3$ grid) \\
+\texttt{--ngrid}  & 128 & Grid cells per side (only for \texttt{--grid-type cartesian}) \\
+\midrule
+\multicolumn{3}{l}{\textit{Octree refinement (AMR mode only)}} \\
+\texttt{--level-max}  & 8 & Maximum AMR level \\
+\texttt{--level-min}  & 3 & Minimum uniform refinement level \\
+\texttt{--dens-threshold}  & 0.3 & Density gradient threshold $\delta_\mathrm{thresh}$ \\
+\texttt{--vel-threshold}   & 0.3 & Velocity gradient threshold \\
+\texttt{--match-resolution}  & off & Enable resolution-matching refinement \\
+\texttt{--resolution-factor} & 1.0 & Factor $f$ for resolution matching \\
+\midrule
+\multicolumn{3}{l}{\textit{Resampling (Voronoi $\rightarrow$ grid value assignment)}} \\
+\texttt{--resample-method}
+  & \texttt{nearest}
+  & \texttt{nearest} (Voronoi-exact) or \texttt{gaussian}
+    (volume-weighted kernel smoothing) \\
+\texttt{--kernel-size-factor} & 1.0 & Gaussian mode: adaptive
+  $h_i = f_\mathrm{kern}\,r_{\mathrm{eff},i}$ \\
+\texttt{--kernel-neighbors}  & 32 & Gaussian mode: number of nearest
+  cells $K$ gathered per grid point \\
+\texttt{--kernel-size}  & auto & Gaussian mode: fixed smoothing length
+  $H$ [output units], overriding the adaptive factor \\
+\midrule
+\multicolumn{3}{l}{\textit{Physics}} \\
+\texttt{--compute-physics}  & off & Compute $x_\mathrm{HI}$, $n_e$, emissivity, $n_\mathrm{dust}$ \\
+\texttt{--ionization}
+  & \texttt{from\_illustris}
+  & Source of $x_\mathrm{HI}$: \texttt{from\_illustris}, \texttt{cie},
+    \texttt{full\_neutral}, or \texttt{none} \\
+\texttt{--emissivity-line}
+  & \texttt{lya}
+  & Emission line for emissivity column:
+    \texttt{lya} (Case~B Ly$\alpha$),
+    \texttt{civ} (CIE C\,\textsc{iv} 1548+1550),
+    \texttt{ovi} (CIE O\,\textsc{vi} 1032+1038) \\
+\midrule
+\multicolumn{3}{l}{\textit{ISM treatment}} \\
+\texttt{--sfr-treatment}
+  & \texttt{cap-\newline temperature}
+  & SFR $>0$ cells: \texttt{cap-temperature},
+    \texttt{exclude}, or \texttt{as-is} \\
+\texttt{--sfr-cap-temp}  & $2\times10^4$ & Temperature cap [K] \\
+\midrule
+\multicolumn{3}{l}{\textit{Geometry}} \\
+\texttt{--center X Y Z}  & auto & Galaxy center [physical kpc] \\
+\texttt{--boxsize}  & auto & Box side length [kpc] \\
+\midrule
+\multicolumn{3}{l}{\textit{API download (optional)}} \\
+\texttt{--api-key}    & --- & TNG API key \\
+\texttt{--simulation} & TNG50-1 & Simulation name \\
+\texttt{--snap}        & 99 & Snapshot number \\
+\texttt{--subhalo-id}  & 0  & Subhalo ID \\
+\midrule
+\multicolumn{3}{l}{\textit{Miscellaneous}} \\
+\texttt{--plot}  & off & Generate diagnostic slice plot ($n_\mathrm{H}$
+  and $T$): area-filled cross-sections by default \\
+\texttt{--plot-scatter}  & off & With \texttt{--plot}, use the old
+  scatter-of-cell-centers style (thin $|z|<\mathrm{boxlen}/50$ slab) \\
+\bottomrule
+\end{longtable}
+
+\subsection{Diagnostic Plot}
+\label{sec:diagnostic_plot}
+
+With \texttt{--plot}, the converter writes a two-column PNG comparing
+$n_\mathrm{H}$ and $T$ on a central slice.  By default the panels are
+\textbf{area-filled cross-sections}: the left column shows the exact
+Voronoi field (a fine $512^2$ pixel grid colored by nearest-neighbor
+lookup), and the right column shows the resampled grid as it was
+written---true octree squares (one rectangle per leaf cell, sized by
+its level) in AMR mode, or an \texttt{imshow} of the central plane in
+Cartesian mode.  Comparing the two columns reveals how faithfully the
+chosen resolution and resampling method reproduce the underlying
+Voronoi structure.
+
+Passing \texttt{--plot-scatter} reverts to the older diagnostic style:
+a four-panel scatter plot of the cell centers within a thin
+$|z| < \mathrm{boxlen}/50$ slab, colored by value.  This is faster for
+very large grids but does not fill the cross-sectional area.
+
+\subsection{Suggested LaRT Input}
+
+After conversion, the converter prints a suggested LaRT input file
+snippet.  A typical configuration:
+
+\begin{lstlisting}[style=fortranstyle]
+&parameters
+ par%use_amr_grid    = .true.
+ par%amr_type        = 'generic'
+ par%amr_file        = 'galaxy.h5'
+ par%distance_unit   = 'kpc'
+ par%no_photons      = 1e+06
+ par%spectral_type   = 'voigt'
+ par%source_geometry = 'diffuse_emissivity'
+ par%nxfreq          = 121
+ par%nxim            = 100
+ par%nyim            = 100
+/
+\end{lstlisting}
+
+With \texttt{par\%source\_geometry = 'diffuse\_emissivity'}, LaRT uses
+the \texttt{emissivity} column from the converted file to determine the
+photon source distribution.  Alternatively, use \texttt{'point'} for a
+central point source.
+
+\subsection{Cartesian Grid Output}
+\label{sec:cartesian_grid}
+
+In addition to the adaptive AMR octree, the converter can produce a
+uniform $N \times N \times N$ Cartesian grid using
+\texttt{--grid-type cartesian --ngrid N}.  The Voronoi cell data is
+resampled onto the regular grid using the same
+\texttt{--resample-method} as the octree path (nearest-neighbor by
+default, or Gaussian kernel smoothing; \S\ref{sec:assignment}).
+
+The output file stores each physical quantity as a separate 3D image
+section (HDF5 group with a \texttt{data} dataset, or FITS image
+extension), identified by \texttt{EXTNAME}.  Header attributes
+(\texttt{BOXLEN}, \texttt{NX}, \texttt{NY}, \texttt{NZ},
+\texttt{UNITLCGS}, \texttt{ORIGINX/Y/Z}) are on the first section.
+
+\begin{lstlisting}[style=shellstyle]
+python convert_illustris_to_generic.py cutout.hdf5 \
+    -o galaxy_cart.h5 --output-unit kpc \
+    --grid-type cartesian --ngrid 128 \
+    --compute-physics --ionization cie \
+    --boxsize 200
+\end{lstlisting}
+
+LaRT reads this format via the \texttt{par\%cart\_file} parameter:
+
+\begin{lstlisting}[style=fortranstyle]
+&parameters
+ par%cart_file       = 'galaxy_cart.h5'
+ par%distance_unit   = 'kpc'
+ par%source_geometry = 'diffuse_emissivity'
+ par%no_photons      = 1e+06
+ par%spectral_type   = 'voigt'
+ par%nxfreq          = 121
+ par%nxim            = 100
+ par%nyim            = 100
+/
+\end{lstlisting}
+
+When \texttt{par\%cart\_file} is set, LaRT uses the standard Cartesian
+raytrace (no AMR overhead).  Grid dimensions and box size are read from
+the file header, overriding any \texttt{par\%nx}/\texttt{par\%xmax}
+values.  Optional columns (\texttt{xHI}, \texttt{emissivity},
+\texttt{ndust}) are applied automatically: \texttt{xHI} scales the
+H\,\textsc{i} opacity, \texttt{emissivity} populates the diffuse
+source, and \texttt{ndust} sets the dust opacity.
+
+
+%=============================================================================
+\section{End-to-End Workflow}
+\label{sec:workflow}
+%=============================================================================
+
+A typical analysis workflow is:
+
+\begin{enumerate}
+\item \textbf{Obtain data}: download a subhalo cutout from the TNG
+  public API, or locate a local snapshot chunk file.
+
+\item \textbf{Convert to octree}:
+\begin{lstlisting}[style=shellstyle]
+python convert_illustris_to_generic.py cutout.hdf5 \
+    -o galaxy.h5 --output-unit kpc \
+    --level-max 8 --compute-physics \
+    --ionization from_illustris \
+    --sfr-treatment cap-temperature \
+    --boxsize 200 --plot
+\end{lstlisting}
+
+\item \textbf{Inspect the grid}: use \texttt{AMRGrid.read} and
+  \texttt{slice\_plot} to verify the density and velocity structure.
+
+\item \textbf{Run LaRT}:
+\begin{lstlisting}[style=shellstyle]
+mpirun -np 64 LaRT.x galaxy_lya.in
+\end{lstlisting}
+
+\item \textbf{Analyze output}: use \texttt{read\_lart.py} to read the
+  output and produce spectra, surface-brightness maps, etc.
+\end{enumerate}
+
+
+%=============================================================================
+\section{Technical Notes}
+\label{sec:notes}
+%=============================================================================
+
+\subsection{Nearest-Neighbor vs.\ Kernel Smoothing}
+
+For Voronoi data from Arepo, the nearest-neighbor KD-tree query
+(\texttt{--resample-method nearest}, default) recovers the exact
+Voronoi cell assignment.  Each point in space belongs to exactly one
+cell (the one whose generator is closest), so the nearest-neighbor
+query returns the correct cell-averaged quantities and preserves the
+sharp density and velocity discontinuities the moving mesh is designed
+to capture (contact discontinuities, shock fronts, galactic outflow
+boundaries).  This is the recommended default for fidelity to the
+simulation.
+
+The Gaussian kernel option (\texttt{--resample-method gaussian},
+Equation~\ref{eq:gauss_gather}) is provided for cases where a
+\emph{continuous} resampled field is preferable to an exact piecewise
+one---for example, to suppress the cell-to-cell ``staircase'' that
+appears when a steep gradient is resolved by only a few coarse octree
+cells, or to compare against SPH-style kernel fields.  Because the
+adaptive smoothing length tracks the local cell size
+(Equation~\ref{eq:adaptive_h}), each region is smoothed on its own
+native scale rather than with a single global length.  Smoothing
+inevitably softens the Voronoi discontinuities and slightly lowers
+peak densities, and it also reduces the number of refined octree cells
+(gradients are gentler), so it trades exactness for smoothness.
+
+\subsection{Memory and Performance}
+
+For a typical TNG cutout with $\sim 10^6$ gas cells:
+\begin{itemize}
+\item KD-tree construction: $\sim 1$\,GB, $\sim 10$\,s
+\item Octree refinement to level 8: $\sim 1$--$5\times 10^6$ leaf cells,
+  $\sim 1$--$5$\,min
+\item Output HDF5 file: $\sim 50$--$200$\,MB
+\end{itemize}
+
+For $\texttt{--level-max} > 9$, the octree can contain $> 10^8$ cells
+and may require $> 10$\,GB of memory.  Use with caution.
+
+\subsection{Coordinate Centering}
+
+API cutout files from TNG contain cells from the entire parent halo,
+not centered on the subhalo.  The converter automatically recenters
+the data by computing the centroid of the gas cell distribution.
+For more precise centering (e.g., on the subhalo potential minimum),
+use \texttt{--center X Y Z} with the subhalo position from the
+group catalog.
+
+\subsection{Comparison with RAMSES Converter}
+
+The Illustris and RAMSES converters produce the same output format and
+can be used interchangeably with LaRT.  The key differences are:
+
+\begin{center}
+\begin{tabular}{lp{5.5cm}p{5.5cm}}
+\toprule
+& \textbf{RAMSES} & \textbf{Illustris} \\
+\midrule
+Input mesh & Octree AMR & Voronoi (unstructured) \\
+Conversion & Direct: read leaf cells & Resample: nearest-neighbor or kernel smoothing \\
+Fortran converter & Yes & No (Python only) \\
+Ionization & CIE only & CIE or TNG native \\
+Temperature & Directly from thermal pressure & From InternalEnergy + $x_e$ \\
+ISM treatment & Not needed & SFR temperature cap \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+
+%=============================================================================
+\section{Data Access}
+\label{sec:access}
+%=============================================================================
+
+\subsection{Public API}
+
+Both projects provide REST APIs for querying and downloading data:
+
+\begin{itemize}
+\item Illustris: \texttt{https://www.illustris-project.org/api/}
+\item IllustrisTNG: \texttt{https://www.tng-project.org/api/}
+\end{itemize}
+
+An API key is required (free registration for academic use).  The API
+supports searching subhalos by mass, SFR, or other properties, and
+downloading cutout HDF5 files for individual halos or subhalos.
+
+\subsection{Direct File Downloads}
+
+Full snapshot files can be downloaded directly from the project
+websites.  A single TNG100-1 snapshot at $z=0$ is $\sim 20$\,GB
+(split across $\sim 450$ chunk files).
+
+\subsection{Python Helper Scripts}
+
+The official \texttt{illustris\_python} package
+(\texttt{https://github.com/illustristng/illustris\_python}) provides
+convenience functions for loading subhalos from local snapshot files.
+The LaRT converter does \emph{not} depend on this package; it reads
+HDF5 files directly with \texttt{h5py}.
+
+
+%=============================================================================
+\begin{thebibliography}{99}
+\bibitem{vogelsberger2014}
+Vogelsberger, M., Genel, S., Springel, V., et al.\ 2014, MNRAS, 444, 1518
+(\textit{Introducing the Illustris simulation: The evolving population of
+galaxies across cosmic time}).
+
+\bibitem{nelson2015}
+Nelson, D., Pillepich, A., Genel, S., et al.\ 2015, Astron.\ Comput., 13, 12
+(\textit{The Illustris simulation: Public data release}).
+
+\bibitem{nelson2019}
+Nelson, D., Springel, V., Pillepich, A., et al.\ 2019, Comput.\ Astrophys.\ Cosmol., 6, 2
+(\textit{The IllustrisTNG simulations: Public data release}).
+
+\bibitem{pillepich2018}
+Pillepich, A., Springel, V., Nelson, D., et al.\ 2018, MNRAS, 473, 4077
+(\textit{Simulating galaxy formation with the IllustrisTNG model}).
+
+\bibitem{springel2010}
+Springel, V.\ 2010, MNRAS, 401, 791
+(\textit{E pur si muove: Galilean-invariant cosmological hydrodynamical
+simulations on a moving mesh}).
+
+\bibitem{springel-hernquist2003}
+Springel, V., Hernquist, L.\ 2003, MNRAS, 339, 289
+(\textit{Cosmological smoothed particle hydrodynamics simulations: A
+hybrid multiphase model for star formation}).
+Effective EOS model for the multiphase ISM.
+
+\bibitem{laursen2009}
+Laursen, P., Sommer-Larsen, J., Andersen, A.\ C.\ 2009, ApJ, 704, 1640
+(\textit{Lyman-$\alpha$ radiative transfer with dust}).
+Source of the dust prescription and the ISM temperature-cap convention.
+
+\bibitem{bentley1975}
+Bentley, J.\ L.\ 1975, Commun.\ ACM, 18, 509
+(\textit{Multidimensional binary search trees used for associative searching}).
+\end{thebibliography}
+
+\end{document}

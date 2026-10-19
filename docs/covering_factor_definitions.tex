@@ -1,0 +1,238 @@
+%% Covering Factor Definitions for the LaRT Clumpy Medium
+%% Author: Kwang-Il Seon
+\documentclass[english,a4paper]{my_memo}
+\synctex=1
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{microtype}
+\usepackage{babel}
+
+\begin{document}
+
+\title{Covering Factor Definitions in the LaRT Clumpy Medium}
+\author{Kwang-Il Seon}
+\date{\docmoddate}
+\maketitle
+
+\tableofcontents
+\bigskip
+
+%=============================================================================
+\section{Setup and Notation}
+%=============================================================================
+
+We consider a spherical domain of radius $R$ filled with a population of
+spherical clumps.  In the present LaRT implementation each clump has the
+same radius $r_c$ and the same internal opacity, but the formulas below are
+written so that a generalization to position-dependent
+$r_c(\mathbf{r})$ and clump number density $n_c(\mathbf{r})$ is immediate.
+
+The fundamental local quantity is the differential covering rate per unit
+path length,
+\begin{equation}
+   \kappa_{\rm cov}(\mathbf{r}) \;\equiv\; n_c(\mathbf{r})\,\pi\,r_c(\mathbf{r})^2 ,
+   \label{eq:kappa_cov}
+\end{equation}
+which has units of inverse length and represents the expected number of
+clumps a sightline encounters per unit length when passing through the
+neighborhood of $\mathbf{r}$.
+
+For uniform profiles
+$n_c(\mathbf{r})=n_c^{(0)}\equiv N/[(4/3)\pi R^{3}]$ and
+$r_c(\mathbf{r})=r_c$, so
+$\kappa_{\rm cov} = N\,r_c^{2}/((4/3)R^{3})$.
+
+%=============================================================================
+\section{Current LaRT Definition (Uniform Clumps)}
+%=============================================================================
+
+LaRT currently uses
+\begin{equation}
+   \boxed{\;
+   f_{\rm cov}^{\rm LaRT} \;=\; \tfrac{3}{4}\,N\,\Bigl(\frac{r_c}{R}\Bigr)^{\!2}\; }
+   \label{eq:fcov_LaRT}
+\end{equation}
+as the covering factor associated with $N$ clumps of radius $r_c$ packed
+into a sphere of radius $R$ (see \texttt{clump\_mod.f90}, lines~93 and~136).
+The companion volume filling factor is
+\begin{equation}
+   f_{\rm vol}^{\rm LaRT} \;=\; N\,\Bigl(\frac{r_c}{R}\Bigr)^{\!3}.
+   \label{eq:fvol_LaRT}
+\end{equation}
+
+Equation~\eqref{eq:fcov_LaRT} is exactly the radial line-of-sight integral
+of $\kappa_{\rm cov}$ from the box center to the surface,
+\begin{equation}
+   f_{\rm cov}^{\rm LaRT}
+   \;=\; \int_{0}^{R}\! \kappa_{\rm cov}\,dr
+   \;=\; n_c^{(0)}\,\pi\,r_c^{2}\,R
+   \;=\; \tfrac{3}{4}\,N\,(r_c/R)^{2},
+\end{equation}
+i.e.~the average number of clumps a photon emitted at the center crosses on
+its way out.  This is the natural Monte-Carlo interpretation: it equals the
+expected count of clump intersections along a single radial trajectory
+emerging from the source.
+
+%=============================================================================
+\section{Generalized Definitions for Non-Uniform Profiles}
+%=============================================================================
+
+When $r_c$ and $n_c$ depend on position, the single number $f_{\rm cov}$ must
+be defined by a particular averaging prescription.  Three natural choices
+are described below.  All three reduce to Eq.~\eqref{eq:fcov_LaRT} (up to a
+constant prefactor) in the uniform limit.
+
+\subsection{Radial Line-of-Sight Integral (current LaRT convention)}
+\label{sec:los}
+
+Integrate $\kappa_{\rm cov}$ along a single radial sightline from the box
+center to the surface,
+\begin{equation}
+   f_{\rm cov}^{\rm LOS}
+   \;=\; \int_{0}^{R}\! n_c(r)\,\pi\,r_c(r)^{2}\,dr.
+   \label{eq:fcov_los}
+\end{equation}
+For a spherically-symmetric profile the result is direction-independent.
+
+\paragraph{Uniform limit.} Substituting $n_c=n_c^{(0)}$ and constant $r_c$
+recovers exactly Eq.~\eqref{eq:fcov_LaRT}.
+
+\paragraph{Physical meaning.} The expected number of clumps a photon
+launched at the center traverses on its way to the surface.  This is the
+quantity that controls the radiative-transfer outcome for a centrally
+located source most directly.
+
+\subsection{Impact-Parameter Average (Random External Sightline)}
+\label{sec:impact}
+
+A distant external observer sees the box covered by chords of varying
+impact parameter $b\in[0,R]$.  Averaging the covering along such chords
+with the natural area weight yields
+\begin{equation}
+   \langle f_{\rm cov}\rangle_{b}
+   \;=\; \frac{1}{\pi R^{2}}
+         \int_{0}^{R}\! 2\pi b\,f_{\rm cov}(b)\,db,
+   \label{eq:fcov_impact}
+\end{equation}
+where $f_{\rm cov}(b)$ is the line integral of $\kappa_{\rm cov}$ along the
+chord at impact parameter $b$.
+
+\paragraph{Uniform limit.} The chord length is $2\sqrt{R^{2}-b^{2}}$, so
+\begin{align}
+   \langle f_{\rm cov}\rangle_{b}^{\rm uniform}
+   &= n_c^{(0)}\,\pi\,r_c^{2}\,
+      \frac{4}{R^{2}}\!\int_{0}^{R}\!b\sqrt{R^{2}-b^{2}}\,db \nonumber \\
+   &= \tfrac{4}{3}\,n_c^{(0)}\,\pi\,r_c^{2}\,R
+   \;=\; N\,\Bigl(\frac{r_c}{R}\Bigr)^{\!2},
+   \label{eq:fcov_impact_uniform}
+\end{align}
+which exceeds Eq.~\eqref{eq:fcov_LaRT} by a factor $4/3$.
+
+\paragraph{Physical meaning.} The covering factor as inferred from
+absorption observations of a background source for which all sightlines
+through the cloud are equally likely (uniform illumination by a
+distant continuum source).
+
+\subsection{Volume-Weighted Average}
+\label{sec:volume}
+
+Volume-average the local covering rate $\kappa_{\rm cov}(\mathbf{r})$ and
+multiply by the radius to obtain a length-scaled covering,
+\begin{equation}
+   f_{\rm cov}^{\rm vol}
+   \;\equiv\; R\,\bigl\langle\kappa_{\rm cov}\bigr\rangle_{V}
+   \;=\; \frac{R}{V_{\rm box}}\!\int n_c(r)\,\pi\,r_c(r)^{2}\,dV
+   \;=\; \frac{3\pi}{R^{2}}\!\int_{0}^{R}\!n_c(r)\,r_c(r)^{2}\,r^{2}\,dr.
+   \label{eq:fcov_volume}
+\end{equation}
+
+\paragraph{Uniform limit.}
+$f_{\rm cov}^{\rm vol,\,uniform} = R\,n_c^{(0)}\,\pi\,r_c^{2} =
+\tfrac{3}{4}\,N\,(r_c/R)^{2}$, identical to Eq.~\eqref{eq:fcov_LaRT}.
+
+\paragraph{Physical meaning.} A bulk diagnostic of how much projected
+clump area exists in the box, normalized by the domain size.  The radial
+weight $r^{2}$ heavily favors outer clumps over inner clumps and hence
+differs from the LOS integral whenever the profile is non-trivial.
+
+%=============================================================================
+\section{Equivalence in the Uniform Limit}
+%=============================================================================
+
+In the uniform-clump limit the three definitions are related by simple
+constants, summarized below:
+
+\begin{center}
+\renewcommand{\arraystretch}{1.4}
+\begin{tabular}{@{}lll@{}}
+\hline
+Definition & Symbol & Uniform-limit value \\
+\hline
+Radial LOS (current LaRT)        & $f_{\rm cov}^{\rm LOS}$            & $\tfrac{3}{4}N(r_c/R)^{2}$ \\
+Impact-parameter average         & $\langle f_{\rm cov}\rangle_{b}$   & $N(r_c/R)^{2}$ \\
+Volume-weighted                  & $f_{\rm cov}^{\rm vol}$            & $\tfrac{3}{4}N(r_c/R)^{2}$ \\
+\hline
+\end{tabular}
+\end{center}
+
+The radial-LOS and volume-weighted definitions coincide in the uniform
+case but differ in general (the volume weight $4\pi r^{2}$ is absent from
+the LOS form).  The impact-parameter average exceeds the LOS form by a
+constant factor $4/3$ in the uniform limit.
+
+%=============================================================================
+\section{Behavior for Non-Uniform Profiles}
+%=============================================================================
+
+The three averages diverge once $r_c$ or $n_c$ depend on position.  Two
+illustrative cases:
+
+\paragraph{(a) Thin shell of clumps at $r=r_{0}$.}
+Let $n_c(r) = (N/4\pi r_{0}^{2})\,\delta(r-r_{0})$ with constant $r_c$.
+
+\begin{itemize}
+\item LOS: $f_{\rm cov}^{\rm LOS} = (N/4\pi r_{0}^{2})\,\pi\,r_c^{2} = N r_c^{2}/(4 r_{0}^{2})$.\\
+  Independent of $R$; only the shell radius matters.
+\item Volume-weighted: $f_{\rm cov}^{\rm vol} = (3\pi/R^{2})\,(N/4\pi r_{0}^{2})\,r_c^{2}\,r_{0}^{2}\,(\text{shell width factor})$. \\
+  Suppressed by $(r_{0}/R)^{0}$ but multiplied by $r^{2}$ inside the integral, so a shell at large $r_0$ contributes more than a shell at small $r_0$.
+\item Impact-parameter average: depends on $r_{0}/R$ through the chord-length geometry.
+\end{itemize}
+
+\paragraph{(b) Power-law clump density $n_c(r)\propto r^{-\alpha}$.}
+With constant $r_c$ and $\alpha<3$ to keep the total finite,
+\begin{align}
+   f_{\rm cov}^{\rm LOS}    &\propto \int_{0}^{R}\! r^{-\alpha}\,dr   \;\propto\; R^{1-\alpha}, \\
+   f_{\rm cov}^{\rm vol}    &\propto \int_{0}^{R}\! r^{-\alpha}r^{2}\,dr \;\propto\; R^{3-\alpha}.
+\end{align}
+The LOS integral is dominated by inner clumps (for $\alpha>1$), while the
+volume-weighted form is dominated by outer clumps for any $\alpha<3$.
+This contrast is the key reason the two definitions cannot be used
+interchangeably outside the uniform limit.
+
+%=============================================================================
+\section{Recommendation for the Generalized Implementation}
+%=============================================================================
+
+The radial line-of-sight integral, Eq.~\eqref{eq:fcov_los}, is the
+recommended default because:
+
+\begin{enumerate}
+\item It coincides with the current LaRT formula
+      Eq.~\eqref{eq:fcov_LaRT} in the uniform limit, so existing input
+      files retain their meaning.
+\item It is the quantity most directly probed by a centrally located
+      photon source; for radiative-transfer diagnostics this is a more
+      faithful indicator than a volume-weighted bulk number.
+\item It is a single one-dimensional integral and is straightforward
+      to evaluate numerically in the helper routine
+      \texttt{derive\_clump\_\-normalization}.
+\end{enumerate}
+
+The impact-parameter average, Eq.~\eqref{eq:fcov_impact}, can optionally
+be reported alongside as a diagnostic for comparison with absorption-line
+observations of background sources.  The volume-weighted definition,
+Eq.~\eqref{eq:fcov_volume}, is included here for completeness but is not
+recommended as the primary input quantity because of its strong outer-shell
+weighting.
+
+\end{document}

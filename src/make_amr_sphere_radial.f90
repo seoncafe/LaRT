@@ -400,7 +400,7 @@ contains
       scale = vrot / rmax
       vxo = -scale * y; vyo = scale * x; vzo = 0.0_wp
     case ('rotating_galaxy_halo')
-      ! Flat rotation curve above rinner about z (Kim et al.):
+      ! Flat rotation curve above rinner about z (Kym et al. (2026, arXiv:2609.08396), Eq. (1)):
       !   rxy < rinner : solid body   (scale = Vrot/rinner)
       !   rxy >= rinner: flat curve   (scale = Vrot/rxy)
       block

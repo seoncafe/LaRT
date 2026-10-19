@@ -1162,7 +1162,7 @@ contains
   !   'parallel_velocity'   : v = (Vx, Vy, Vz)               [uniform bulk]
   !   'ssh'                 : Song, Seon & Hwang (2020) galaxy model
   !   'rotating_solid_body' : v = Vrot * (-y, x, 0) / sphere_R
-  !   'rotating_galaxy_halo': flat rotation curve (Vrot, rinner)
+  !   'rotating_galaxy_halo': v_phi = Vrot*r_cyl/rinner (r_cyl < rinner), Vrot (r_cyl >= rinner)
   !---------------------------------------------------------------------------
   implicit none
   integer(int64) :: icl
@@ -1237,7 +1237,7 @@ contains
         vy =  par%Vrot * xc / sphere_R
 
      case ('rotating_galaxy_halo')
-        ! flat rotation curve: Vrot inside rinner, then Vrot * rinner / rr
+        ! Kym et al. (2026, arXiv:2609.08396), Eq. (1): v_phi = Vrot*r_cyl/rinner for r_cyl < rinner, Vrot outside
         rr_cyl = sqrt(xc**2 + yc**2)
         if (rr_cyl > 0.0_wp) then
            if (rr_cyl < par%rinner) then

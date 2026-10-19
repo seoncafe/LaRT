@@ -1,0 +1,2784 @@
+%% LaRT v2 User Manual
+\documentclass[english,a4paper]{my_memo}
+\synctex=1
+\usepackage{listings}
+\usepackage{longtable}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{tabularx}
+\usepackage{babel}
+
+\newcommand{\fdg}{\hbox{$.\!\!^\circ$}}
+\newcommand{\parm}[1]{\texttt{par\%#1}}
+\newcommand{\ion}[2]{#1\,{\scriptsize #2}}
+\newcolumntype{L}[1]{>{\raggedright\arraybackslash}p{#1}}
+
+\lstset{
+  basicstyle=\ttfamily\small,
+  commentstyle=\color{gray},
+  stringstyle=\color{olive},
+  frame=single,
+  breaklines=true,
+  numbers=left,
+  numberstyle=\tiny\color{gray},
+  language=[95]Fortran
+}
+
+\title{LaRT v2 User Manual}
+\author{Kwang-Il Seon}
+%% Compile-time date in ISO format (YYYY-MM-DD); updates automatically on every
+%% build.  Shown on the title block and in the page footer (see my_memo.cls).
+\date{\docmoddate}
+
+\begin{document}
+\maketitle
+\tableofcontents
+\bigskip
+
+%=============================================================================
+\section{Introduction}
+%=============================================================================
+
+\textbf{LaRT} (\textbf{L}yman-\textbf{a}lpha \textbf{R}adiative \textbf{T}ransfer) is a Monte Carlo
+radiative transfer code for computing the propagation of resonance-line photons through
+astrophysical neutral-gas media.  The default transition is Lyman-$\alpha$ (Ly$\alpha$,
+\ion{H}{I} 1216\,\AA), but many other UV/optical/IR lines are supported
+(see \S\ref{sec:lineid}).  Dust scattering and absorption, full Stokes polarization
+tracking, Hubble-flow and other bulk velocity fields, and spatially varying density,
+temperature, and velocity from external data files are all supported.
+
+Starting from v2.00, the Cartesian grid is supplemented by:
+\begin{itemize}
+  \item \textbf{AMR mode} — octree adaptive mesh refinement, allowing spatially varying
+        resolution (\S\ref{sec:amr}).
+  \item \textbf{Clumpy medium mode} — a population of compact, optically thick spherical
+        clumps embedded in a transparent inter-clump medium (\S\ref{sec:clump}).
+\end{itemize}
+
+This manual covers v2.00 and v2.10.  The only user-visible change in v2.10 is the
+introduction of \parm{grid\_type} as a unified selector for the three grid modes;
+the old \parm{use\_amr\_grid} and \parm{use\_clump\_medium} flags remain valid for
+backward compatibility.
+
+%=============================================================================
+\section{Installation and Build}
+%=============================================================================
+
+\subsection{Prerequisites}
+
+\begin{itemize}
+  \item Fortran 2003+ compiler: Intel \texttt{ifort}/\texttt{ifx} or GNU
+        \texttt{gfortran}~$\geq$~7.
+  \item CFITSIO library.
+  \item HDF5 library (Fortran bindings), version~$\geq$~1.14, built with the
+        same compiler used for LaRT.  Required for the default build
+        (\texttt{HDF5=1}); skip with \texttt{HDF5=0} for a FITS-only build.
+  \item MPI library (MPICH or OpenMPI).
+\end{itemize}
+
+\subsection{Compilation}
+
+\begin{lstlisting}[language=bash,numbers=none]
+cd LaRT_v2.00            # or LaRT_v2.10
+make                     # produces LaRT.x (HDF5=1 is the default)
+make HDF5=0              # FITS-only build (no HDF5 link dependency)
+make HDF5_PREFIX=/path   # override HDF5 install location
+make DEBUG=1             # full debug flags + runtime checks
+make CALCJ=1 CALCP=1     # mean intensity J(x) + scattering rate P_alpha
+make F90=mpif90          # override compiler
+make clean               # remove .o and .mod files
+make cleanall            # also remove executables
+make convert_ramses      # auxiliary RAMSES converter
+\end{lstlisting}
+
+Every \texttt{make} invocation recompiles all objects (no incremental builds).
+\parm{HDF5\_PREFIX} defaults to \path{/data/opt/hdf5_intel} on this machine; set
+it on the command line or as an environment variable when building elsewhere.
+
+\subsection{Running}
+
+\begin{lstlisting}[language=bash,numbers=none]
+mpirun -np 8 LaRT.x input.in
+\end{lstlisting}
+
+\begin{sloppypar}
+Output is written to \texttt{<base>.h5} by default (or \texttt{<base>.fits.gz}
+when \parm{file\_format}~$=$~\texttt{'fits'} is set), where \texttt{<base>} is
+the input file base name (without \texttt{.in}) unless \parm{out\_file} is set
+explicitly.  See \S\ref{sec:fileformats} for the two supported file formats
+and how to choose between them.
+\end{sloppypar}
+
+%=============================================================================
+\section{Input File Format}
+%=============================================================================
+
+Input files use Fortran \emph{namelist} syntax.  All parameters are prefixed with
+\texttt{par\%} and collected in a single \texttt{\&parameters} block.
+
+\begin{lstlisting}
+&parameters
+ par%no_photons     = 1e6
+ par%temperature    = 1.0e4      ! gas temperature [K]
+ par%taumax         = 1.0e4
+ par%nx = 101, par%ny = 101, par%nz = 101
+ par%rmax           = 1.0
+ par%source_geometry = 'point'
+ par%spectral_type  = 'voigt'
+ par%nxfreq         = 121
+/
+\end{lstlisting}
+
+\begin{itemize}
+  \item String values must be enclosed in single quotes.
+  \item Multiple parameters may appear on one line, separated by commas.
+  \item Lines beginning with \texttt{!} are comments.
+  \item Unspecified parameters retain compiled defaults (listed in \S\ref{sec:refcard}).
+\end{itemize}
+
+%=============================================================================
+\section{Grid Configuration}
+\label{sec:grid}
+%=============================================================================
+
+\subsection{Cartesian Grid}
+
+The simulation domain is a rectangular box centered at the origin.  By default
+$x \in [-x_\text{max},\,+x_\text{max}]$ (and similarly for $y$ and $z$).
+The cell size is $\Delta x = 2\,x_\text{max}/n_x$.
+
+\begin{center}
+\begin{tabular}{@{}l@{\hspace{1.5em}}l@{\hspace{1.5em}}l@{}}
+\toprule
+Parameter & Default & Description \\
+\midrule
+\parm{nx}, \parm{ny}, \parm{nz} & 101 & Number of cells per axis \\
+\parm{xmax}, \parm{ymax}, \parm{zmax} & 1.0 & Half-box size per axis (code units) \\
+\parm{rmax} & $-999$ & Spherical boundary: density $= 0$ for $r > r_\text{max}$ \\
+\parm{rmin} & $-999$ & Inner cavity: density $= 0$ for $r < r_\text{min}$ \\
+\parm{cone\_opening} & 0.0 & Biconical outflow half-opening angle [degrees] along the $z$-axis. When $>0$, density is set to zero outside the bicone ($|\cos\theta| < \cos\alpha_\mathrm{cone}$). Works with Cartesian, AMR, and clumpy-medium modes. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+If \parm{input\_field} or \parm{dens\_file} is given, \texttt{(nx,ny,nz)} and
+\texttt{(xmax,ymax,zmax)} are read from the FITS header automatically.
+
+\subsection{Grid Geometry}
+\label{sec:geometry}
+
+\parm{geometry} selects the spatial symmetry used for accumulating and saving the
+mean-intensity array $J$:
+
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+Value & $J$ output geometry \\
+\midrule
+\texttt{'sphere'} (default) & 1-D radial profile $J(r)$ \\
+\texttt{'cylinder'} & 2-D cylindrical $J(\rho,z)$ \\
+\texttt{'rectangle'} & 3-D Cartesian cube $J(x,y,z)$ \\
+\texttt{'plane\_atmosphere'} & 1-D slab $J(z)$ \\
+\texttt{'spherical\_atmosphere'} & 1-D spherical shell $J(r)$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Symmetry and Periodic Boundaries}
+
+\begin{center}
+\begin{tabular}{@{}l@{\hspace{1.5em}}l@{\hspace{1.5em}}l@{}}
+\toprule
+Parameter & Default & Effect \\
+\midrule
+\parm{xyz\_symmetry} & \texttt{.false.} & Simulate only the $+x,+y,+z$ octant ($8\times$ RAM saving) \\
+\parm{xy\_symmetry}  & \texttt{.false.} & Simulate only the $+x,+y$ quadrant ($4\times$ RAM saving) \\
+\parm{xy\_periodic}  & \texttt{.false.} & Periodic in $x,y$: photons exiting one face re-enter the opposite \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Symmetry options are disabled automatically when peel-off is active.
+
+\subsection{Distance Units}
+
+\begin{center}
+\begin{tabular}{@{}l@{\hspace{1.5em}}l@{\hspace{1.5em}}l@{}}
+\toprule
+Parameter & Default & Description \\
+\midrule
+\parm{distance\_unit} & \texttt{''} & Physical unit: \texttt{'kpc'}, \texttt{'pc'}, \texttt{'au'}, or \texttt{''} (dimensionless) \\
+\parm{distance2cm}    & 1.0 & Alternatively: 1 code unit in cm \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+In dimensionless mode (\parm{distance\_unit}~$=$~\texttt{''}), the gas density is
+determined entirely by \parm{taumax} and the grid geometry; no physical unit is needed.
+
+\subsection{Grid Type Selection}
+
+\begin{center}
+\begin{tabular}{@{}l@{\hspace{1.5em}}l@{\hspace{1.5em}}l@{}}
+\toprule
+Parameter & Default & Description \\
+\midrule
+\parm{grid\_type}$^{\dagger}$ & \texttt{'car'} & \textbf{v2.10+}: \texttt{'car'} (Cartesian), \texttt{'amr'}, or \texttt{'clump'} \\
+\parm{use\_amr\_grid} & \texttt{.false.} & \textbf{v2.00}: enable AMR (deprecated in v2.10) \\
+\parm{use\_clump\_medium} & \texttt{.false.} & \textbf{v2.00}: enable clump mode (deprecated in v2.10) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+%=============================================================================
+\section{Source Configuration}
+\label{sec:source}
+%=============================================================================
+
+\subsection{Source Geometry}
+\label{sec:source_geometry}
+
+\parm{source\_geometry} controls the spatial distribution of photon emission:
+
+\begin{center}
+\begin{tabular}{L{4.7cm}L{10cm}}
+\toprule
+Value & Description \\
+\midrule
+\texttt{'point'} & Point source at $(\parm{xs\_point},\,\parm{ys\_point},\,\parm{zs\_point})$; default $(0,0,0)$ \\
+\texttt{'uniform'} & Uniform volume emissivity throughout the grid (or inside \parm{source\_rmax}) \\
+\texttt{'uniform\_sphere'} & Uniform within a sphere of radius \parm{source\_rmax} \\
+\texttt{'uniform\_xy'} & Uniform in the $z=0$ plane \\
+\texttt{'gaussian'} & Gaussian: $\exp(-r^2/2\sigma_r^2)\exp(-z^2/2\sigma_z^2)$; widths \parm{source\_rscale}, \parm{source\_zscale} \\
+\texttt{'exponential'} & Exponential disc: $\exp(-r/r_s)\exp(-|z|/z_s)$; scales \parm{source\_rscale}, \parm{source\_zscale} \\
+\texttt{'exponential\_sphere'} & Exponential clipped to sphere of radius \parm{source\_rmax} \\
+\texttt{'exponential\_cylinder'} & Exponential clipped to a cylinder \\
+\texttt{'sersic'} / \texttt{'ssh'} & S\'{e}rsic profile; index \parm{sersic\_m}, half-light radius \parm{Reff} \\
+\texttt{'diffuse\_emissivity'} & 3-D emissivity read from \parm{emiss\_file} \\
+\texttt{'star\_file'} & Individual point sources from text file \parm{star\_file} (columns: $x,y,z,L$) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Associated parameters:
+
+\begin{center}
+\begin{tabular}{@{}l@{\hspace{1.5em}}l@{\hspace{1.5em}}l@{}}
+\toprule
+Parameter & Default & Description \\
+\midrule
+\parm{xs\_point}, \parm{ys\_point}, \parm{zs\_point} & 0.0 & Point source position (code units) \\
+\parm{source\_rmax}   & $-999$ & Outer truncation radius for extended sources \\
+\parm{source\_rscale} & $-999$ & Radial scale length \\
+\parm{source\_zscale} & 0.0   & Vertical scale height \\
+\parm{sersic\_m}      & 4.0   & S\'{e}rsic index \\
+\parm{Reff}           & 1.0   & Effective (half-light) radius \\
+\parm{comoving\_source} & \texttt{.true.} & Source photons co-moving with the local gas \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Spectral Type}
+\label{sec:spectral_type}
+
+\parm{spectral\_type} sets the frequency distribution of emitted photons:
+
+\begin{center}
+\begin{tabular}{L{3.5cm}L{9.5cm}}
+\toprule
+Value & Description \\
+\midrule
+\texttt{'monochromatic'} & Delta function at line center ($x = 0$) \\
+\texttt{'voigt'} & Voigt profile at the local gas temperature \\
+\texttt{'voigt0'} & Voigt profile at the fixed temperature \parm{temperature0} \\
+\texttt{'gaussian'} & Gaussian with $\sigma=$\parm{gaussian\_sigma\_vel} or FWHM$=$\parm{gaussian\_FWHM\_vel} [km\,s$^{-1}$] \\
+\texttt{'continuum'} & Flat spectrum over [\parm{velocity\_min}, \parm{velocity\_max}] \\
+\texttt{'continuum+gaussian'} & Fraction $f_\text{line}$ as Gaussian (FWHM$=$\parm{gaussian\_FWHM\_vel}), rest flat continuum; $f_\text{line} = W_\lambda^v / (W_\lambda^v + \Delta v)$ where $W_\lambda^v = \text{EW}/\lambda_0\,c$ and $\Delta v$ is the velocity range. Requires \parm{EW\_line} and \parm{gaussian\_FWHM\_vel}. \\
+\texttt{'line\_prof\_file'} & Arbitrary profile read from \parm{line\_prof\_file} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Line Identification}
+\label{sec:lineid}
+
+The atomic transition is selected with \parm{line\_id} (default: Ly$\alpha$).
+
+\begin{center}
+\begin{tabular}{@{}l@{\hspace{1.5em}}l@{\hspace{1.5em}}l@{}}
+\toprule
+\parm{line\_id} & Transition & Wavelength \\
+\midrule
+(default) & \ion{H}{I} Ly$\alpha$ & 1215.67\,\AA \\
+\texttt{'ly\_alpha\_HD'} & \ion{H}{I} + \ion{D}{I} Ly$\alpha$ & 1215.67\,\AA{} (see below) \\
+\texttt{'ly\_beta'} & \ion{H}{I} Ly$\beta$ (+ H$\alpha$ + 2-photon) & 1025.72\,\AA{} (see below) \\
+\texttt{'CII\_1334'} & \ion{C}{II} (+ fluorescence) & 1334.53\,\AA \\
+\texttt{'CIV\_1548'} & \ion{C}{IV} doublet & 1548.19 / 1550.77\,\AA \\
+\texttt{'NV\_1239'} & \ion{N}{V} doublet & 1238.82 / 1242.80\,\AA \\
+\texttt{'OVI\_1032'} & \ion{O}{VI} doublet & 1031.91 / 1037.61\,\AA \\
+\texttt{'SiIV\_1394'} & \ion{Si}{IV} doublet & 1393.76 / 1402.77\,\AA \\
+\texttt{'NaI\_D'} & \ion{Na}{I} D doublet & 5891.58 / 5897.56\,\AA \\
+\texttt{'CaII\_HK'} & \ion{Ca}{II} H \& K doublet & 3934.78 / 3969.59\,\AA \\
+\texttt{'MgII\_2796'} & \ion{Mg}{II} doublet & 2796.35 / 2803.53\,\AA \\
+\texttt{'AlII\_1671'} & \ion{Al}{II} singlet & 1670.79\,\AA \\
+\texttt{'SiII\_1190'} / \texttt{'SiII\_1193'} & \ion{Si}{II} doublet (+ fluorescence) & 1190.42 / 1193.29\,\AA \\
+\texttt{'SiII\_1260'} & \ion{Si}{II} (+ fluorescence) & 1260.42\,\AA \\
+\texttt{'SiII\_1304'} & \ion{Si}{II} (+ fluorescence) & 1304.37\,\AA \\
+\texttt{'SiII\_1527'} & \ion{Si}{II} (+ fluorescence) & 1526.71\,\AA \\
+\texttt{'FeII\_2250'} & \ion{Fe}{II} (+ fluorescence) & 2249.88\,\AA \\
+\texttt{'FeII\_2261'} & \ion{Fe}{II} (+ fluorescence) & 2260.78\,\AA \\
+\texttt{'FeII\_UV3'} / \texttt{'FeII\_2344'} & \ion{Fe}{II} UV3 multiplet & 2344.21\,\AA \\
+\texttt{'FeII\_UV2'} / \texttt{'FeII\_2383'} & \ion{Fe}{II} UV2 multiplet & 2382.76\,\AA \\
+\texttt{'FeII\_UV1'} / \texttt{'FeII\_2600'} & \ion{Fe}{II} UV1 multiplet & 2600.17\,\AA \\
+\texttt{'HeI\_10833'} & \ion{He}{I} triplet & 10832.06\,\AA \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The numerical \texttt{line\%line\_type} that controls the dispatch of
+\parm{calc\_voigt} / \parm{do\_resonance} (set internally by
+\texttt{setup\_resonance\_line}) takes the following values: \emph{1} =
+singlet (one upward transition); \emph{2} = doublet (two upward
+transitions sharing a single thermal width, e.g.\ \ion{C}{IV},
+\ion{N}{V}, \ion{O}{VI}, \ion{Na}{I}\,D, \ion{Ca}{II}\,H\&K,
+\ion{Mg}{II}, \ion{Si}{IV}); \emph{4} = one resonance plus one or more
+fluorescent decays (most \ion{Si}{II}, \ion{Fe}{II}\,UV3); \emph{5} =
+multiple upward + multiple downward transitions, the most general case
+(\ion{Si}{II}\,1190/1193, \ion{Fe}{II}\,UV1, \ion{Fe}{II}\,UV2);
+\emph{6} = three upward transitions plus one downward transition
+(\ion{He}{I}\,10833); \emph{7} = combined H + D Ly$\alpha$
+(\texttt{ly\_alpha\_HD}, two coexisting two-level resonance scatterers,
+no fine structure); \emph{8} = multiband fluorescence
+(\texttt{ly\_beta}: a single upper level with a resonance branch and a
+band-transmuting fluorescent branch, see \S\ref{sec:ly_beta}).
+
+\subsubsection{Combined Hydrogen + Deuterium Ly\texorpdfstring{$\alpha$}{α}}
+\label{sec:ly_alpha_HD}
+
+The line id \texttt{'ly\_alpha\_HD'} treats neutral hydrogen and deuterium
+Ly$\alpha$ as two coexisting two-level resonance scatterers in the same medium.
+The two transitions sit only 0.33\,\AA{} ($\sim$\,82\,km/s) apart and have
+nearly identical atomic constants except for the atomic mass and rest
+wavelength. The deuterium-to-hydrogen number-abundance ratio is set by
+
+\begin{center}
+\begin{tabular}{@{}l@{\hspace{1.5em}}l@{\hspace{1.5em}}l@{}}
+\toprule
+Parameter & Default & Description \\
+\midrule
+\parm{D\_to\_H\_ratio}      & $1.5\times 10^{-5}$ & $n_\mathrm{D}/n_\mathrm{H}$ (cosmic primordial) \\
+\parm{include\_deuterium}   & \texttt{.false.} & Convenience flag \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Setting \parm{include\_deuterium}~$=$~\texttt{.true.} together with
+\parm{line\_id}~$=$~\texttt{'ly\_alpha'} promotes the run automatically to
+\texttt{'ly\_alpha\_HD'}, so existing input files can opt in without changing
+the line id.
+
+Physical assumptions in this version (v1):
+
+\begin{itemize}
+  \item Both H and D are treated as simple two-level resonance scatterers
+        (\texttt{line\_type=7}). Fine-structure splitting is \emph{not}
+        included for either species; if \parm{fine\_structure}~$=$~\texttt{.true.}
+        is set together with \texttt{'ly\_alpha\_HD'}, the code emits a warning
+        and disables fine structure.
+  \item The phase function is the simple dipole ($E_1=1$, $E_2=0$, $E_3=1$),
+        identical for both species.
+  \item Oscillator strengths and damping rates are taken to be equal for H and
+        D ($f_\mathrm{D}=f_\mathrm{H}$, $\Gamma_\mathrm{D}=\Gamma_\mathrm{H}$ to
+        better than 0.1\%).  Mass and rest wavelength differences are fully
+        accounted for in the Voigt evaluation and species selection.
+  \item Photon \texttt{xfreq} is carried in H-frame Doppler units throughout.
+        D-frame conversions happen on-the-fly in the combined Voigt and
+        scattering routines via constants precomputed at line setup
+        (\texttt{line\%delta\_nu\_HD\_Hz}, \texttt{line\%ratio\_Dfreq\_HD},
+        \texttt{line\%ratio\_voigta\_HD}).  No cell-by-cell deuterium arrays are
+        stored.
+  \item During a deuterium scattering event, the perpendicular thermal velocity
+        components and the recoil shift are evaluated using the H atomic
+        constants, which produces a small ($\sim 1/\sqrt{2}$) error in the
+        re-emission shape from D-scattered photons.  Because D scatters are
+        rare at cosmic abundance and the dominant D feature (the absorption
+        dip) depends on opacity rather than re-emission shape, this is
+        acceptable for v1.  Tracking each photon's species is also not yet
+        implemented.
+\end{itemize}
+
+The Deuterium Ly$\alpha$ rest wavelength used is $\lambda_\mathrm{D}=1215.337\,\AA$
+(NIST vacuum), $\sim 0.33\,\AA$ blueward of $\lambda_\mathrm{H}=1215.668\,\AA$.
+In LaRT's velocity convention ($v=-c\,\Delta\lambda/\lambda_\mathrm{H}$, so
+negative $v$ is blueshifted), the D Ly$\alpha$ line center sits at
+$v_\mathrm{D}\approx -82\,\mathrm{km/s}$.
+
+A reference example with five validation runs and a Jupyter notebook is provided
+under \texttt{examples/lya\_HD/} (see \texttt{run.sh} and
+\texttt{inspect\_HD.ipynb}). One of those runs is configured for direct
+comparison against Dijkstra, Haiman \& Spaans (2006), ApJ~649, 14, Figure~3
+(D/H~$=3\times 10^{-5}$, $\tau\sim 10^6$).
+
+\subsubsection{\texorpdfstring{He\,\textsc{i}}{He I} 10833 Coherent Triplet Treatment}
+\label{sec:HeI_coherent}
+
+The \ion{He}{I}\,$\lambda$10830 multiplet
+$2{}^{3}S_{1}\rightarrow 2{}^{3}P^{o}_{0,1,2}\rightarrow 2{}^{3}S_{1}$ is a
+three-component resonance line (LaRT \texttt{line\_type=6}). The three upper
+levels are split by only $\sim 0.09\,\AA$ ($P_{1}{-}P_{2}$,
+$\sim 2.5\,\mathrm{km/s}$) and $\sim 1.25\,\AA$ ($P_{0}{-}P_{2}$,
+$\sim 35\,\mathrm{km/s}$), so depending on the gas temperature the components
+may overlap and interfere.
+
+LaRT offers two treatments of the polarizability parameters
+$(E_{1}, E_{2}, E_{3})$ that enter the scattering phase function, selected by
+the boolean \parm{HeI\_coherent}:
+
+\begin{center}
+\begin{tabular}{L{4.8cm}L{9.0cm}}
+\toprule
+Toggle & $(E_{1}, E_{2}, E_{3})$ source \\
+\midrule
+\parm{HeI\_coherent}~$=$~\texttt{.false.}\par(default, legacy) &
+Incoherent constants for each component
+$(0,1,0)$, $(\tfrac14,\tfrac34,\tfrac14)$, $(\tfrac{7}{20},\tfrac{13}{20},\tfrac{3}{4})$ for $P_{0}$, $P_{1}$, $P_{2}$ from
+Seon \texttt{scatter\_matrix\_v1.1} \S 9.4. Assigned channel-by-channel
+based on which upper state the photon was sampled into. \\
+\parm{HeI\_coherent}~$=$~\texttt{.true.} &
+Frequency-dependent $E_{1}(\nu), E_{3}(\nu)$ from the Real-$\Phi$ polynomial
+form of Seon \texttt{scatter\_matrix\_HeI} memo (eqs.~29 \& 30, bottom
+line), with $E_{2} = 1 - E_{1}$. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The polynomial form is, with $D_{m} \equiv \nu - \nu_{m1}$ for $m=0,1,2$:
+\begin{align}
+  E_{1}(\nu) &= \frac{3 D_{2}^{2}D_{0}^{2} + 7 D_{0}^{2}D_{1}^{2} + 8 D_{2}D_{0}D_{1}^{2} + 18 D_{2}D_{0}^{2}D_{1}}
+                    {4\bigl[D_{2}^{2}D_{1}^{2} + 3 D_{2}^{2}D_{0}^{2} + 5 D_{0}^{2}D_{1}^{2}\bigr]}, \\
+  E_{3}(\nu) &= \frac{3 D_{2}^{2}D_{0}^{2} + 15 D_{0}^{2}D_{1}^{2} + 8 D_{2}^{2}D_{0}D_{1} + 10 D_{2}D_{0}^{2}D_{1}}
+                    {4\bigl[D_{2}^{2}D_{1}^{2} + 3 D_{2}^{2}D_{0}^{2} + 5 D_{0}^{2}D_{1}^{2}\bigr]}, \\
+  E_{2}(\nu) &= 1 - E_{1}(\nu).
+\end{align}
+The common denominator is a positive-definite sum of squares with the three
+distinct line centers, so the formula is well-defined at every frequency and
+recovers the v1.1 \S 9.4 incoherent values exactly at each line center
+($E_{1}, E_{3} = 7/20, 3/4$ at $P_{2}$; $1/4, 1/4$ at $P_{1}$; $0, 0$ at
+$P_{0}$). It is implemented in \texttt{compute\_HeI\_E\_coherent} in
+\texttt{line\_mod.f90} (with parallel branches in
+\texttt{scattering\_amr.f90} and \texttt{line\_clump\_mod.f90}).
+
+\paragraph{Upper-state selection probability is unchanged.}
+The total cross-section is the incoherent $1{:}3{:}5$ weighted Lorentzian sum
+because all $J'{-}J'$ interference terms cancel in $W_{11}+2W_{14}$ (the
+angular integration projects onto the $K=0$ irreducible component). Both
+modes therefore sample the upper state with the same probability, so the
+photon-by-photon frequency redistribution is statistically identical.
+Differences between the two modes appear only in the phase-function
+asymmetry $E_{1}$ (linear Rayleigh polarizability) and the circular
+polarizability $E_{3}$.
+
+\paragraph{Expected size of the effect.}
+For nebular conditions ($T \sim 10^{4}$ K) the He-atom Doppler width
+$\Delta v_{D} \sim 6.4\,\mathrm{km/s}$ \emph{exceeds} the $P_{1}{-}P_{2}$
+splitting ($\sim 2.5\,\mathrm{km/s}$), so those two components are
+effectively merged and the inter-line interference is small in the line
+core. The escape spectrum is essentially unchanged between the two modes.
+Polarization differences are visible mainly at high $\tau$ ($\tau \gtrsim
+100$) and in the line wings where photons sample the inter-line frequency
+range; integrated polarization profiles differ by $\sim 5{-}15\,\%$
+(relative) at $\tau \sim 10^{3}$. The effect would be larger at lower
+temperature ($T \lesssim 10^{3}$\,K), where the $P_{1}$ and $P_{2}$
+components are resolved.
+
+A reference test suite is provided under
+\texttt{examples/HeI\_coherent\_test/} with 20 runs covering
+\{point, uniform-sphere source\} $\times$ \{$\tau = 0.1, 1, 10, 100, 1000$\}
+$\times$ \{\texttt{.false.}, \texttt{.true.}\} and a comparison notebook
+\texttt{compare.ipynb}.
+
+\subsubsection{Ly\texorpdfstring{$\beta$}{beta} Resonance Scattering with H\texorpdfstring{$\alpha$}{alpha} + Two-Photon Fluorescence}
+\label{sec:ly_beta}
+
+Setting \parm{line\_id}~$=$~\texttt{'ly\_beta'} transports \ion{H}{I}
+Ly$\beta$ ($\lambda_0 = 1025.7222$\,\AA) through neutral hydrogen with the
+fluorescent conversion channel included. Each $1s\!\rightarrow\!3p$
+absorption branches:
+\begin{itemize}
+  \item \textbf{88.166\,\%} back to $1s$: Ly$\beta$ resonance re-emission
+        ($A_{3p\rightarrow1s} = 1.6725\times10^{8}\,\mathrm{s^{-1}}$);
+  \item \textbf{11.834\,\%} to $2s$: one H$\alpha$ photon
+        ($3p\!\rightarrow\!2s$, $6564.553$\,\AA{} vacuum,
+        $A_{3p\rightarrow2s} = 2.2448\times10^{7}\,\mathrm{s^{-1}}$),
+        followed by a $2s\!\rightarrow\!1s$ two-photon continuum
+        ($A = 8.229\,\mathrm{s^{-1}}$; two photons with
+        $\nu_1 + \nu_2 = \nu_{\rm Ly\alpha}$).
+\end{itemize}
+The Voigt damping parameter uses the \emph{total} $3p$ width
+$A_{\rm tot} = 1.8970\times10^{8}\,\mathrm{s^{-1}}$, and the downward
+branching ratios are $[0.88166, 0.11834]$ (\texttt{line\_type=8}).
+
+The destruction (conversion) probability of $0.11834$ per scattering makes
+Ly$\beta$ trapping weak even at large $\tau_0$: a photon survives on average
+only $\sim 8$ scatterings before converting, so the problem is the classic
+$\epsilon$-destruction two-level problem with $\epsilon = 0.11834$.
+Photon-number bookkeeping per conversion: one Ly$\beta$ photon destroyed
+$\rightarrow$ one H$\alpha$ photon $+$ two two-photon-continuum photons, with
+the energy check $E({\rm Ly}\beta) = E({\rm H}\alpha) + E({\rm Ly}\alpha)$.
+
+\paragraph{Multiband design.}
+The three emission channels differ in wavelength by factors up to $\sim 6.4$,
+so a single \texttt{xfreq} grid cannot represent them. LaRT gives each photon a
+band index (\texttt{photon\%iband}) and writes independent output spectra:
+
+\begin{center}
+\begin{tabular}{@{}c L{2.4cm} L{3.3cm} L{5.4cm}@{}}
+\toprule
+Band & Channel & Opacity & Transport / output \\
+\midrule
+1 & Ly$\beta$ (1026\,\AA) & \ion{H}{I} Voigt $+$ dust & Full machinery: \texttt{Jin}/\texttt{Jout}/\texttt{Jabs}, peel-off, \texttt{Jmu}, \texttt{CALCJ}/\texttt{CALCP} on the existing \texttt{xfreq} grid \\
+2 & H$\alpha$ (6563\,\AA) & dust only & Dust scattering (albedo/HG) $+$ absorption; \emph{no} gas opacity ($2s$ metastable/unpopulated) \\
+3 & Two-photon (1216\,\AA--$\infty$) & --- & \emph{Analytic} emergent spectrum in $y = \nu/\nu_{\rm Ly\alpha}\in(0,1)$; no Monte Carlo transport \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+At a conversion event the packet is transmuted in place (band $1\!\rightarrow\!2$)
+with the H$\alpha$ frequency set by the atom velocity already sampled at the
+Ly$\beta$ absorption, so the physical Ly$\beta$\,$\leftrightarrow$\,H$\alpha$
+frequency correlation is preserved.
+
+\paragraph{Two-photon analytic spectrum.}
+Because band 3 is not transported, the emergent two-photon spectrum
+is written analytically with zero Monte Carlo variance. Using the
+Nussbaumer \& Schmutz (1984) fit, with $w = y(1-y)$,
+\begin{equation}
+  \frac{dA}{dy} = 202.0\left[\, w\bigl(1 - (4w)^{0.8}\bigr)
+                 + 0.88\, w^{1.53}\,(4w)^{0.8} \,\right]\,\mathrm{s^{-1}},
+\end{equation}
+whose integral over $(0,1)$ is $16.452\,\mathrm{s^{-1}} = 2\times 8.226$
+(two photons per decay) and which is symmetric about $y = 1/2$. The emergent
+spectrum is $J_{2\gamma}(y) = 2\,W_{\rm conv}\,P(y)$ with normalized shape
+$P(y) = (dA/dy)/16.452$ and $W_{\rm conv}$ the total conversion weight.
+
+\paragraph{New input parameters.}
+Dust defaults are the Draine (2003, $R_V = 3.1$) values at the relevant band.
+
+\begin{center}
+\begin{tabular}{@{}l l L{7.2cm}@{}}
+\toprule
+Parameter & Default & Description \\
+\midrule
+\parm{nxfreq\_Ha}     & \texttt{0} & H$\alpha$ band spectral bins ($0\rightarrow$ inherit \parm{nxfreq}) \\
+\parm{xfreq\_max\_Ha} & \texttt{0.0} & H$\alpha$ half-range in Doppler units, same $v_{\rm th}$ as band 1 ($0\rightarrow$ inherit band-1 velocity range) \\
+\parm{ny\_2gam}       & \texttt{101} & Two-photon $y$ bins over $(0,1)$; $0$ disables the tally \\
+\parm{cext\_dust\_Ha} & \texttt{3.801e-22} & Dust extinction at 6562\,\AA{} [cm$^2$/H] (Draine) \\
+\parm{albedo\_Ha}     & \texttt{0.6741} & H$\alpha$ dust single-scattering albedo \\
+\parm{hgg\_Ha}        & \texttt{0.4967} & H$\alpha$ Henyey--Greenstein asymmetry $g$ \\
+\parm{transport\_2gamma} & \texttt{.false.} & Reserved (dust transport); unimplemented \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The derived opacity ratio
+$R_{\rm H\alpha} = \texttt{cext\_dust\_Ha}/\texttt{cext\_dust} = 0.1857$ is
+recomputed at setup (never hardcoded). For \parm{line\_id}~$=$~\texttt{'ly\_beta'},
+\texttt{setup.f90} also re-defaults the band-1 dust constants to the Ly$\beta$
+(1025.72\,\AA{} interpolated) Draine values --- \texttt{cext\_dust}~$=$~$2.047\times10^{-21}$\,cm$^2$/H,
+\parm{albedo}~$=$~$0.2804$, \parm{hgg}~$=$~$0.6483$ (the global defaults are the
+Ly$\alpha$ row); explicit user overrides still win. All defaults reproduce the
+prior behavior for every other line: \texttt{iband} stays 1, the new arrays are
+unallocated, and the new output sections are absent.
+
+\paragraph{Output sections.}
+The following are written to the \texttt{.h5}/\texttt{.fits.gz} output;
+\parm{out\_merge} accumulates each independently.
+
+\begin{center}
+\begin{tabular}{@{}l l L{6.6cm}@{}}
+\toprule
+Section & Length & Contents / attributes \\
+\midrule
+\texttt{Jout\_Ha} & \texttt{nxfreq\_Ha} & Emergent H$\alpha$ spectrum; attrs \texttt{nxfreq\_Ha}, \texttt{Dxfreq\_Ha}, \texttt{Xfreq1/2\_Ha}, \texttt{Dwave\_Ha}, \texttt{lambda0\_Ha}~$=6564.553$\,\AA, and the conservation weights \texttt{W\_esc1}/\texttt{W\_abs1}/\texttt{W\_conv}/\texttt{W\_esc2}/\texttt{W\_abs2} \\
+\texttt{Jabs\_Ha} & \texttt{nxfreq\_Ha} & H$\alpha$ dust-absorbed spectrum (only when dust absorption is present) \\
+\texttt{J2gam}    & \texttt{ny\_2gam}   & Two-photon spectrum; attrs \texttt{ny\_2gam}, \texttt{dy\_2gam}, \texttt{Wconv\_pp}; $y$ centers at $(i-\tfrac12)\,dy$ \\
+\texttt{Pconv\_*} & (grid) & \texttt{CALCP} builds only. The Ly$\beta\rightarrow$H$\alpha$ conversion rate per atom in each cell or bin (the H$\alpha$ source function). The shape follows the grid geometry: \texttt{Pconv\_1D} (radial), \texttt{Pconv\_2D} (cylindrical), \texttt{Pconv\_3D} (per cell), or \texttt{Pconv\_AMR} (per leaf), with the same axes and normalization as the matching \texttt{Pa} section \\
+\texttt{peel\_Ha} & (\texttt{nxfreq\_Ha},\,\texttt{nxim},\,\texttt{nyim}) & H$\alpha$ peel-off cube per observer (in the peel-off file) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\paragraph{Core-skip is disabled automatically.}
+\texttt{setup.f90} forces \parm{core\_skip}~$=$~\texttt{.false.} for
+\texttt{ly\_beta} and prints a \texttt{NOTE}. Each skipped core scattering would
+have carried an $11.8\,\%$ conversion chance, so core-skip would systematically
+underproduce H$\alpha$ and overestimate Ly$\beta$ escape. Acceleration is
+unnecessary anyway, since the $0.118$ destruction probability already caps the
+scattering count at $\sim 8$.
+
+\paragraph{\texttt{CALCJ} / \texttt{CALCP} behavior and the \texttt{Pconv} map.}
+As for any resonance line, a \texttt{CALCJ} build accumulates the in-medium mean
+intensity $J(\nu,\cdot)$ and a \texttt{CALCP} build the scattering rate per atom
+$P_\alpha$. For \texttt{ly\_beta} these are computed for band~1 (the resonant
+Ly$\beta$ radiation) only; the dust-only band~2 and the analytic band~3 carry no
+in-medium $J$.
+
+A \texttt{CALCP} build additionally writes a \texttt{Pconv} map --- the local
+\emph{conversion} rate per atom, i.e.\ the rate at which Ly$\beta$ excitations
+are converted into the H$\alpha$\,$+$\,two-photon channel ($3p\rightarrow2s$)
+rather than re-emitted as Ly$\beta$ ($3p\rightarrow1s$). It is accumulated
+exactly like $P_\alpha$ (the same storage in each cell or bin, position binning, and
+volume-weighted normalization), but is tallied \emph{only at conversion events}
+instead of at every scattering. \texttt{Pconv} is therefore the emission source
+function for the fluorescent products: the local H$\alpha$ (and two-photon)
+emissivity is directly proportional to it. Because every scattering converts
+with the fixed branching probability
+$A(3p\rightarrow2s)/A_{\rm tot}(3p) = 0.11834$, the two maps satisfy, cell by
+cell and up to Monte Carlo noise,
+\begin{equation}
+  \frac{P_{\rm conv}(\mathbf{r})}{P_\alpha(\mathbf{r})} \;\longrightarrow\; 0.11834,
+  \label{eq:pconv_ratio}
+\end{equation}
+which doubles as an internal consistency check. The section is named
+\texttt{Pconv\_1D}/\texttt{2D}/\texttt{3D}/\texttt{Pconv\_AMR} following the grid
+geometry, mirroring the \texttt{Pa} sections, and \texttt{read\_lart.py} loads it
+as \texttt{Pconv1}/\texttt{Pconv2}/\texttt{Pconv3D}/\texttt{Pconv\_leaf}.
+
+\paragraph{Conservation bookkeeping.}
+LaRT prints a weight budget,
+\begin{align}
+  N_{\rm esc}({\rm Ly}\beta) + N_{\rm conv} + N_{\rm dustabs}({\rm Ly}\beta)
+    &= N_{\rm photons}, \\
+  N_{\rm esc}({\rm H}\alpha) + N_{\rm dustabs}({\rm H}\alpha) &= N_{\rm conv},
+\end{align}
+which map to the \texttt{W\_esc1}/\texttt{W\_abs1}/\texttt{W\_conv}/\texttt{W\_esc2}/\texttt{W\_abs2}
+attributes stored in \texttt{Jout\_Ha}.
+
+\paragraph{Support matrix.}
+Both the Cartesian and AMR grids are supported. The following are guarded off
+for \texttt{ly\_beta} and abort or fall back with a clear message: the clumpy
+medium, the HEALPix inside-observer path, Stokes polarization, fine structure
+(\parm{fine\_structure}~$=$~\texttt{.true.}), non-trivial symmetry folding, and
+the slab (\parm{xy\_periodic}) geometry. Two-photon transport
+(\parm{transport\_2gamma}) is reserved but unimplemented (analytic tally only),
+and deuterium Ly$\beta$ is not modeled.
+
+\subsubsection{Molecular-Hydrogen (H\texorpdfstring{$_2$}{2}) Effect on Ly\texorpdfstring{$\alpha$}{alpha}}
+\label{sec:h2}
+
+Several H$_2$ Lyman (B\,--\,X) and Werner (C\,--\,X) band lines lie within a few
+hundred km\,s$^{-1}$ of H Ly$\alpha$. A Ly$\alpha$ photon whose local-frame
+frequency coincides with one of these lines can be absorbed into an excited
+electronic state of H$_2$, which then either (a) decays back to the pumping level
+and re-emits near Ly$\alpha$ (resonance scattering off H$_2$, with probability
+$p_{\rm scat}=A_{ul}/A_{\rm tot}$), or (b) fluoresces to another wavelength and is
+lost from the Ly$\alpha$ field (Neufeld 1990, ApJ 350, 216; Black \& van Dishoeck
+1987). Neufeld's conversion probability $\simeq1$ means the destruction branch
+dominates ($p_{\rm scat}\sim0.08$--$0.09$), but the return branch is physically
+included. This is enabled for \parm{line\_id}~$=$~\texttt{'ly\_alpha'} by setting
+\parm{h2\_model}~$\ne$~\texttt{'none'}; it works on the Cartesian \emph{and} AMR
+grids, and peel-off sight-lines are attenuated by H$_2$. The default
+\parm{h2\_model}~$=$~\texttt{'none'} skips the whole H$_2$ path (bit-identical to
+runs without H$_2$).
+
+The \texttt{'neufeld'} model treats the two B\,--\,X lines closest to Ly$\alpha$:
+R(6) at $+14.1$~km\,s$^{-1}$ [B$(1,7)\leftarrow$X$(2,6)$] and P(5) at
+$+99.2$~km\,s$^{-1}$ [B$(1,4)\leftarrow$X$(2,5)$]. Their line-centre opacities are
+$s_i = f_{\rm H2}\,f(v,J)\,(f_{\rm osc,i}/f_{\rm osc,Ly\alpha})$ relative to the
+H\,{\sc i} Ly$\alpha$ opacity, with LTE level populations $f(v,J)$ computed from a
+partition function (ortho $J$-odd weight 3, para $J$-even weight 1) at the H$_2$
+temperature. The H$_2$ temperature \parm{h2\_temperature} is an \emph{independent}
+input (not the gas temperature) that sets both the LTE populations and the H$_2$
+Doppler width.
+
+\begin{center}
+\begin{tabular}{lll}
+\hline
+Parameter & Default & Meaning \\
+\hline
+\parm{h2\_model}            & \texttt{'none'} & \texttt{'none'} $|$ \texttt{'neufeld'} $|$ \texttt{'lte'} \\
+\parm{f\_H2}                & $0.0$           & molecular fraction $n({\rm H_2})/n({\rm H\,I})$ \\
+\parm{h2\_temperature}      & $1000.0$        & H$_2$ temperature [K] (LTE pops.\ + Doppler width) \\
+\parm{h2\_pure\_absorption} & \texttt{.false.} & \texttt{.true.} $\Rightarrow p_{\rm scat}=0$ (Neufeld limit) \\
+\parm{h2\_hi\_width}        & \texttt{.false.} & benchmark: H$_2$ line at the H\,{\sc i} Doppler width \\
+\parm{h2\_data\_dir}        & \texttt{''}     & directory holding \texttt{energy\_X.dat} \\
+\hline
+\end{tabular}
+\end{center}
+
+At the end of a run LaRT prints the absorbed-fraction budget
+($1-f_e = W_{\rm H2abs}/N_{\rm phot}$, the resonance-scatter count, and the pumping weights
+for each line) and stores it as Spectrum-header keywords
+(\texttt{H2ABS}, \texttt{H2SCAT}, \texttt{H2PUMP1..2}); \texttt{read\_lart} exposes
+it as \texttt{h2\_budget}. The implementation reproduces Neufeld's analytic slab
+absorbed fraction (Fig.~20) to $<1\%$ at $N({\rm H\,I})\gtrsim10^{20}$~cm$^{-2}$ and
+the P(5)/R(6) pumping ratio (Fig.~21); Cartesian and AMR agree to $\sim1$--$2\%$.
+Validation and a parameter-sweep spectrum notebook are in
+\texttt{examples/h2\_test/}.
+
+\subsection{Frequency and Wavelength Grid}
+\label{sec:freqgrid}
+
+Internally, photon frequencies are tracked in the dimensionless Doppler variable:
+\begin{equation}
+  x = \frac{\nu - \nu_0}{\Delta\nu_D}, \qquad
+  \Delta\nu_D = \frac{\nu_0}{c}\,b_D, \qquad
+  b_D = \sqrt{\frac{2kT}{m} + b_{\rm turb}^2},
+\end{equation}
+where $\nu_0$ is the line-center frequency, $T$ is the local gas temperature, $m$
+is the atomic/ionic mass, and $b_{\rm turb} = \parm{bturb}$ is a spatially uniform
+turbulent velocity added \emph{in quadrature} to the local thermal width
+(\parm{bturb}~$\le 0$, the default, recovers the pure thermal width).  The same
+$b_D$, evaluated with the \emph{local} cell temperature, sets the line opacity,
+the Voigt parameter, the scattering redistribution, and the velocity-to-Doppler
+conversion identically on the Cartesian, AMR, and clump grids.  Output spectra are binned onto a uniform grid in $x$ by
+default.  A wavelength or velocity grid can be requested instead:
+
+\begin{center}
+\begin{tabular}{@{}l@{\hspace{1.5em}}l@{\hspace{1.5em}}l@{}}
+\toprule
+Parameter & Default & Description \\
+\midrule
+\parm{nxfreq}   & 121  & Number of spectral bins \\
+\parm{xfreq\_min}, \parm{xfreq\_max} & auto & Limits of $x$-grid \\
+\parm{xfreq0}   & 0.0  & Frequency offset applied to all emitted photons \\
+\parm{nwavelength} & 0 & Number of wavelength bins (overrides $x$-grid) \\
+\parm{wavelength\_min}, \parm{wavelength\_max} & --- & [\AA] \\
+\parm{nvelocity} & 0   & Number of velocity bins (overrides $x$-grid) \\
+\parm{velocity\_min}, \parm{velocity\_max} & --- & [km\,s$^{-1}$] \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The range is set automatically from the mean medium temperature when no limits are provided.
+
+%=============================================================================
+\section{Medium Properties}
+\label{sec:medium}
+%=============================================================================
+
+\subsection{Optical Depth Normalization}
+
+The overall opacity is scaled by one of the following (specify at most one):
+
+\begin{center}
+\begin{tabular}{L{3.2cm}L{10cm}}
+\toprule
+Parameter & Description \\
+\midrule
+\parm{taumax}   & Line-center $\tau_0$ from the grid center to the $+z$ boundary along the $z$-axis \\
+\parm{tauhomo}  & Same, assuming a uniform density field (scales an inhomogeneous field proportionally) \\
+\parm{N\_HImax} & \ion{H}{I} column density from center to $+z$ boundary [cm$^{-2}$] \\
+\parm{N\_HIhomo} & Same, assuming uniform density \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+For AMR grids, \parm{taumax} is the pole-to-face optical depth (box center $\to$ $+z$ face
+along $z$), consistent with the Cartesian convention for a sphere of radius $R = L/2$.
+
+\subsection{Temperature}
+
+\begin{center}
+\begin{tabular}{@{}l@{\hspace{1.5em}}l@{\hspace{1.5em}}l@{}}
+\toprule
+Parameter & Default & Description \\
+\midrule
+\parm{temperature}  & $10^4$\,K & Uniform gas temperature \\
+\parm{temperature0} & $= T$ & Temperature for \texttt{spectral\_type='voigt0'} source \\
+\parm{bturb}        & 0.0   & Turbulent velocity dispersion added in quadrature to thermal width [km\,s$^{-1}$] \\
+\parm{temp\_file}   & \texttt{''} & 3-D temperature cube [K]; FITS or HDF5 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Density}
+\label{sec:density}
+
+\textbf{Analytic profiles.}
+Without external files, the density is set analytically via the opacity scale parameters
+(\parm{taumax} etc.) combined with an optional radial profile:
+
+\begin{center}
+\begin{tabular}{@{}l@{\hspace{1.5em}}l@{\hspace{1.5em}}l@{}}
+\toprule
+Profile type & Key parameter & Functional form \\
+\midrule
+Uniform (sphere or box) & \parm{rmax} & Constant $n_\mathrm{H}$ inside $r < r_\text{max}$ \\
+Spherical shell & \parm{rmin}, \parm{rmax} & Constant $n_\mathrm{H}$ between $r_\text{min}$ and $r_\text{max}$ \\
+Exponential & \parm{density\_rscale} & $n \propto \exp(-r/r_s)$ \\
+Power law & \parm{density\_alpha} & $n(r) \propto (r_\text{max}/r)^{\alpha_D}$; $\alpha_D{=}0$: uniform, $\alpha_D{=}2$: isothermal \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\textbf{External gridded data (FITS or HDF5).}
+
+\begin{sloppypar}
+The reader (\path{read_grid_data.f90}) detects the format from the
+filename extension (\texttt{.fits[.gz]}, \texttt{.h5}, or \texttt{.hdf5})
+and uses the same code path for both.  HDF5 inputs expect the array at
+\path{/<section>/data} (any section name); shape information is read
+from the dataset itself, so FITS-style \texttt{NAXIS} keywords are not
+required.
+\end{sloppypar}
+
+\begin{center}
+\begin{tabular}{L{3.2cm}L{10cm}}
+\toprule
+Parameter & Description \\
+\midrule
+\parm{dens\_file}  & 3-D \ion{H}{I} number density cube [cm$^{-3}$] \\
+\parm{temp\_file}  & 3-D temperature cube [K] \\
+\parm{velo\_file}  & 4-D velocity cube $(v_x,v_y,v_z)$ [km\,s$^{-1}$] \\
+\parm{emiss\_file} & 3-D emissivity cube [photons\,s$^{-1}$\,cm$^{-3}$] \\
+\parm{input\_field} & Base name: reads \texttt{<base>.dens.fits.gz}, \texttt{.temp.}, \texttt{.velo.} (multi-file convention; FITS-only) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+If \parm{taumax} (or \parm{N\_HImax}) is specified alongside a density file, the density
+is rescaled so that the target optical depth is achieved.
+
+\subsection{Velocity Fields}
+\label{sec:velocity}
+
+\parm{velocity\_type} selects the bulk velocity model.  The default (empty string) is a
+static medium.
+
+\begin{center}
+\begin{tabular}{L{4.7cm}L{3.0cm}L{5.8cm}}
+\toprule
+Value & Key parameters & Velocity law \\
+\midrule
+\texttt{'hubble'} & \parm{Vexp} & $\boldsymbol{v}(r) = V_\text{exp}(r/r_\text{max})\hat{r}$; $V_\text{exp}>0$: outflow \\
+\texttt{'constant\_radial'} & \parm{Vexp} & $\boldsymbol{v}(r) = V_\text{exp}\hat{r}$ (constant magnitude) \\
+\texttt{'power\_law'} & \parm{Vexp}, \parm{velocity\_alpha} & $\boldsymbol{v}(r) = V_\text{exp}(r/r_\text{max})^{\alpha_V}\hat{r}$ \\
+\texttt{'linear\_decelerate'} & \parm{Vexp} & $\boldsymbol{v}(r) = V_\text{exp}\frac{r_\text{max}-r}{r_\text{max}-r_\text{min}}\hat{r}$ \\
+\texttt{'parallel\_velocity'} & \parm{Vx}, \parm{Vy}, \parm{Vz} & Uniform $\boldsymbol{v} = (V_x,V_y,V_z)$ [km\,s$^{-1}$] \\
+\texttt{'ssh'} & \parm{Vpeak}, \parm{rpeak}, \parm{DeltaV} & Bilinear profile (Song, Seon \& Hwang 2020) \\
+\texttt{'rotating\_solid\_body'} & \parm{Vrot} & $\boldsymbol{v} = V_\text{rot}(-y,x,0)/r_\text{max}$ \\
+\texttt{'rotating\_galaxy\_halo'} & \parm{Vrot}, \parm{rinner} & $v_\phi = V_\text{rot}\,r_\text{cyl}/r_\text{inner}$ for $r_\text{cyl}<r_\text{inner}$, $V_\text{rot}$ outside (Kym et al.\ 2026) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The \texttt{'ssh'} profile rises linearly to $V_\text{peak}$ at $r_\text{peak}$, then
+shifts by $\Delta V$ toward $r_\text{max}$:
+\begin{equation}
+  v(r) = \begin{cases}
+    V_\text{peak}\,r/r_\text{peak} & r < r_\text{peak} \\
+    \left[V_\text{peak} + \Delta V\,\frac{r - r_\text{peak}}{r_\text{max} - r_\text{peak}}\right]\hat{r} & r \geq r_\text{peak}.
+  \end{cases}
+\end{equation}
+
+A velocity FITS file (\parm{velo\_file}) may be combined with a systematic \parm{velocity\_type}.
+
+Other velocity-related parameters:
+
+\begin{center}
+\begin{tabular}{@{}l@{\hspace{1.5em}}l@{\hspace{1.5em}}l@{}}
+\toprule
+Parameter & Default & Description \\
+\midrule
+\parm{Omega}      & 28.0          & Shear rate [(km\,s$^{-1}$)\,kpc$^{-1}$] for TIGRESS data \\
+\parm{recoil}     & \texttt{.false.} & Include photon-recoil frequency shift in scattering \\
+\parm{core\_skip} & \texttt{.false.} & Enable resonance-core skipping acceleration \\
+\parm{core\_skip\_global} & \texttt{.false.} & With \texttt{core\_skip}: use the old volume-averaged
+                                              $x_{\rm crit}$ instead of the cell-by-cell formula
+                                              (benchmarking only) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\paragraph{Core-skip details.}
+When \texttt{core\_skip = .true.}\ and \texttt{core\_skip\_global = .false.}\
+(the default combination), LaRT recomputes the core-skip threshold $x_{\rm
+crit}$ at every scattering using the local cell:
+\[
+   a\tau_{\rm cell} = a_{\rm V}({\rm cell})\,\mathtt{rhokap}({\rm cell})\,
+                      \Delta\ell_{\rm face},
+   \qquad
+   x_{\rm crit} =
+   \begin{cases}
+     (a\tau_{\rm cell})^{1/3}/5 & a\tau_{\rm cell} > 1 \\
+     0 & \text{otherwise}
+   \end{cases}
+\]
+where $\Delta\ell_{\rm face}$ is the photon's distance to the nearest cell
+boundary.  This is Smith et al.\ (2015, Eq.~35) applied per cell, following
+the RASCAS convention.  Inhomogeneous boxes such as a dense galactic core
+in a sparse hot halo require this cell-by-cell treatment; the
+\texttt{core\_skip\_global = .true.}\ branch uses a single volume-averaged
+$x_{\rm crit}$ that collapses to zero whenever $\langle a\tau\rangle < 1$
+and is retained only for comparison with the older LaRT behavior.
+
+%=============================================================================
+\section{AMR Grid Mode}
+\label{sec:amr}
+%=============================================================================
+
+\subsection{Enabling AMR Mode}
+
+\textbf{v2.00:}
+\begin{lstlisting}
+par%use_amr_grid = .true.
+par%amr_file     = 'grid.h5'
+\end{lstlisting}
+
+\textbf{v2.10 (preferred):}
+\begin{lstlisting}
+par%grid_type = 'amr'
+par%amr_file  = 'grid.h5'
+\end{lstlisting}
+
+LaRT reads only the \emph{generic AMR format} (text, FITS, or HDF5).  Simulation
+data from RAMSES or other codes must first be converted using the standalone
+converter (\texttt{convert\_ramses\_to\_generic.x} or the Python equivalent).
+The parameter \parm{amr\_type} defaults to \texttt{'generic'}; setting it to
+\texttt{'ramses'} is no longer supported and produces an error directing the
+user to the converter.
+
+\begin{center}
+\begin{tabular}{@{}l@{\hspace{1.5em}}l@{\hspace{1.5em}}l@{}}
+\toprule
+Parameter & Default & Description \\
+\midrule
+\parm{amr\_type}    & \texttt{'generic'} & Only \texttt{'generic'} is supported \\
+\parm{amr\_file}    & \texttt{''} & Path to generic AMR file (\texttt{.h5}, \texttt{.fits.gz}, \texttt{.dat}) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Generic AMR Data Format}
+\label{sec:generic_amr_format}
+
+The generic AMR format stores leaf-cell data in text, FITS binary table, or HDF5.
+Nine columns are mandatory; six optional columns provide pre-computed physics
+quantities that LaRT can use directly.
+
+\textbf{Mandatory columns (9):}
+\begin{center}
+\begin{tabular}{@{}lll@{}}
+\toprule
+Column & Unit & Description \\
+\midrule
+\texttt{x}, \texttt{y}, \texttt{z} & code units & Leaf cell center coordinates \\
+\texttt{level}         & ---        & AMR refinement level \\
+\texttt{nH} (or \texttt{gasDen}, \texttt{dens}) & cm$^{-3}$  & Total hydrogen number density \\
+\texttt{T}             & K          & Gas temperature \\
+\texttt{vx}, \texttt{vy}, \texttt{vz} & km\,s$^{-1}$ & Gas velocity \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\textbf{Optional columns} (detected by name in HDF5/FITS):
+\begin{center}
+\begin{tabular}{@{}lll@{}}
+\toprule
+Column & Unit & Description \\
+\midrule
+\texttt{metallicity} & mass fraction & Raw $Z$ from simulation \\
+\texttt{xHI}         & dimensionless & Neutral hydrogen fraction \\
+\texttt{n\_e}        & cm$^{-3}$     & Electron density \\
+\texttt{n\_ion}      & cm$^{-3}$     & Scattering ion density (metal lines) \\
+\texttt{emissivity}  & cm$^{-3}$\,s$^{-1}$ & Line emissivity rate (Ly$\alpha$, C\,\textsc{iv}, or O\,\textsc{vi}) \\
+\texttt{ndust}       & cm$^{-3}$     & Dust pseudo-number density \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+When an optional column is present in the file, LaRT uses it directly.
+When absent, LaRT computes the quantity internally using the model
+selected by the extended physics parameters (see below).
+
+\textbf{Plain text format:} the header gives the number of leaf cells and the
+box length --- either as a single legacy line ``\texttt{<nleaf> <boxlen>}'' or
+as \texttt{NLEAF} / \texttt{BOXLEN} keyword lines in any order.  Lines starting
+with \texttt{\#} (and blank lines) are ignored anywhere in the file.  Every
+data line lists one leaf cell with exactly the nine mandatory columns; the
+optional physics columns are not supported in text format (use FITS or HDF5
+for those).
+\begin{lstlisting}[language={}]
+# either:  8192  100.0        (legacy one-line header)
+BOXLEN  100.0
+NLEAF   8192
+# x  y  z  level  nH  T  vx  vy  vz
+-49.5  -49.5  -49.5  1  1.0e-3  1.0e4  0.0  0.0  0.0
+...
+\end{lstlisting}
+
+Text-format coordinates must be given in the \emph{centered} frame,
+$[-L/2,\,+L/2]$: the text format carries no origin information, so the reader
+always assumes a centered box.  (FITS and HDF5 files instead carry
+\texttt{ORIGINX/Y/Z} headers and may use either convention.)
+
+\subsection{Extended AMR Physics Parameters}
+
+These parameters control how LaRT computes physical quantities when the
+corresponding optional column is absent from the generic file.  All defaults
+reproduce the existing behavior.
+
+\begin{center}
+\begin{tabular}{@{}l@{\hspace{1em}}l@{\hspace{1em}}p{22em}@{}}
+\toprule
+Parameter & Default & Description \\
+\midrule
+\parm{ionization\_model} & \texttt{'cie\_formula'} &
+  Neutral fraction model: \texttt{'cie\_formula'} (single-formula CIE),
+  \texttt{'cie\_table'} (Gnat \& Sternberg 2007),
+  \texttt{'full\_neutral'} ($x_\text{HI}=1$),
+  \texttt{'from\_file'} (require \texttt{xHI} column) \\
+\parm{dust\_model} & \texttt{'global\_dgr'} &
+  Dust model: \texttt{'global\_dgr'} (use \parm{DGR}),
+  \texttt{'laursen09'} (metallicity-based, Laursen et~al.\ 2009),
+  \texttt{'from\_file'} (require \texttt{ndust} column) \\
+\parm{emissivity\_model} & \texttt{'none'} &
+  Ly$\alpha$ emissivity: \texttt{'none'},
+  \texttt{'caseB'} (Case~B recombination + collisional excitation),
+  \texttt{'from\_file'} \\
+\parm{ion\_model} & \texttt{'none'} &
+  Metal-line ion density: \texttt{'none'},
+  \texttt{'solar\_cie'} (solar abundances $\times$ CIE ion fractions),
+  \texttt{'from\_file'} \\
+\parm{metallicity\_global} & $-1$ &
+  Global metallicity ($Z$, mass fraction).  Used by \texttt{'laursen09'}
+  and \texttt{'solar\_cie'} when no metallicity column is present. \\
+\parm{Z\_ref} & 0.0134 &
+  Reference solar metallicity (Asplund et~al.\ 2009) \\
+\parm{f\_ion\_dust} & 0.01 &
+  Ionized-gas dust fraction (Laursen et~al.\ 2009) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Tau Normalization Convention}
+
+For AMR, \parm{taumax} is the line-center optical depth from the box center to the
+$+z$ face along the $z$-axis.  This matches the Cartesian sphere convention where
+\parm{taumax} is the center-to-surface optical depth, provided $r_\text{max} = L/2$.
+
+\subsection{Converting RAMSES Data}
+
+RAMSES binary snapshots must be converted to the generic format before use
+with LaRT.  Two converters are provided:
+
+\textbf{Fortran:}
+\begin{lstlisting}[language={}]
+make convert_ramses
+convert_ramses_to_generic.x /path/to/ramses 91 output.h5 kpc
+convert_ramses_to_generic.x /path/to/ramses 91 output.h5 kpc \
+    --compute-physics --metallicity 0.0134
+\end{lstlisting}
+
+\textbf{Python:}
+\begin{lstlisting}[language={}]
+python convert_ramses_to_generic.py /path/to/ramses 91 -o output.h5 \
+    --compute-physics --metallicity 0.0134
+\end{lstlisting}
+
+The \texttt{--compute-physics} flag pre-computes \texttt{xHI}, \texttt{n\_e},
+and \texttt{emissivity} using the CIE formula.  If \texttt{--metallicity} is
+given, \texttt{ndust} is also computed via the Laursen et~al.\ (2009) model.
+
+\subsection{Converting Illustris/IllustrisTNG Data}
+\label{sec:illustris}
+
+Illustris and IllustrisTNG simulations use the \textsc{Arepo} moving-mesh
+code, which stores gas data on an unstructured Voronoi tessellation.
+Since LaRT requires an octree AMR grid, the Voronoi data must be
+resampled onto an adaptive octree.  The converter
+\texttt{convert\_illustris\_to\_generic.py} handles this automatically:
+
+\begin{lstlisting}[language={}]
+python convert_illustris_to_generic.py cutout.hdf5 -o galaxy.h5 \
+    --output-unit kpc --level-max 8 --compute-physics \
+    --ionization from_illustris --boxsize 200
+\end{lstlisting}
+
+The converter reads \texttt{PartType0} fields from an HDF5 snapshot or
+API cutout, converts Illustris comoving+$h$ code units to physical
+(kpc, cm$^{-3}$, K, km\,s$^{-1}$), builds an adaptive octree via
+density and velocity gradient refinement, and assigns leaf-cell
+properties from the Voronoi mesh.  By default this uses a
+nearest-neighbor KD-tree lookup (physically exact for a Voronoi
+tessellation); \texttt{--resample-method gaussian} instead applies a
+volume-weighted Gaussian kernel smoothing with an adaptive,
+smoothing length proportional to the local cell size, for a continuous (but softened) field.
+
+Key options:
+
+\begin{center}
+\begin{tabular}{lp{9.5cm}}
+\toprule
+\textbf{Flag} & \textbf{Description} \\
+\midrule
+\texttt{--grid-type}       & Output grid: \texttt{amr} (adaptive octree, default) or \texttt{cartesian} (uniform $N^3$) \\
+\texttt{--ngrid}           & Cells per side for \texttt{--grid-type cartesian} (default 128) \\
+\texttt{--level-max}       & Maximum octree level (default 8; AMR mode only) \\
+\texttt{--dens-threshold}  & Density gradient threshold (default 0.3; AMR mode only) \\
+\texttt{--match-resolution}& Also refine to match local Voronoi cell size (AMR mode only) \\
+\texttt{--resample-method} & \texttt{nearest} (Voronoi-exact, default) or \texttt{gaussian} (volume-weighted kernel smoothing) \\
+\texttt{--kernel-size-factor} & Gaussian mode: adaptive smoothing length $h_i = f \times r_{\mathrm{eff},i}$ (default 1.0) \\
+\texttt{--kernel-size}     & Gaussian mode: fixed smoothing length, overriding the adaptive factor \\
+\texttt{--compute-physics} & Compute \texttt{xHI}, \texttt{n\_e}, emissivity, \texttt{ndust} \\
+\texttt{--emissivity-line} & \texttt{lya} (Case~B, default), \texttt{civ} (CIE C\,\textsc{iv}), \texttt{ovi} (CIE O\,\textsc{vi}) \\
+\texttt{--ionization}      & \texttt{from\_illustris} (TNG native), \texttt{cie}, or \texttt{full\_neutral} \\
+\texttt{--sfr-treatment}   & \texttt{cap-temperature} (default), \texttt{exclude}, or \texttt{as-is} \\
+\texttt{--api-key}         & Download cutout from TNG public API \\
+\texttt{--plot}            & Diagnostic slice plot (area-filled by default; \texttt{--plot-scatter} for cell-center scatter) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The \texttt{--sfr-treatment cap-temperature} option (default) caps the
+temperature of star-forming cells at $2\times10^4$\,K, since their
+\texttt{InternalEnergy} reflects an effective equation of state, not the
+actual ISM temperature.
+
+Cutouts can be downloaded directly from the TNG public API
+(\texttt{tng-project.org}; free registration required):
+
+\begin{lstlisting}[language={}]
+python convert_illustris_to_generic.py \
+    --api-key YOUR_KEY --simulation TNG50-1 --snap 99 \
+    --subhalo-id 0 -o galaxy.h5 --compute-physics
+\end{lstlisting}
+
+When the converted grid file contains an \texttt{emissivity} column,
+\texttt{source\_geometry = 'diffuse\_emissivity'} will automatically
+use it as the photon source distribution without requiring
+\texttt{par\%emiss\_file} to be set.  Alternatively, set
+\texttt{par\%emissivity\_model = 'caseB'} to compute the emissivity
+on the fly from $n_\mathrm{H}$, $T$, and $x_\mathrm{HI}$.
+
+\paragraph{Cartesian grid output.}
+In addition to the adaptive octree, the converter can produce a uniform
+$N \times N \times N$ Cartesian grid:
+
+\begin{lstlisting}[language={}]
+python convert_illustris_to_generic.py cutout.hdf5 \
+    -o galaxy_cart.h5 --grid-type cartesian --ngrid 128 \
+    --output-unit kpc --compute-physics --ionization cie
+\end{lstlisting}
+
+The output file stores all quantities as 3D image sections (one per
+physical variable), read by LaRT via \texttt{par\%cart\_file}:
+
+\begin{lstlisting}[language=Fortran]
+par%cart_file     = 'galaxy_cart.h5'
+par%distance_unit = 'kpc'
+\end{lstlisting}
+
+This uses the standard Cartesian raytrace with no AMR overhead.
+Optional columns (\texttt{xHI}, \texttt{emissivity}, \texttt{ndust})
+are applied automatically when present.
+
+For full details of the Illustris data format, unit conversions, and
+the Voronoi-to-octree algorithm, see
+\texttt{docs/Illustris\_data\_structure.pdf}.
+
+\subsection{Source Geometries in AMR Mode}
+
+In v2.00, AMR supports \texttt{'point'} and \texttt{'uniform'}.  In v2.10, most
+Cartesian geometries (Gaussian, exponential, S\'{e}rsic, \texttt{star\_file}, etc.)
+are also available; refer to \S\ref{sec:source_geometry} and the v2.10 release notes.
+
+%=============================================================================
+\section{Clumpy Medium Mode}
+\label{sec:clump}
+%=============================================================================
+
+\subsection{Overview}
+
+Clumpy medium mode places $N$ spherical clumps of radius $r_c$ inside a spherical outer
+domain of radius $R$.  The inter-clump medium is vacuum.  All opacity resides inside the
+clumps.  By default, clump positions are drawn by Random Sequential Adsorption (RSA) so
+that clumps never overlap.  Optionally, overlapping clumps can be generated or loaded from
+an external FITS file; LaRT detects overlaps automatically after placement and engages an
+event-based multi-component raytrace in that case (see \S\ref{sec:clump_overlap}).
+
+\subsection{Enabling Clump Mode}
+
+\textbf{v2.00:}
+\begin{lstlisting}
+par%use_clump_medium = .true.
+\end{lstlisting}
+
+\textbf{v2.10 (preferred):}
+\begin{lstlisting}
+par%grid_type = 'clump'
+\end{lstlisting}
+
+\subsection{Clump Parameters}
+
+\begin{center}
+\begin{tabular}{@{}l@{\hspace{1.5em}}l@{\hspace{1.5em}}p{8cm}@{}}
+\toprule
+Parameter & Default & Description \\
+\midrule
+\parm{rmax}            & 1.0  & Outer sphere radius (code units) \\
+\parm{rmin}            & $-999$ & Inner cavity radius (the default sentinel is treated as 0). Clumps are placed only in the shell $r_\text{min} \le r \le r_\text{max}$ \\
+\parm{clump\_radius}   & ---  & Individual clump radius (same units) \\
+\parm{clump\_tau0}     & ---  & Line-center $\tau_0$ from clump center to its surface \\
+\parm{clump\_f\_cov}   & ---  & Covering factor $C_f = N r_c^2 / R^2$ \\
+\parm{clump\_f\_vol}   & ---  & Volume filling factor $f_V = N(r_c/R)^3$ \\
+\parm{clump\_N\_clumps} & --- & Total number of clumps $N$ \\
+\parm{temperature}     & $10^4$\,K & Clump gas temperature \\
+\parm{clump\_sigma\_v} & 0.0  & Gaussian $\sigma$ of random bulk clump velocities [km\,s$^{-1}$] \\
+\parm{save\_clump\_info} & \texttt{.false.} & Write clump positions and velocities to a FITS binary table \\
+\parm{clump\_input\_file}& \texttt{''} & If non-empty, load the clump population from this FITS file (see \S\ref{sec:make_clumps}) instead of generating it internally \\
+\parm{cone\_opening}    & 0.0  & Biconical outflow half-opening angle [degrees]. When $>0$, clumps are placed only inside the bicone (both hemispheres). With \parm{clump\_fully\_inside}, clumps are additionally rejected if they protrude outside the cone boundary. \\
+\parm{clump\_fully\_inside} & \texttt{.true.} & If \texttt{.true.} (default), reject any candidate whose outermost edge would protrude past the outer sphere ($d_\text{center} + r_c > R$) or into the inner cavity ($d_\text{center} - r_c < r_\text{min}$); if \texttt{.false.}, restore the legacy behavior in which only the center is required to lie in $[r_\text{min},\,R]$ \\
+\parm{clump\_allow\_overlap} & \texttt{.false.} & If \texttt{.true.}, skip RSA overlap rejection during internal generation: clumps are placed at uniformly random positions.  After placement \texttt{check\_has\_overlap()} is called automatically; if any overlapping pair is found the overlap-aware raytrace is engaged.  See \S\ref{sec:clump_overlap} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Specify exactly one of \parm{clump\_f\_cov}, \parm{clump\_f\_vol}, or \parm{clump\_N\_clumps}.
+
+\begin{sloppypar}
+For the opacity of each clump, specify \emph{one} of \parm{clump\_tau0}, \parm{clump\_NHI}, or \parm{clump\_nH}.  As a convenience, when none of those three is set the system-level radial-sightline targets \parm{taumax} and \parm{N\_HImax} are also accepted for procedurally generated clumps: LaRT back-solves the peak opacity of each clump so the realised radial sightline from the box centre to $r=R$ matches the requested \parm{taumax} (or \parm{N\_HImax}).  In the uniform-clump case the back-solve uses the closed-form $\tau_\text{max} = \tfrac{4}{3}\,f_\text{cov}\,\tau_{c,0}$ (and similarly for $N_\text{HI,max}$); in profile mode it uses the radial quadrature derived from \parm{clump\_radius\_profile}, \parm{clump\_density\_profile}, and \parm{clump\_number\_profile}. \parm{N\_gasmax} is treated as an alias for \parm{N\_HImax} in clump mode (HI-only line). When a pre-built clump population is loaded via \parm{clump\_input\_file}, any one of \parm{taumax}, \parm{tauhomo}, \parm{N\_HImax} (=\,\parm{N\_gasmax}), or \parm{N\_HIhomo} (=\,\parm{N\_gashomo}) may be supplied as the rescale target.  Every \texttt{cl\_rhokap(i)} is multiplied by a single factor $\alpha$ so the chosen target is exactly reproduced; the other three scalars are derived consistently from the rescaled distribution.  Priority order when several targets are given: \parm{taumax} $>$ \parm{tauhomo} $>$ \parm{N\_gasmax} $>$ \parm{N\_gashomo}.  See the \emph{Clumpy Medium Algorithm Description}, \S``System-level fallback''.
+\end{sloppypar}
+
+\begin{sloppypar}
+When \parm{rmin} is set, \parm{clump\_f\_vol} and \parm{clump\_f\_cov} are interpreted relative to the shell volume $V_\text{shell} = \tfrac{4}{3}\pi (R^3 - r_\text{min}^3)$ and the shell sightline factor $R^2 + R\, r_\text{min} + r_\text{min}^2$.  With \parm{rmin} unset (default $-999$, treated as $0$) these reduce exactly to the original $(R/r_c)^3$ and $(R/r_c)^2$ formulas, preserving prior runs.  When \parm{clump\_fully\_inside} is on, the realized filling factors fall slightly below the requested target whenever $r_c$ is a non-trivial fraction of $R - r_\text{min}$, since the available placement volume shrinks from $\tfrac{4}{3}\pi (R^3 - r_\text{min}^3)$ to $\tfrac{4}{3}\pi \bigl[(R-r_c)^3 - (r_\text{min}+r_c)^3\bigr]$.  Specify a slightly larger target if exact matching is required.  See the \emph{Clumpy Medium Algorithm Description} document, ``Fully-Inside Constraint'' subsection, for the placement details.
+\end{sloppypar}
+
+\subsection{Spatially-varying clump properties}
+
+\begin{sloppypar}
+Three optional radial-profile inputs let each clump's radius, internal
+H\,\textsc{i} density, and spatial number density vary with distance from the
+box center.  Built-in shapes are \texttt{'constant'} (default), \texttt{'powerlaw'},
+\texttt{'gaussian'}, \texttt{'exponential'}, and \texttt{'file'} (5-column ASCII
+table).  Setting any flag to a value other than \texttt{'constant'} switches
+\parm{init\_clumps} to the profile-aware path.
+\end{sloppypar}
+
+\begin{center}
+\begin{tabular}{@{}l@{\hspace{1.5em}}l@{\hspace{1.5em}}p{6.5cm}@{}}
+\toprule
+Parameter & Default & Description \\
+\midrule
+\parm{clump\_radius\_profile}  & \texttt{'constant'} & shape of $r_c(r)$ \\
+\parm{clump\_radius\_alpha}    & 0.0 & power-law index for $r_c(r)$ \\
+\parm{clump\_radius\_r0}       & 0.0 & power-law scale for $r_c(r)$; $\leq 0 \Rightarrow r_\text{max}$ \\
+\parm{clump\_density\_profile} & \texttt{'constant'} & shape of internal $n_H(r)$ \\
+\parm{clump\_density\_alpha}   & 0.0 & power-law index for $n_H(r)$ \\
+\parm{clump\_density\_r0}      & 0.0 & power-law scale for $n_H(r)$; $\leq 0 \Rightarrow r_\text{max}$ \\
+\parm{clump\_number\_profile}  & \texttt{'constant'} & shape of spatial $n_{cl}(r)$ \\
+\parm{clump\_number\_alpha}    & 0.0 & power-law index for $n_{cl}(r)$ \\
+\parm{clump\_number\_r0}       & 0.0 & power-law scale for $n_{cl}(r)$; $\leq 0 \Rightarrow r_\text{max}$ \\
+\parm{clump\_profile\_file}    & \texttt{''} & 5-column tabulated profile (used when any axis = \texttt{'file'}) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{sloppypar}
+For non-uniform profiles the closed-form
+$f_{\rm cov}$\,/\,$f_{\rm vol}$\,/\,$N$ relation does not hold.  Instead
+the profile-aware quadrature back-solves the spatial normalization so
+that whichever of \parm{clump\_f\_cov}, \parm{clump\_f\_vol}, or
+\parm{clump\_N\_clumps} is provided is matched, and the other two are
+reported on stdout.  See the \emph{Clumpy Medium Algorithm Description}
+document for the integral definitions and the implementation outline.
+\end{sloppypar}
+
+\subsection{Standalone clump generator (\texttt{make\_clumps.x})}
+\label{sec:make_clumps}
+
+A self-contained Fortran driver, \texttt{make\_clumps.x}, builds a
+clump population without running the photon transport.  It is no longer
+linked against MPI or the LaRT physics stack; the only run-time
+dependency is the FITS/HDF5 output facade.  All parameters are passed
+as command-line flags (one flag per \texttt{par\%clump\_*} field plus
+the relevant global parameters):
+
+\begin{lstlisting}
+make make_clumps                                          # builds make_clumps.x
+./make_clumps.x --rmax 1.0 --clump_radius 1e-3 \
+                --clump_f_cov 5 --clump_tau0 1e3 \
+                --temperature 1e4 --line_id ly_alpha \
+                --seed 12345 -o run_clumps.fits.gz
+\end{lstlisting}
+
+Run \texttt{./make\_clumps.x --help} for the full flag list.  The
+output filename's extension chooses the container: \texttt{.fits} /
+\texttt{.fits.gz} produce a FITS binary table, \texttt{.h5} /
+\texttt{.hdf5} produce an HDF5 table.  In both cases the header
+keywords and column schema match the clump table that LaRT itself
+writes with \parm{save\_clump\_info}, so the file is directly
+consumable by LaRT through \parm{clump\_input\_file}.
+
+A pure-Python equivalent, \texttt{python/make\_clumps.py}, ships in the
+same repository; the two drivers expose essentially the same flag set
+and write the same schema.  All sampling paths are supported in both:
+uniform RSA, radial profiles (\texttt{powerlaw}, \texttt{gaussian},
+\texttt{exponential}), biconical geometry
+(\texttt{--cone\_opening}, including the \texttt{clump\_fully\_inside}
+angular-subtension test), every opacity-input mode
+(\texttt{--clump\_tau0 / --clump\_NHI / --clump\_nH / --taumax /
+--N\_HImax}), and the same systematic velocity families
+(\texttt{hubble}, \texttt{constant\_radial}, \texttt{power\_law},
+\texttt{linear\_decelerate}, \texttt{parallel\_velocity}, \texttt{ssh},
+\texttt{rotating\_solid\_body}, \texttt{rotating\_galaxy\_halo}) on top
+of the Gaussian \parm{clump\_sigma\_v} component.
+
+\begin{lstlisting}
+python python/make_clumps.py --rmax 1.0 --clump_radius 1e-3 \
+       --clump_f_cov 5 --clump_tau0 1e3 --temperature 1e4 \
+       --line_id ly_alpha --seed 12345 -o run_clumps.fits.gz
+\end{lstlisting}
+
+Both drivers are deterministic in \texttt{--seed}: re-running with the
+same flag set and the same seed reproduces the table bit-for-bit.  The
+two drivers use independent RNG implementations, however, so for a
+given seed the Fortran and Python outputs are statistically equivalent
+but not byte-identical; choose whichever fits the host environment.
+Either output is dropped into a LaRT run by setting
+\parm{clump\_input\_file}.
+
+To consume the file, set \parm{clump\_input\_file} on the LaRT input:
+
+\begin{lstlisting}
+&parameters
+ par%grid_type        = 'clump'
+ par%rmax             = 1.0
+ par%clump_radius     = 0.01
+ par%clump_tau0       = 1.0e3
+ par%temperature      = 1.0e4
+ par%no_photons       = 1e6
+ par%clump_input_file = 'clumps_clumps.fits.gz'
+/
+\end{lstlisting}
+
+When \parm{clump\_input\_file} is non-empty, \texttt{init\_clumps} skips
+the profile-detection and RSA-generation paths entirely and reads the
+population from the file.  \texttt{read\_clumps\_fits} accepts files
+with any subset of the clump columns
+\texttt{R\_CLUMP}/\texttt{RHOKAP}/\texttt{TEMP}; missing columns are
+filled from the corresponding header keyword
+(\texttt{CL\_RAD}/\texttt{RHOKAP}/\texttt{TEMP\_CL}).  For the
+\texttt{RHOKAP} slot the column names \texttt{DENSITY} and \texttt{DENS}
+are also accepted as aliases, in priority order
+\texttt{RHOKAP} $\to$ \texttt{DENSITY} $\to$ \texttt{DENS}.  The
+interpretation depends on which name was used: \texttt{RHOKAP} (and the
+header-keyword fallback) is taken as line-centre opacity per code unit
+and stored directly into $\kappa_i$, while \texttt{DENSITY} or
+\texttt{DENS} are taken as the neutral-hydrogen number density
+$n_{HI,i}$ [cm$^{-3}$] and converted to opacity via
+$\kappa_i = n_{HI,i}\cdot\texttt{line\%cross0}/\Delta\nu_{D,i}\cdot\parm{distance2cm}$.
+The conversion requires \parm{distance\_unit} (and therefore
+\parm{distance2cm}) to be set; if not, the read path emits a warning and
+falls back to treating the values as opacity.
+
+The clump file also carries \texttt{DISTUNIT} (\parm{distance\_unit}) and
+\texttt{DIST\_CM} (\parm{distance2cm}) keywords written by LaRT itself.
+On read, these are adopted into \parm{distance\_unit} / \parm{distance2cm}
+when the user did NOT supply them in the input namelist; the criterion
+for ``user-supplied'' is \parm{distance\_unit}~\texttt{/=~''} \emph{and}
+\parm{distance2cm}~\texttt{>~1.0}, so the file values take effect only
+when the namelist leaves both at their defaults.  This lets a clump file
+generated with \parm{distance\_unit~=~'kpc'} be replayed in a downstream
+run without having to repeat that setting, and gives a meaningful
+\parm{distance2cm} to the DENSITY/DENS opacity conversion above.
+External pipelines that write LaRT-compatible HDF5 clump files must
+store \texttt{DISTUNIT} as a fixed-length ASCII string (h5py:
+\texttt{string\_dtype(encoding='ascii', length=N)}); variable-length
+strings are detected on read and silently skipped (a warning is printed).
+
+If any of \parm{taumax}, \parm{tauhomo}, \parm{N\_HImax}
+(=\,\parm{N\_gasmax}), or \parm{N\_HIhomo} (=\,\parm{N\_gashomo}) is
+specified together with \parm{clump\_input\_file}, every loaded
+\texttt{cl\_rhokap(i)} is multiplied by a single factor
+$\alpha = \mathrm{target}/\mathrm{realised}$ so the chosen system-level
+scalar matches the input target; the other three scalars are then
+derived consistently from the rescaled population.  Priority among
+multiple targets: \parm{taumax} $>$ \parm{tauhomo} $>$ \parm{N\_gasmax}
+$>$ \parm{N\_gashomo}.  If none of the four is set, the loaded opacities
+are taken as-is and the four scalars are reported as computed from the
+file.  See \emph{Clumpy Medium Algorithm Description},
+\S``System-level fallback'' and
+\S``Derived Global Optical-Depth Quantities'' for the formulas.
+
+\subsection{Overlapping Clumps}
+\label{sec:clump_overlap}
+
+By default LaRT guarantees non-overlapping clumps through RSA placement and all raytrace
+paths assume this property.  Two situations can produce overlapping populations:
+\begin{enumerate}
+\item A clump population loaded from an external FITS file via \parm{clump\_input\_file}
+      may contain overlapping clumps.
+\item Setting \parm{clump\_allow\_overlap}~=~\texttt{.true.} skips the RSA rejection step
+      so that internally generated clumps are placed at uniformly random positions and will
+      typically overlap whenever the clumps are large relative to the domain.
+\end{enumerate}
+
+After the CSR acceleration grid is built, \texttt{check\_has\_overlap()} scans all clump
+pairs.  If any overlapping pair is found it prints
+\begin{lstlisting}
+Overlap check: overlapping clumps detected -- using overlap-aware raytrace.
+\end{lstlisting}
+sets an internal flag \texttt{has\_overlap = .true.}, and routes all subsequent raytrace
+calls to the overlap-aware variants automatically.  No input change is required; the
+detection and dispatch happen at run time.
+
+\subsubsection*{Physical model for overlapping clumps}
+
+Two clumps sharing a volume with different bulk velocities $\boldsymbol{v}_1$ and
+$\boldsymbol{v}_2$ are treated as two independent gas components coexisting at the same
+spatial location.  The total line opacity at global-frame frequency $x$ is
+\begin{equation}
+  \kappa_\text{total}(x)
+  = \sum_i \rho\kappa_i\,H(x - u_{\text{los},i},\,a_i),
+  \qquad u_{\text{los},i} = \frac{\boldsymbol{v}_i\cdot\hat{k}}{\Delta\nu_{D,i}}.
+\end{equation}
+When a scattering event occurs in an overlap region the interacting atom belongs to
+one clump, chosen by opacity-weighted sampling
+$P(\text{clump}\;i) = \kappa_i / \kappa_\text{total}$.
+
+\subsubsection*{Quick-start example}
+
+Large clumps with low covering factor guarantee many overlaps while keeping the run
+fast:
+\begin{lstlisting}
+par%grid_type           = 'clump'
+par%clump_radius        = 0.3
+par%clump_f_cov         = 2.0
+par%clump_allow_overlap = .true.
+par%no_photons          = 1e5
+par%spectral_type       = 'voigt'
+\end{lstlisting}
+\begin{sloppypar}
+Reference inputs: \texttt{clump\_overlap\_mono.in},
+\texttt{clump\_overlap\_sigv.in}, \texttt{clump\_overlap\_peel.in} in
+\texttt{examples/clump\_sphere/}.
+\end{sloppypar}
+
+For a full algorithmic description see the \emph{Clumpy Medium Algorithm Description}
+document, Section~15 ``Overlap-Aware Raytrace''.
+
+\subsection{Clump Velocity}
+
+\begin{sloppypar}
+A systematic flow can be added on top of the random component (\parm{clump\_sigma\_v})
+via \parm{velocity\_type}.  Supported values in clump mode: \texttt{'hubble'},
+\texttt{'constant\_radial'}, \texttt{'power\_law'}, \texttt{'linear\_decelerate'},
+\texttt{'parallel\_velocity'}, \texttt{'ssh'},
+\texttt{'rotating\_solid\_body'}, \texttt{'rotating\_galaxy\_halo'}.
+\end{sloppypar}
+
+%=============================================================================
+\section{Observers and Peel-off}
+\label{sec:observer}
+%=============================================================================
+
+The peel-off (peeling-off) technique shoots a photon toward the observer at every
+scattering event, allowing spectral images to be constructed without noise.  It is
+activated by setting \parm{nxim} and \parm{nyim} to non-zero values.
+
+\subsection{Observer Placement}
+
+\textbf{Direction vector:}
+\begin{lstlisting}
+par%obsx = 0.0, par%obsy = 0.0, par%obsz = 1.0  ! look down +z axis
+par%distance = 100.0                               ! observer-center separation
+\end{lstlisting}
+
+\textbf{Spherical angles:}
+\begin{lstlisting}
+par%alpha = 45.0   ! azimuthal angle [deg]
+par%beta  = 30.0   ! elevation angle [deg]
+par%distance = 100.0
+\end{lstlisting}
+
+\parm{gamma} sets the rotation of the detector plane about the line of sight.
+If \parm{distance} is omitted it defaults to $100 \times r_\text{max}$ (or the maximum
+box half-extent).
+
+\subsection{Multiple Observers}
+
+Multiple observers are specified as arrays:
+\begin{lstlisting}
+par%alpha = 0.0  45.0  90.0  135.0
+par%beta  = 0.0   0.0   0.0    0.0
+\end{lstlisting}
+Up to 99 simultaneous observers are supported.
+
+\subsection{Image Parameters}
+
+\begin{center}
+\begin{tabular}{@{}l@{\hspace{1.5em}}l@{\hspace{1.5em}}l@{}}
+\toprule
+Parameter & Default & Description \\
+\midrule
+\parm{nxim}, \parm{nyim} & 0    & Image pixel counts; peel-off enabled when $> 0$ \\
+\parm{dxim}, \parm{dyim} & auto & Pixel angular size [deg] (defaults to cover the full grid) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+When \parm{dxim}/\parm{dyim} are not set, the pixel size is chosen to cover the full
+sphere:
+\begin{equation}
+  \delta\theta = \frac{1}{N_x/2}\arcsin\!\left(\frac{r_\text{max}}{d}\right).
+\end{equation}
+
+\subsection{Peel-off Output Flags}
+
+\begin{center}
+\begin{tabular}{@{}l@{\hspace{1.5em}}l@{\hspace{1.5em}}p{8cm}@{}}
+\toprule
+Parameter & Default & Description \\
+\midrule
+\parm{save\_peeloff}    & \texttt{.false.} & Save 1-D peel-off spectra per observer \\
+\parm{save\_peeloff\_2D} & \texttt{.false.} & Save peel-off spectral image cubes ($x$-$y$-$\nu$) \\
+\parm{save\_peeloff\_3D} & \texttt{.false.} & Save full 3-D peel-off data \\
+\parm{save\_sightline\_tau} & \texttt{.false.} & Compute deterministic sight-line maps from each observer pixel: gas $\tau(\nu)$, $N_{\rm HI}$, and dust $\tau$ (when \parm{DGR}$> 0$).  See \S\ref{sec:sightline_tau}. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Sight-line Optical-depth and Column-density Maps}
+\label{sec:sightline_tau}
+
+When \parm{save\_sightline\_tau}~=~\texttt{.true.}, LaRT integrates the
+opacity along each observer pixel's line of sight and writes a separate
+FITS file \texttt{<base>\_tau<obs>.fits.gz} for every observer.  The file
+contains:
+
+\begin{center}
+\begin{tabular}{@{}l@{\hspace{1.5em}}l@{}}
+\toprule
+HDU & Content \\
+\midrule
+\texttt{TAU\_gas}  & gas optical depth $\tau(\nu, x, y)$ \\
+\texttt{N\_gas}    & gas column density $N_{\rm HI}(x, y)$ \\
+\texttt{TAU\_dust} & dust optical depth $\tau_{\rm dust}(x, y)$ (only when \parm{DGR}$> 0$) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The pixel grid uses the same WCS as the peel-off image
+(\parm{nxim}, \parm{nyim}, \parm{dxim}, \parm{dyim}); the frequency axis
+matches the spectrum output (\parm{nxfreq}, \parm{velocity\_min},
+\parm{velocity\_max}).  All three grid modes (Cartesian, AMR, clump) are
+supported with the appropriate raytrace dispatch.
+
+\subsubsection*{Standalone driver \texttt{make\_sightline\_tau.x}}
+
+The same sight-line integration is exposed as a standalone executable
+that skips the photon-transport stage entirely:
+
+\begin{lstlisting}
+make sightline_tau                              # builds make_sightline_tau.x
+mpirun -np N ./make_sightline_tau.x sl.in       # writes <base>_tau.fits.gz
+\end{lstlisting}
+
+\texttt{sl.in} is an ordinary LaRT input file; the driver internally
+sets \parm{save\_peeloff} and the sight-line flag to \texttt{.true.}\ and
+otherwise honors every namelist parameter.  Useful for parameter
+sweeps where only the deterministic maps are needed (no Monte-Carlo
+transport).  Unlike \texttt{make\_clumps.x}, multiple MPI ranks do
+speed this driver up: pixels are divided across \parm{nproc} via
+\texttt{loop\_divide} and reduced with \texttt{reduce\_mem}.
+
+The folder \texttt{examples/sightline\_tau/} contains a reference set
+of six runs that exercise every grid mode and observer configuration
+the driver supports:
+
+\begin{center}
+\small
+\begin{tabular}{@{}lll@{}}
+\toprule
+File & Grid mode & Observer \\
+\midrule
+\texttt{car\_sightline.in}   & Cartesian       & outside (rectangular FITS) \\
+\texttt{amr\_sightline.in}   & AMR             & outside (rectangular FITS) \\
+\texttt{clump\_sightline.in} & clumpy sphere   & outside (rectangular FITS) \\
+\texttt{car\_inside.in}      & Cartesian       & inside (HEALPix all-sky) \\
+\texttt{amr\_inside.in}      & AMR             & inside (HEALPix all-sky) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent
+The shipped \texttt{run.sh} executes all six in sequence;
+\texttt{make\_amr\_sphere\_data.py} regenerates the AMR data file from a
+uniform-sphere physics model.  The companion notebook
+\texttt{plot\_sightline\_tau.ipynb} displays the column-density maps,
+selected $\tau(x, y, v)$ slices, the all-sky HEALPix mollview maps and
+the sky-mean line profile.
+
+\paragraph{tau\_huge cap (sight-line vs.\ photon transport).}
+\begin{sloppypar}
+The AMR raytrace routines used by the photon-transport stage early-exit
+when the running optical depth exceeds the double-precision exp(-$\tau$)
+underflow point ($\tau_{\rm huge} \approx 745.2$); accumulating further
+contributes nothing to the photon's transmission.  The sight-line
+variant \texttt{raytrace\_to\_edge\_tau\_gas\_amr} exists precisely to
+\emph{report} the integrated $\tau$, however large, and therefore runs
+without that cap (matching the Cartesian
+\texttt{raytrace\_to\_edge\_tau\_gas} in \texttt{raytrace\_car.f90}).
+The same applies to \texttt{raytrace\_to\_dist\_tau\_gas\_amr} used by
+the inside-observer HEALPix path.
+\end{sloppypar}
+
+\subsection{Inside Observer (HEALPix All-Sky)}
+\label{sec:inside_observer}
+
+Setting \parm{nside}~$> 0$ switches the entire output and peel-off chain
+to the \emph{inside-observer} path: the observer is placed at a chosen
+position $(o_x, o_y, o_z)$ \emph{inside} the medium, and each escaping
+photon is binned into an all-sky HEALPix map by the direction from the
+observer back to the photon.  This mode is intended for ``galactic''
+observations -- e.g., placing the observer at the Sun's position inside
+a model of the Galactic ISM, or inside a simulated galaxy.
+
+\textbf{Activation:}
+\begin{lstlisting}
+par%nside = 8                    ! HEALPix Nside parameter; total npix = 12*nside^2
+par%obsx  = 0.3                  ! observer position (code units)
+par%obsy  = 0.0
+par%obsz  = 0.0
+par%save_peeloff    = .true.
+par%save_peeloff_2D = .true.     ! also save the 2D map (sum over frequency)
+\end{lstlisting}
+
+When \parm{nside}~$> 0$, \texttt{setup.f90} automatically sets
+\parm{observer\_located\_inside}~$=$~\texttt{.true.} and switches:
+\begin{itemize}
+  \item the observer arrays from rectangular images to HEALPix
+        all-sky maps with $N_\mathrm{pix} = 12\,\mathrm{Nside}^2$;
+  \item the peel-off routines to the \texttt{\_inside} variants
+        (which use \texttt{vec2pix} to bin the peeled weight by
+        observer-pointing direction);
+  \item \texttt{output\_reduce}, \texttt{output\_normalize} and
+        \texttt{write\_output} to the \texttt{\_inside} variants.
+\end{itemize}
+In v2.10 the dispatch is performed by the type-bound methods of
+\texttt{grid\_base\_type} (\texttt{grid\_class.f90}); the
+\texttt{grid\_car\_type} and \texttt{grid\_amr\_type} concrete types
+each branch on \parm{observer\_located\_inside} and forward to the
+appropriate \texttt{\_inside} or \texttt{\_outside} concrete routine.
+
+\textbf{Multiple observers.}  As with the rectangular path, up to 99
+observer positions are supported by passing arrays:
+\begin{lstlisting}
+par%nside = 8
+par%obsx  = 0.0  0.3  0.0
+par%obsy  = 0.0  0.0  0.5
+par%obsz  = 0.0  0.0  0.0
+\end{lstlisting}
+
+\begin{sloppypar}
+\textbf{Output files.}  In inside-observer mode the
+\texttt{\_obs.fits.gz} file holds 2D HEALPix arrays of shape
+\texttt{(npix, nxfreq)} with extensions
+\texttt{Direct} (unscattered direct contribution) and
+\texttt{Scattered} (scattered contribution).  When
+\parm{save\_peeloff\_2D}~$=$~\texttt{.true.} a separate
+\texttt{\_obs2D.fits.gz} file is written with shape \texttt{(npix,)}
+holding the same arrays summed over frequency.  The HEALPix maps use
+the RING ordering convention.  The \texttt{Spectrum} HDU
+(\texttt{Jout}, \texttt{Jin}, \texttt{Jabs}) is always written
+regardless of observer mode.
+\end{sloppypar}
+
+\begin{sloppypar}
+\textbf{Source scope.}  The inside-observer path supports the same
+internal sources as the standard path -- \texttt{point},
+\texttt{uniform}, \texttt{gaussian}, \texttt{exponential},
+\texttt{sersic}, \texttt{diffuse\_emissivity} -- but \emph{not} the
+external-illumination geometries (\texttt{point\_illumination},
+\texttt{stellar\_illumination}, \texttt{plane\_illumination}), which
+are only physically meaningful for an observer outside the medium.
+Stokes polarization is not yet implemented for the inside-observer
+path.
+\end{sloppypar}
+
+\begin{sloppypar}
+\textbf{Grid-mode support.}  The HEALPix inside-observer path is
+available for both Cartesian (\parm{grid\_type}~$=$~\texttt{'car'}) and
+AMR (\parm{grid\_type}~$=$~\texttt{'amr'}) grids.  In AMR mode,
+dedicated \texttt{\_inside\_amr} peeling, output and sightline
+routines are used (see the \emph{LaRT AMR Description} document for
+implementation details).  Clumpy medium
+(\parm{grid\_type}~$=$~\texttt{'clump'}) is not currently supported
+with the inside-observer path.
+\end{sloppypar}
+
+\textbf{Sightline-tau output.}  When the inside-observer path is
+active, an additional \texttt{\_sightline.fits.gz} file is produced
+that records $\tau$ and $N(\mathrm{HI})$ from the observer position
+to each of the six box faces ($\pm x$, $\pm y$, $\pm z$).  This is
+useful for cross-checking the optical depth structure seen by the
+observer.
+
+\begin{sloppypar}
+\textbf{Smoke test.}  The
+\texttt{examples/amr\_sphere\_generic/} directory ships
+\texttt{sphere\_amr\_inside\_test.in} (AMR uniform sphere) and
+\texttt{sphere\_car\_inside\_test.in} (Cartesian $64^3$ counterpart),
+both with \parm{nside}~$= 8$ and an off-center observer at
+$(o_x, o_y, o_z) = (0.3, 0, 0)$.  These produce equivalent HEALPix
+maps within the documented AMR octree volume-averaging tolerance.
+\end{sloppypar}
+
+%=============================================================================
+\section{Output Files}
+\label{sec:output}
+%=============================================================================
+
+Outputs are written either as gzip-compressed FITS files (\texttt{.fits.gz})
+or as HDF5 files (\texttt{.h5}).  HDF5 is the default; set
+\parm{file\_format}~$=$~\texttt{'fits'} in the namelist to switch.  Both
+formats share the same logical layout (one section per FITS HDU
+$\leftrightarrow$ one HDF5 group), so the conversion is loss-less and
+runs in both directions via \texttt{python/lart\_io.py} (see
+\S\ref{sec:fileformats} for the schema and converter, \S\ref{sec:python}
+for the Python helper).
+
+\subsection{Primary Output Arrays}
+
+\begin{center}
+\begin{tabular}{@{}l@{\hspace{1.5em}}l@{\hspace{1.5em}}l@{}}
+\toprule
+Array & FITS extension & Description \\
+\midrule
+\texttt{Jout} & \texttt{JOUT} & Emergent spectrum integrated over all escape directions \\
+\texttt{Jin}  & \texttt{JIN}  & Injected (intrinsic) source spectrum \\
+\texttt{Jabs} & \texttt{JABS} & Spectrum of photons absorbed by dust \\
+\texttt{Jmu}  & \texttt{JMU}  & Emergent spectrum binned by $\mu = \cos\theta_z$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\textbf{Jout} is the main science output.  It is normalized per unit frequency interval and
+per unit area of the bounding sphere.  In dimensionless units (no \parm{distance\_unit}):
+\begin{equation}
+  J_{\rm out}(x) = \frac{\text{escaped photon weight in bin } x}
+                            {n_\mathrm{ph}\;\Delta x\;2\pi\;\pi R^2},
+\end{equation}
+where $R = r_\text{max}$ (Cartesian) or $R = L_\text{box}/2$ (AMR), and
+$\Delta x = 1$ in units of the Doppler width.
+
+\textbf{Jin} requires \parm{save\_Jin}~$=$~\texttt{.true.}
+
+\textbf{Jabs} requires \parm{save\_Jabs}~$=$~\texttt{.true.}
+
+\textbf{Jmu} requires \parm{save\_Jmu}~$=$~\texttt{.true.}; see
+\S\ref{sec:jmu}.
+
+The total flux is conserved: $\int J_{\rm out}\,dx + \int J_{\rm abs}\,dx = \int J_{\rm in}\,dx$
+(in the absence of other losses).
+
+\subsection{Angular Spectrum \texttt{Jmu}}
+\label{sec:jmu}
+
+Setting \parm{save\_Jmu}~$=$~\texttt{.true.} adds a 2-D image extension
+\texttt{EXTNAME='Jmu'} of shape $(n_x, n_\mu)$ that records the emergent
+spectrum binned by the $z$-component of the escape direction,
+$\mu \equiv \cos\theta_z = \hat k_z$.  This is useful for
+\begin{itemize}
+  \item verifying isotropy of homogeneous models (every $\mu$ bin should
+        match \texttt{Jout} within Poisson noise),
+  \item characterizing the angular dependence of escape in non-isotropic
+        models (for example, a slab or rotating halo).
+\end{itemize}
+
+\paragraph{Binning.}
+\begin{itemize}
+  \item \parm{nmu} bins of width $\Delta\mu$ tile the $\mu$ range
+        uniformly.
+  \item Default \parm{nmu}~$=$~$11$ (odd) places $\mu = 0$ at a bin
+        center, so the perpendicular-escape spectrum is preserved as a
+        single channel.  Even \parm{nmu} places $\mu = 0$ at a bin edge
+        and cleanly separates the $+z$ and $-z$ hemispheres.
+  \item Range:
+        \begin{itemize}
+          \item \parm{xyz\_symmetry}~$=$~\texttt{.true.} folds escapes
+                onto the $+z$ hemisphere, so $\mu \in [0, +1]$ and
+                $\Delta\mu = 1/n_\mu$.
+          \item Otherwise $\mu \in [-1, +1]$ and $\Delta\mu = 2/n_\mu$.
+        \end{itemize}
+        The header keywords \texttt{nmu}, \texttt{mu\_min}, \texttt{dmu}
+        record these values, and full WCS keywords (\texttt{CTYPE1='XFREQ'},
+        \texttt{CTYPE2='MU'}, \texttt{CRVAL$\ast$}, \texttt{CDELT$\ast$})
+        are written to the image header.
+\end{itemize}
+
+\paragraph{Normalization.}
+\texttt{Jmu} uses the same denominator as \texttt{Jout} multiplied by
+$n_\mu$, so that
+\begin{equation}
+  \frac{1}{n_\mu}\sum_{i=1}^{n_\mu} J(x;\mu_i) = J_{\rm out}(x)
+\end{equation}
+holds exactly.  Equivalently, in a homogeneous, isotropic medium each
+$\mu$ bin reproduces \texttt{Jout} up to Poisson fluctuations, providing
+a cheap regression test for new geometries.
+
+\paragraph{Modes.} Available with all three grid modes:
+Cartesian, AMR octree, and the clumpy medium.
+
+\subsection{Mean Intensity and Scattering Rate
+            (\texttt{CALCJ} / \texttt{CALCP} / \texttt{CALCPnew})}
+\label{sec:calcjp}
+
+Building with
+\begin{lstlisting}[language=bash,numbers=none]
+make CALCJ=1 CALCP=1 CALCPnew=1     # any subset may be enabled
+\end{lstlisting}
+adds accumulators for the mean-intensity spectrum $J(x)$ inside the medium
+(\texttt{CALCJ}) and for the scattering rate per atom $P_\alpha$, counted
+either per resonance-scattering event (\texttt{CALCP}) or with the faster
+path-length estimator of Seon \& Kim (2020) (\texttt{CALCPnew}).  These
+accumulators work on \textbf{both} the Cartesian grid and the AMR octree
+grid; the clumpy medium is not yet supported.
+
+\paragraph{Geometry selection (\parm{geometry\_JPa}).}
+The storage shape is controlled by \parm{geometry\_JPa}: $3$ = full 3-D
+(per cell / per leaf), $2$ = cylindrical $(r, z)$ bins, $1$ = spherical
+radial bins, $-1$ = plane-parallel $z$ bins.  If unset, the code picks
+radial bins when \parm{rmax}~$>0$ (or 3-D when \parm{save\_all} is set),
+$z$ bins for \parm{xy\_periodic} slabs, and 3-D otherwise.
+\textbf{AMR note:} for radial ($1$) or cylindrical ($2$) binning on the AMR
+grid, \parm{rmax}~$>0$ must be set explicitly in the input file (e.g.\
+\parm{rmax}~$= L_{\rm box}/2$); otherwise the automatic selection falls back
+to the leaf-by-leaf 3-D shape, because the AMR box size is not yet known when the
+selection is made.  The number of radial bins defaults to
+$2^{\ell_{\max}-1}$ (capped at 512) and can be overridden with \parm{nr}.
+
+\paragraph{Output sections.}
+\begin{center}
+\begin{tabular}{@{}l@{\hspace{1.2em}}l@{\hspace{1.2em}}l@{}}
+\toprule
+\parm{geometry\_JPa} & Cartesian & AMR octree \\
+\midrule
+$3$  & \texttt{Jx\_3D} $(n_x, n_{\rm x}, n_{\rm y}, n_{\rm z})$,
+       \texttt{Pa\_3D} & \texttt{Jx\_AMR} $(n_x, n_{\rm leaf})$,
+       \texttt{Pa\_AMR} $(n_{\rm leaf})$ \\
+$2$  & \texttt{Jx\_2D}, \texttt{Pa\_2D} & \texttt{Jx\_2D}, \texttt{Pa\_2D} \\
+$1$, $-1$ & \texttt{Jx\_1D}, \texttt{Pa\_1D} & \texttt{Jx\_1D}, \texttt{Pa\_1D} \\
+\bottomrule
+\end{tabular}
+\end{center}
+\texttt{CALCPnew} sections carry the suffix \texttt{\_new}
+(\texttt{Pa\_1D\_new}, \texttt{Pa\_AMR\_new}, \ldots), so \texttt{CALCP} and
+\texttt{CALCPnew} can be enabled together without a section-name collision.
+The AMR sections also carry the bin-axis keywords \texttt{geom\_JPa} and
+\texttt{nr} / \texttt{rmax} / \texttt{dr} (radial) or \texttt{nz} /
+\texttt{zmin} / \texttt{dz} ($z$ bins), so readers can reconstruct the bin
+grid without the input AMR file; \texttt{read\_lart.py} does this
+automatically.  The leaf arrays are ordered by the octree leaf index; the
+leaf positions $(c_x, c_y, c_z, c_h)$ follow from the input AMR data file
+(read it with \texttt{AMR\_grid.py} to paint maps).  \parm{out\_merge}
+accumulation works for all of these sections.
+
+\paragraph{Binning and normalization.}
+$J$ is the volume-averaged mean intensity per unit frequency in each bin;
+$P_\alpha$ is the number of scatterings per atom per photon.  On the AMR
+grid the binning is \emph{position-based}: each path segment deposits into
+the bin containing its midpoint (each scattering event into the bin
+containing its position), independent of the local leaf size, and the
+normalization divides by the gas volume overlapping the bin (computed at
+setup by sub-sampling every leaf with up to $8^3$ points; the plane overlap
+is analytic).  Profiles therefore remain correct even where the leaves are
+much larger than the bins --- e.g.\ the coarsely refined core of a
+refined-at-boundary octree --- at the cost of a small sub-sampling error in
+the bin volumes ($\lesssim$ a few percent for coarse leaves).  The leaf-indexed
+shape ($3$) stores each leaf separately and divides by the leaf volume.
+
+\paragraph{Memory.}
+\texttt{Jx\_AMR} is a \texttt{real64} array of shape
+$(n_{\rm xfreq}, n_{\rm leaf})$ \emph{per MPI rank}: at
+$n_{\rm xfreq} = 121$ and $n_{\rm leaf} = 10^6$ this is $\sim$1\,GB per
+rank.  The startup log reports the allocated size and warns above 1\,GB;
+prefer \parm{geometry\_JPa}~$=1$ for spherically symmetric problems.
+
+\paragraph{Validation.}
+For a uniform sphere ($\tau_0 = 100$, $T = 10^4$\,K, central point source),
+the AMR radial profiles agree with a Cartesian $64^3$ run to $1$--$2\%$
+(rms) in both $J(x, r)$ and $P_\alpha(r)$ at matched resolution, and to
+$\sim$$10\%$ per bin on a refined-at-boundary octree whose core leaves are
+$8\times$ wider than the bins; for a uniform slab (\parm{xy\_periodic}) the
+plane profiles agree to $0.6\%$ (rms).  The \texttt{CALCP} and
+\texttt{CALCPnew} estimators agree with each other to Monte-Carlo noise.
+
+\subsection{Peel-off cube units and conversion to \texttt{Jmu} units}
+\label{sec:peel_units}
+
+When peel-off is enabled (\parm{nxim}, \parm{nyim} $>0$ and
+\parm{save\_peeloff\_3D}~$=$~\texttt{.true.}), each observer's
+\texttt{<base>\_obs\_NNN.fits.gz} file contains \texttt{Scattered} and
+\texttt{Direct} 3-D image cubes, plus optionally \texttt{Direct0}.
+These are written by \texttt{output\_sum\_rect.f90} as a
+\emph{specific intensity per pixel}, normalized so that
+\begin{equation}
+  I_{\rm peel}(x,y,\nu)
+  \;=\;
+  \frac{\text{photon weight in pixel } (x,y) \text{ and bin } \nu}
+       {n_{\rm ph}\;\delta\Omega_{\rm pix}\;\Delta\nu\;d_{\rm cm}^{2}},
+  \label{eq:peel_unit}
+\end{equation}
+\begin{sloppypar}
+where $\delta\Omega_{\rm pix} = (\mathtt{CD2\_2}\cdot\mathtt{CD3\_3})\,(\pi/180)^{2}$
+is the solid angle of each pixel, $\Delta\nu$ is \texttt{Dxfreq} or
+\texttt{Dwave} (set by \parm{intensity\_unit}), $d_{\rm cm}^{2}$ is the
+square of the distance unit in cm, and $n_{\rm ph}$ is the photon count.
+\end{sloppypar}
+
+\paragraph{Conversion to \texttt{Jmu} units.}
+\texttt{Jout} and \texttt{Jmu} are normalized by $4\pi R^{2}$ (the source
+surface area) and the outward solid angle $2\pi$, whereas the peel-off
+cube is normalized by the solid angle of each pixel and $d_{\rm cm}^{2}$.
+Summing the cube over pixels and rescaling brings the two onto a common
+axis:
+\begin{equation}
+  J_{\rm peel}(\nu)
+  \;=\;
+  \Bigl(\sum_{(x,y)} I_{\rm peel}(x,y,\nu)\Bigr)\cdot
+  \frac{4\pi D^{2}\,\delta\Omega_{\rm pix}}
+       {A_{\rm surface}\cdot 2\pi},
+  \label{eq:peel_to_jmu}
+\end{equation}
+where $D$ is \texttt{DISTANCE} (in code units) and $A_{\rm surface}$ is
+the source surface area in code units, with the geometry-dependent forms
+mirroring \texttt{output\_sum\_rect.f90}:
+\begin{center}
+\begin{tabular}{@{}l@{\hspace{1.5em}}l@{\hspace{1.5em}}l@{}}
+\toprule
+Geometry & $A_{\rm surface}$ (code units) & Notes \\
+\midrule
+sphere               & $4\pi r_{\rm max}^{2}$                                           & default; clumpy medium also uses this \\
+box (rectangle)      & $8\,(x_{\rm max}\,y_{\rm max} + y_{\rm max}\,z_{\rm max} + z_{\rm max}\,x_{\rm max})$ & full surface of $[-x_{\rm max},x_{\rm max}]\times\dots$ box \\
+slab (\parm{xy\_periodic}) & $2\,(2 x_{\rm max})(2 y_{\rm max})$                                       & two unbounded boundaries \\
+AMR octree           & $4\pi$                                                            & equivalent to $r_{\rm max}=1$ (cf.\ \S\ref{sec:amr}) \\
+\bottomrule
+\end{tabular}
+\end{center}
+The bin width $\Delta\nu$ cancels because both \texttt{Jmu} and
+\texttt{I\_peel} are already normalized per bin.  At convergence and
+for an axisymmetric source,
+\begin{equation}
+  J_{\rm peel}(\nu;\,\alpha,\beta)\;\to\;J_{\rm mu}(\nu;\,\mu=\cos\beta).
+\end{equation}
+
+\begin{sloppypar}
+The Python helper \texttt{LaRTOutput.plot\_peel\_jmu\_compare()}
+(in \path{python/read_lart.py}) implements
+Eq.~\eqref{eq:peel_to_jmu} with the surface area chosen automatically
+from \parm{geometry}, \parm{rmax}, and the spectrum-header
+\texttt{XMAX}/\texttt{YMAX}/\texttt{ZMAX}/\texttt{XY\_PER}.  See also
+\path{examples/sphere/plot_Jpeel_conversion.ipynb} and
+\path{examples/clump_sphere/verify_peel_jmu.ipynb}.
+\end{sloppypar}
+
+\paragraph{Component decomposition (clumpy medium).}
+For a point source inside a clumpy sphere with covering factor
+$f_{\rm cov}$, the fraction of photons that escapes without scattering
+is $\exp(-f_{\rm cov})$ (Poisson statistics), and the fraction that
+scatters at least once is $1-\exp(-f_{\rm cov})$.  Jmu tallies
+\emph{both} populations.  The peel-off cube splits them:
+\begin{itemize}
+  \item \texttt{Scattered}.  The MC estimator over many scatter events
+        averages efficiently, so
+        \begin{equation}
+          \int J_{\rm peel}^{\rm scatt}\,d\nu
+          \;\approx\;
+          \bigl(1-e^{-f_{\rm cov}}\bigr)\int J_{\rm mu}\,d\nu,
+          \label{eq:peel_scatt}
+        \end{equation}
+        and the equality holds across all observer angles within Monte-Carlo
+        noise.
+  \item \texttt{Direct}.  For a \emph{point} source, every photon shares
+        the same line of sight to a given observer, so the direct
+        contribution is the binary realization of $\exp(-\tau_{\rm LOS})$:
+        either $\sim\!1$ (clear LOS) or $\sim\!0$ (blocked by an
+        intervening clump) per observer.  Jmu, by contrast, is azimuth
+        averaged and captures direct escapes uniformly.  Adding the
+        binary \texttt{Direct} and the smooth \texttt{Scattered} therefore
+        only matches \texttt{Jmu} \emph{in expectation} -- it can deviate
+        substantially per observer at finite photon counts.
+\end{itemize}
+\begin{sloppypar}
+For shape comparisons in clumpy runs, prefer the scattered component
+(\texttt{component='scatt'} in
+\texttt{plot\_peel\_jmu\_compare()}) so that
+Eq.~\eqref{eq:peel_scatt} provides a clean, deterministic relation.
+\end{sloppypar}
+
+\subsection{Output Control Parameters}
+
+\begin{center}
+\begin{tabularx}{\linewidth}{@{}lL{2.0cm}X@{}}
+\toprule
+Parameter & Default & Description \\
+\midrule
+\parm{file\_format} & \texttt{'hdf5'} & Output container: \texttt{'hdf5'} ($\to$ \texttt{.h5}) or \texttt{'fits'} ($\to$ \texttt{.fits.gz}); see \S\ref{sec:fileformats} \\
+\parm{out\_file}   & \texttt{''} & Output file name (defaults to \texttt{<input>.h5}; extension is corrected to match \parm{file\_format} with a warning) \\
+\parm{out\_merge}  & \texttt{.false.} & Accumulate into existing output instead of overwriting \\
+\parm{save\_backup} & \texttt{.false.} & On merge, copy the prior output to \texttt{<base>\_NN.\{h5,fits.gz\}} before overwriting \\
+\parm{out\_bitpix} & $0$ & Storage precision: $0$\,=\,auto (dynamic-range driven), $-32$\,=\,float32, $-64$\,=\,float64 \\
+\parm{save\_Jin}   & \texttt{.false.} & Save injected spectrum \\
+\parm{save\_Jabs}  & \texttt{.false.} & Save dust-absorbed spectrum \\
+\parm{save\_Jmu}   & \texttt{.false.} & Save angular spectrum $J(x;\mu)$ (\S\ref{sec:jmu}) \\
+\parm{nmu}         & 11               & Number of $\mu$ bins for \texttt{Jmu} \\
+\parm{save\_all}   & \texttt{.false.} & Save full 3-D $J(\nu,x,y,z)$ array \\
+\parm{save\_direc0} & \texttt{.false.} & Save photon escape direction distributions \\
+\parm{save\_radial\_profile} & \texttt{.false.} & Save 1-D radial $J$ profile \\
+\parm{save\_sightline\_tau} & \texttt{.false.} & Save optical depth along sightlines \\
+\parm{intensity\_unit} & \texttt{''} & Physical unit label written to the FITS header \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\parm{out\_merge}~$=$~\texttt{.true.} is useful for noise reduction: run the same setup
+multiple times and merge the results.  All input parameters must be identical across runs.
+
+%=============================================================================
+\section{File Formats: FITS and HDF5}
+\label{sec:fileformats}
+%=============================================================================
+
+LaRT writes one logical layout that lives in either FITS or HDF5 files.
+The choice is made by \parm{file\_format} (default \texttt{'hdf5'}); the
+filename extension is corrected to match if the user-supplied
+\parm{out\_file} disagrees.
+
+\subsection{Format selection}
+
+\begin{itemize}
+  \item \parm{file\_format}~$=$~\texttt{'hdf5'} (default) writes
+        \texttt{.h5} files via the \texttt{hdf5io\_mod} backend.
+        Build with \texttt{HDF5=1} (the Makefile default).
+  \item \parm{file\_format}~$=$~\texttt{'fits'} writes \texttt{.fits.gz}
+        files via the \texttt{fitsio\_mod} backend (CFITSIO).
+        Works regardless of the HDF5 build option.
+\end{itemize}
+
+The mismatch warning is issued once on rank 0, e.g.\ if
+\parm{out\_file}~$=$~\texttt{'foo.fits.gz'} is given alongside
+\parm{file\_format}~$=$~\texttt{'hdf5'}:
+
+\begin{verbatim}
+WARNING: par%out_file (foo.fits.gz) does not match
+         par%file_format = hdf5
+         Overriding par%out_file to: foo.h5
+         (set par%file_format explicitly to suppress this warning.)
+\end{verbatim}
+
+All derived filenames (peel-off \texttt{\_obs}, sight-line \texttt{\_tau},
+\texttt{\_allph}, backup) follow \parm{file\_format} as well, so the main
+output and its derived files always share a format.
+
+\subsection{HDF5 schema}
+
+Each FITS HDU maps to one HDF5 group; the HDU's header keywords become
+attributes on that group; the HDU's data is either a single
+\texttt{/<name>/data} dataset (image-style) or one dataset per
+\texttt{BinTable} column (table-style).  Example for a sphere run with
+peel-off:
+
+\begin{lstlisting}[numbers=none,basicstyle=\ttfamily\small]
+run.h5
+  /Spectrum                                        (group, table-style)
+    /Spectrum/Xfreq        (1-D dataset, float32)
+    /Spectrum/velocity     (1-D dataset, float32)
+    /Spectrum/wavelength   (1-D dataset, float64)
+    /Spectrum/Jout         (1-D dataset, float32)
+    /Spectrum/Jin          (1-D dataset, float32)
+    /Spectrum/@nphotons    (attribute)
+    /Spectrum/@taumax      (attribute)
+    /Spectrum/@Nsc_gas     (attribute)
+    ...
+
+run_obs.h5
+  /Scattered                                       (group, image-style)
+    /Scattered/data        (3-D dataset, chunked + gzip)
+    /Scattered/@CD1_1      (WCS attribute)
+    ...
+  /Direct
+    /Direct/data
+    /Direct/@EXTNAME       = 'Direct'
+
+run_tau.h5
+  /TAU_gas/data, /N_gas/data, [/TAU_dust/data when DGR > 0]
+\end{lstlisting}
+
+Sections appear in their write order on both the root group and inside
+each subgroup (creation-order tracking is enabled), so \texttt{h5py}
+iteration returns columns and HDUs in the same order LaRT wrote them.
+Datasets larger than 4096 elements are chunked and compressed with
+\texttt{gzip(4)}; smaller ones are stored contiguous.  The on-disk
+storage type follows \parm{out\_bitpix} (auto / float32 / float64) just
+as for FITS.
+
+\subsection{Conversion utility}
+
+The Python helper \path{python/lart_io.py} reads either format and can
+convert between them losslessly:
+
+\begin{lstlisting}[language=bash,numbers=none]
+python lart_io.py info  run.h5
+python lart_io.py convert run.fits.gz run.h5
+python lart_io.py convert run.h5      run.fits.gz
+\end{lstlisting}
+
+The round-trip preserves all data bit-identically; only string keyword
+names are uppercased on the FITS leg, matching the FITS card-name
+convention.
+
+\subsection{HDF5 library requirements}
+
+\begin{sloppypar}
+LaRT links against the HDF5 Fortran library (\texttt{libhdf5\_fortran.a}
+plus the C core \texttt{libhdf5.a}, version~$\geq$~1.14).  The Fortran
+\texttt{.mod} files are compiler-specific: an HDF5 build linked against
+gfortran cannot be used with Intel \texttt{ifx} or \texttt{ifort}, and
+vice versa.  Set \parm{HDF5\_PREFIX} on the \texttt{make} command line
+to choose a build that matches the LaRT compiler.
+\end{sloppypar}
+
+%=============================================================================
+\section{Dust and Polarization}
+\label{sec:dust}
+%=============================================================================
+
+\begin{center}
+\begin{tabular}{@{}l@{\hspace{1.5em}}l@{\hspace{1.5em}}p{7cm}@{}}
+\toprule
+Parameter & Default & Description \\
+\midrule
+\parm{DGR}    & 0.0     & Dust-to-gas ratio relative to the Milky Way value \\
+\parm{albedo} & 0.32536 & Single-scattering albedo $\omega$ \\
+\parm{hgg}    & 0.67617 & Henyey--Greenstein asymmetry parameter $g$ \\
+\parm{use\_stokes}      & \texttt{.false.} & Enable full Stokes polarization RT \\
+\parm{scatt\_mat\_file} & \texttt{''} & Mueller matrix file for polarized dust scattering \\
+\parm{use\_reduced\_wgt} & \texttt{.false.} & Reduce photon weight by albedo instead of destroying absorbed photons \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+When \parm{DGR}~$= 0$ (default), there is no dust and all photon weight is conserved.
+Non-zero \parm{DGR} adds dust extinction and Henyey--Greenstein scattering.  When
+\parm{use\_stokes}~$=$~\texttt{.true.}, a Mueller matrix file must be provided;
+files for the Weingartner--Draine Milky Way model are included in the \texttt{data/}
+directory.
+
+%=============================================================================
+\section{Parallelism}
+\label{sec:parallel}
+%=============================================================================
+
+\begin{center}
+\begin{tabular}{@{}l@{\hspace{1.5em}}l@{\hspace{1.5em}}l@{}}
+\toprule
+Parameter & Default & Description \\
+\midrule
+\parm{no\_photons}        & $10^6$ & Total photon packets (floating-point, converted to int64) \\
+\parm{use\_master\_slave} & \texttt{.true.} & Dynamic load balancing via master--worker algorithm \\
+\parm{num\_send\_at\_once} & 100  & Photons dispatched to each worker per batch \\
+\parm{nprint}  & $10^5$ & Progress-report interval [photons] \\
+\parm{iseed}   & auto   & Random seed; defaults derived from MPI rank and system clock \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+With \parm{use\_master\_slave}~$=$~\texttt{.true.}, one MPI rank acts as dispatcher and
+the rest as workers.  This balances workloads when scattering rates vary across photon
+packets.  With \texttt{.false.}, each rank processes an equal share of \parm{no\_photons}.
+
+%=============================================================================
+\section{Complete Parameter Reference}
+\label{sec:refcard}
+%=============================================================================
+
+Table~\ref{tab:refcard} lists commonly used parameters.  Parameters marked
+$\dagger$ are new or changed in v2.10.
+
+\begin{longtable}{@{}L{5.0cm}@{\hspace{2em}}L{3.5cm}@{\hspace{2em}}L{4.9cm}@{}}
+\caption{LaRT parameter reference.\label{tab:refcard}} \\
+\toprule
+\textbf{Parameter} & \textbf{Default} & \textbf{Description} \\
+\midrule
+\endfirsthead
+\multicolumn{3}{l}{\small\textit{(continued)}} \\[2pt]
+\toprule
+\textbf{Parameter} & \textbf{Default} & \textbf{Description} \\
+\midrule
+\endhead
+\midrule
+\multicolumn{3}{r}{\small\textit{continued on next page}} \\
+\endfoot
+\bottomrule
+\endlastfoot
+
+\multicolumn{3}{l}{\textit{Simulation control}} \\[2pt]
+\texttt{par\%no\_photons}  & $10^6$ & Number of photon packets \\
+\texttt{par\%nprint}       & $10^5$ & Progress interval [photons] \\
+\texttt{par\%iseed}        & auto   & Random seed \\[6pt]
+
+\multicolumn{3}{l}{\textit{Cartesian grid}} \\[2pt]
+\texttt{par\%nx}, \texttt{par\%ny}, \texttt{par\%nz} & 101 & Cells per axis \\
+\texttt{par\%xmax}, \texttt{par\%ymax}, \texttt{par\%zmax} & 1.0 & Half-box size (code units) \\
+\texttt{par\%rmax}  & $-999$ & Spherical boundary radius \\
+\texttt{par\%rmin}  & $-999$ & Inner cavity radius \\
+\texttt{par\%geometry} & \texttt{'sphere'} & $J$ output geometry (\S\ref{sec:geometry}) \\
+\texttt{par\%xyz\_symmetry} & \texttt{.false.} & $+x,+y,+z$ octant only \\
+\texttt{par\%xy\_symmetry}  & \texttt{.false.} & $+x,+y$ quadrant only \\
+\texttt{par\%xy\_periodic}  & \texttt{.false.} & Periodic in $x,y$ \\
+\texttt{par\%distance\_unit} & \texttt{''} & Physical unit (\texttt{'kpc'}, \texttt{'pc'}, \texttt{'au'}) \\
+\texttt{par\%distance2cm}   & 1.0 & 1 code unit in cm \\[6pt]
+
+\multicolumn{3}{l}{\textit{Grid mode}} \\[2pt]
+\texttt{par\%grid\_type}$^\dagger$ & \texttt{'car'} & v2.10+: \texttt{'car'}, \texttt{'amr'}, \texttt{'clump'} \\
+\texttt{par\%use\_amr\_grid} & \texttt{.false.} & v2.00 AMR flag \\
+\texttt{par\%use\_clump\_medium} & \texttt{.false.} & v2.00 clump flag \\[6pt]
+
+\multicolumn{3}{l}{\textit{Source}} \\[2pt]
+\texttt{par\%source\_geometry} & \texttt{'point'} & See \S\ref{sec:source_geometry} \\
+\texttt{par\%xs\_point}, \texttt{par\%ys\_point}, \texttt{par\%zs\_point} & 0.0 & Point source position \\
+\texttt{par\%source\_rmax}    & $-999$ & Source truncation radius \\
+\texttt{par\%source\_rscale}  & $-999$ & Radial scale length \\
+\texttt{par\%source\_zscale}  & 0.0   & Vertical scale height \\
+\texttt{par\%sersic\_m}       & 4.0   & S\'{e}rsic index \\
+\texttt{par\%Reff}            & 1.0   & Effective radius \\
+\texttt{par\%comoving\_source} & \texttt{.true.} & Source co-moving with local gas \\
+\texttt{par\%emiss\_file}     & \texttt{''} & Emissivity FITS cube \\
+\texttt{par\%star\_file}      & \texttt{''} & Point-star list $(x,y,z,L)$ \\[6pt]
+
+\multicolumn{3}{l}{\textit{Line and spectrum}} \\[2pt]
+\texttt{par\%line\_id}        & Ly$\alpha$ & Atomic transition (\S\ref{sec:lineid}) \\
+\texttt{par\%spectral\_type}  & \texttt{'monochromatic'} & Emission frequency distribution \\
+\texttt{par\%temperature}     & $10^4$\,K & Gas temperature \\
+\texttt{par\%temperature0}    & $= T$    & Source temperature for \texttt{voigt0} \\
+\texttt{par\%bturb}           & 0.0  & Turbulent dispersion [km\,s$^{-1}$] \\
+\texttt{par\%gaussian\_sigma\_vel} & 12.84 & Gaussian $\sigma$ [km\,s$^{-1}$] for \texttt{spectral\_type='gaussian'} \\
+\texttt{par\%gaussian\_FWHM\_vel} & $-999$ & Gaussian FWHM [km\,s$^{-1}$]; overrides $\sigma$ if $>0$ \\
+\texttt{par\%EW\_line}         & 0.0  & Equivalent width [\AA] for \texttt{'continuum+gaussian'} \\
+\texttt{par\%continuum\_normalize} & \texttt{.true.} & Normalize output so continuum level = 1 \\
+\texttt{par\%xfreq0}          & 0.0  & Frequency offset for emitted photons \\
+\texttt{par\%line\_prof\_file} & \texttt{''} & Custom line profile file \\
+\texttt{par\%line\_prof\_file\_type} & 0 & 0: $(x,I)$; 1: $(\lambda,I)$ \\[6pt]
+
+\multicolumn{3}{l}{\textit{Frequency grid}} \\[2pt]
+\texttt{par\%nxfreq}       & 121  & Spectral bins \\
+\texttt{par\%xfreq\_min}, \texttt{par\%xfreq\_max} & auto & $x$-grid limits \\
+\texttt{par\%nwavelength}  & 0    & Wavelength bins (overrides $x$-grid) \\
+\texttt{par\%wavelength\_min}, \texttt{par\%wavelength\_max} & --- & [\AA] \\
+\texttt{par\%nvelocity}    & 0    & Velocity bins (overrides $x$-grid) \\
+\texttt{par\%velocity\_min}, \texttt{par\%velocity\_max} & --- & [km\,s$^{-1}$] \\[6pt]
+
+\multicolumn{3}{l}{\textit{Optical depth and density}} \\[2pt]
+\texttt{par\%taumax}       & ---  & Line-center $\tau_0$: center $\to$ $+z$ boundary \\
+\texttt{par\%tauhomo}      & ---  & Same, uniform-density equivalent \\
+\texttt{par\%N\_HImax}     & ---  & Column density: center $\to$ $+z$ [cm$^{-2}$] \\
+\texttt{par\%N\_HIhomo}    & ---  & Same, uniform-density equivalent \\
+\texttt{par\%N\_gasmax}    & ---  & Ion column density [cm$^{-2}$] (metal lines with \texttt{ion\_model='none'}) \\
+\texttt{par\%density\_rscale} & $-999$ & Exponential density scale radius \\
+\texttt{par\%density\_alpha}  & 0.0  & Power-law density index: $n(r)\propto(r_\mathrm{max}/r)^{\alpha_D}$ \\[6pt]
+
+\multicolumn{3}{l}{\textit{External data}} \\[2pt]
+\texttt{par\%dens\_file}   & \texttt{''} & Density FITS cube [cm$^{-3}$] \\
+\texttt{par\%temp\_file}   & \texttt{''} & Temperature FITS cube [K] \\
+\texttt{par\%velo\_file}   & \texttt{''} & Velocity FITS cube [km\,s$^{-1}$] \\
+\texttt{par\%input\_field} & \texttt{''} & Base name for \path{.dens/.temp/.velo.fits.gz} \\[6pt]
+
+\multicolumn{3}{l}{\textit{Velocity}} \\[2pt]
+\texttt{par\%velocity\_type} & \texttt{''} & Velocity law (\S\ref{sec:velocity}) \\
+\texttt{par\%Vexp}  & 0.0 & Expansion/infall speed [km\,s$^{-1}$] \\
+\texttt{par\%velocity\_alpha} & 1.0 & Power-law velocity exponent for \texttt{'power\_law'} \\
+\texttt{par\%Vx}, \texttt{par\%Vy}, \texttt{par\%Vz} & 0.0 & Uniform velocity [km\,s$^{-1}$] \\
+\texttt{par\%Vpeak} & 0.0 & Peak velocity for SSH [km\,s$^{-1}$] \\
+\texttt{par\%rpeak} & 0.0 & Radius at peak for SSH \\
+\texttt{par\%DeltaV} & 0.0 & Velocity increment for SSH [km\,s$^{-1}$] \\
+\texttt{par\%Vrot}  & 0.0 & Rotation speed [km\,s$^{-1}$] \\
+\texttt{par\%recoil} & \texttt{.false.} & Photon recoil in scattering \\[6pt]
+
+\multicolumn{3}{l}{\textit{AMR}} \\[2pt]
+\texttt{par\%amr\_type}    & \texttt{'ramses'} & \texttt{'generic'} or \texttt{'ramses'} \\
+\texttt{par\%amr\_file}    & \texttt{''} & AMR data path \\
+\texttt{par\%amr\_snapnum} & 1 & RAMSES snapshot number \\[6pt]
+
+\multicolumn{3}{l}{\textit{Clumpy medium}} \\[2pt]
+\texttt{par\%clump\_radius}   & --- & Clump radius \\
+\texttt{par\%clump\_tau0}     & --- & Line-center $\tau_0$ per clump \\
+\texttt{par\%clump\_f\_cov}   & --- & Covering factor $C_f$ \\
+\texttt{par\%clump\_f\_vol}   & --- & Volume filling factor $f_V$ \\
+\texttt{par\%clump\_N\_clumps} & --- & Number of clumps $N$ \\
+\texttt{par\%clump\_sigma\_v} & 0.0 & Random velocity dispersion [km\,s$^{-1}$] \\
+\texttt{par\%save\_clump\_info} & \texttt{.false.} & Write clump table to FITS \\[6pt]
+
+\multicolumn{3}{l}{\textit{Observers and peel-off}} \\[2pt]
+\texttt{par\%nxim}, \texttt{par\%nyim} & 0 & Image pixels; peel-off active when $> 0$ \\
+\texttt{par\%dxim}, \texttt{par\%dyim} & auto & Pixel size [deg] \\
+\texttt{par\%distance}  & $100\,r_\text{max}$ & Observer--center distance \\
+\texttt{par\%obsx}, \texttt{par\%obsy}, \texttt{par\%obsz} & $(0,0,1)$ & Observer direction \\
+\texttt{par\%alpha}, \texttt{par\%beta} & --- & Azimuth, elevation [deg] \\
+\texttt{par\%gamma}     & 0.0 & Detector-plane rotation [deg] \\
+\texttt{par\%save\_peeloff}    & \texttt{.false.} & 1-D peel-off spectra \\
+\texttt{par\%save\_peeloff\_2D} & \texttt{.false.} & Peel-off spectral images \\
+\texttt{par\%save\_peeloff\_3D} & \texttt{.false.} & Full 3-D peel-off cube \\
+\texttt{par\%save\_direc0}    & \texttt{.false.} & Peel-off image without $e^{-\tau}$ (transparent-medium reference) \\[6pt]
+
+\multicolumn{3}{l}{\textit{Output}} \\[2pt]
+\texttt{par\%file\_format} & \texttt{'hdf5'} & Output container: \texttt{'hdf5'} or \texttt{'fits'} \\
+\texttt{par\%out\_file}    & \texttt{''} & Output file name (extension follows \parm{file\_format}) \\
+\texttt{par\%out\_merge}   & \texttt{.false.} & Accumulate into existing file \\
+\texttt{par\%save\_backup} & \texttt{.false.} & Keep \texttt{\_NN} copy of prior output on merge \\
+\texttt{par\%out\_bitpix}  & $0$ & Storage precision: $0$\,=\,auto, $-32$, $-64$ \\
+\texttt{par\%save\_Jin}    & \texttt{.false.} & Save injected spectrum \\
+\texttt{par\%save\_Jabs}   & \texttt{.false.} & Save absorbed spectrum \\
+\texttt{par\%save\_Jmu}    & \texttt{.false.} & Save angular spectrum $J(x;\mu)$ \\
+\texttt{par\%nmu}          & 11               & Number of $\mu$ bins for \texttt{Jmu} \\
+\texttt{par\%save\_all}    & \texttt{.false.} & Save full 3-D $J(\nu,x,y,z)$ \\
+\texttt{par\%save\_radial\_profile} & \texttt{.false.} & Save 1-D radial $J$ \\
+\texttt{par\%save\_sightline\_tau}  & \texttt{.false.} & Save sightline $\tau$ \\
+\texttt{par\%intensity\_unit} & \texttt{''} & Output header unit label \\[6pt]
+
+\multicolumn{3}{l}{\textit{Dust}} \\[2pt]
+\texttt{par\%DGR}    & 0.0     & Dust-to-gas ratio \\
+\texttt{par\%albedo} & 0.32536 & Single-scattering albedo \\
+\texttt{par\%hgg}    & 0.67617 & Henyey--Greenstein asymmetry $g$ \\
+\texttt{par\%use\_stokes} & \texttt{.false.} & Polarization RT \\
+\texttt{par\%scatt\_mat\_file} & \texttt{''} & Mueller matrix file \\
+\texttt{par\%use\_reduced\_wgt} & \texttt{.false.} & Reduce weight instead of destroy \\[6pt]
+
+\multicolumn{3}{l}{\textit{Parallelism}} \\[2pt]
+\texttt{par\%use\_master\_slave} & \texttt{.true.} & Dynamic load balancing \\
+\texttt{par\%num\_send\_at\_once} & 100 & Photons per worker batch \\
+\end{longtable}
+
+%=============================================================================
+\section{Python Utilities}
+\label{sec:python}
+%=============================================================================
+
+A small set of post-processing scripts is shipped under \texttt{python/}
+in each version's source tree.  They depend on \texttt{numpy},
+\texttt{astropy} (for FITS inputs) and/or \texttt{h5py} (for HDF5
+inputs), and (for plotting scripts) \texttt{matplotlib}.  All scripts
+read both formats transparently via the \path{lart_io.py} backend
+(\S\ref{sec:lart_io}).
+
+\subsection{Loading and analysing output: \texttt{read\_lart.py}}
+\label{sec:read_lart}
+
+\texttt{read\_lart.py} loads a LaRT spectral output (FITS or HDF5) into
+a rich \texttt{LaRTOutput} dataclass that aggregates the angle-integrated
+spectrum, the optional $J(\mu, x)$ output, and every peel-off observer
+file alongside it.  The dataclass exposes a small library of plotting
+and analysis methods so common diagnostics can be produced in a few
+lines.  The script accepts the input-file name in any of four forms:
+\begin{itemize}
+  \item full input file: \texttt{t1tau2.in}
+  \item stem only:        \texttt{t1tau2}      (\texttt{.in} is added automatically)
+  \item the HDF5 file:   \texttt{t1tau2.h5} (also \texttt{.hdf5})
+  \item the FITS file:    \texttt{t1tau2.fits.gz} (also \texttt{.fits})
+\end{itemize}
+When given an input file, the reader honors \parm{out\_file} from the
+namelist first, then searches for any LaRT output stem under all
+recognised extensions (HDF5 preferred) via
+\texttt{lart\_io.find\_lart\_file}.  If the output file is still absent
+but the namelist sets \parm{clump\_input\_file} pointing at an existing
+clump file, \texttt{read\_lart} prints a one-line notice and returns a
+``clumps-only'' \texttt{LaRTOutput} with the spectrum arrays unset
+(\texttt{out.is\_clumps\_only == True}) but with the clump population
+already loaded into \texttt{out.clumps} (a \texttt{ClumpsOutput}, see
+below).  \texttt{out.plot\_clump\_slice()} therefore works on the
+pre-run dataclass, so the clump population can be inspected before
+launching the radiative-transfer run.  Peel-off observer files are
+auto-discovered the same way --- both the single-observer
+(\texttt{<stem>\_obs.h5}) and the multi-observer
+(\texttt{<stem>\_obs\_000.h5}, \texttt{\_obs\_001.h5}, $\ldots$) layouts
+are supported, in either format.
+
+\smallskip\noindent\textbf{Module API.}
+
+\begin{lstlisting}[language=Python]
+from read_lart import read_lart
+out = read_lart('t1tau2.in')      # FITS or HDF5 -- format-agnostic
+
+# 1-D arrays, length nxfreq
+out.xfreq, out.velocity, out.wavelength
+out.Jout                 # always present
+out.Jin, out.Jabs, out.Jabs2     # optional -- None if not in file
+
+# Jmu output -- present only if par%save_Jmu = .true. was used
+out.mu          # bin centers, length nmu
+out.mu_edges    # bin edges, length nmu+1
+out.Jmu         # shape (nmu, nxfreq); None if absent
+out.nmu, out.mu_min, out.dmu
+
+# Peel-off data for each observer (one PeelObservation per observer file)
+out.peelings    # list, sorted by (beta, alpha, gamma)
+
+# Raw section attribute dicts (case-insensitive; legacy uppercase
+# keys like spec_hdr['EXTNAME'] also work)
+out.spectrum_header, out.jmu_header
+\end{lstlisting}
+
+Every optional array is \texttt{None} when its section is not present,
+so the reader works on outputs from any LaRT version and either format.
+The \texttt{spectrum\_header} and \texttt{jmu\_header} dicts are filled
+with both the original-case keys (as they appear in the underlying file)
+and uppercase aliases, so legacy callers using FITS-style key access
+(e.g.\ \texttt{spec\_hdr['EXTNAME']}) keep working on HDF5 outputs.
+
+\smallskip\noindent\textbf{Peel-off observer accessor.}
+Each entry in \texttt{out.peelings} is a \texttt{PeelObservation}
+dataclass with fields
+\texttt{alpha}, \texttt{beta}, \texttt{gamma}, \texttt{distance},
+\texttt{nphotons}, \texttt{nxim}, \texttt{nyim}, \texttt{sr\_pix},
+the scattered + direct cubes \texttt{scatt}, \texttt{direc},
+\texttt{direc0} (each shape \texttt{(nyim,\,nxim,\,nxfreq)}), and the
+combined \texttt{cube = scatt + direc}.  Two helper methods are
+provided:
+\begin{lstlisting}[language=Python]
+po = out.peelings[0]
+spec = po.average_spectrum()       # area-mean spectrum, length nxfreq
+v0, vsig = po.velocity_moment_map(weight='cube')   # (nyim, nxim) each
+\end{lstlisting}
+
+\smallskip\noindent\textbf{Plotting Jmu.}
+\texttt{LaRTOutput.plot\_jmu()} draws the angular spectrum directly:
+
+\begin{lstlisting}[language=Python]
+out = read_lart('t1tau3.in')
+out.plot_jmu(kind='lines', x='velocity')   # one curve per mu bin
+out.plot_jmu(kind='image', x='velocity')   # 2-D heatmap (x vs mu)
+\end{lstlisting}
+The \texttt{x=} keyword selects the abscissa
+(\texttt{'velocity'}, \texttt{'xfreq'}, or \texttt{'wavelength'}); the
+\texttt{kind=} keyword toggles between line ensemble (colored by $\mu$)
+and a 2-D image.  The line view also overplots \texttt{Jout} as a black
+dashed reference.  Pass \texttt{ax=} to draw onto an existing axes,
+\texttt{savefig='out.png'} to save to disk.  Axis limits accept either
+the tuple form \texttt{xlim=(lo,hi)} / \texttt{ylim=(lo,hi)} or the
+shorthand \texttt{xmin/xmax/ymin/ymax} for each bound; the individual-bound
+override takes precedence when both are given:
+\begin{lstlisting}[language=Python]
+out.plot_jmu(kind='lines', xlim=(-500, 500), ymin=0)
+out.plot_jmu(kind='lines', xmax=300)        # left edge auto-scaled
+\end{lstlisting}
+
+\smallskip\noindent\textbf{CALCJ / CALCP profiles.}
+When the output was produced by a \texttt{CALCJ} / \texttt{CALCP} /
+\texttt{CALCPnew} build (\S\ref{sec:calcjp}), the sections are loaded
+automatically: \texttt{out.J1} (shape \texttt{(nbin,\,nxfreq)}),
+\texttt{out.P1}, \texttt{out.P1\_new}, the 2-D / 3-D, and leaf-indexed variants
+(\texttt{J2}, \texttt{J3D}, \texttt{J\_leaf}, \ldots), and the bin axes
+\texttt{out.r\_JPa} / \texttt{out.z\_JPa} (reconstructed from the section
+keywords for AMR runs, or from the namelist for Cartesian runs).  Two plot
+helpers draw the 1-D profiles:
+\begin{lstlisting}[language=Python]
+out.plot_J_profile()                     # freq-integrated <J>(r) or <J>(z)
+out.plot_Pa_profile(which='auto')        # P_alpha(r); 'Pa' or 'Pa_new'
+\end{lstlisting}
+
+\smallskip\noindent\textbf{Peel-off analysis plots.}
+Several methods operate on the auto-discovered \texttt{out.peelings}
+list and produce moment maps, spectra for each observer, and radial
+profiles:
+\begin{lstlisting}[language=Python]
+out.plot_peeling_map(weight='cube',     mode='intensity')
+out.plot_peeling_map(weight='velocity', mode='v_los')
+out.plot_peeling_map(weight='velocity', mode='sigma_v')
+out.plot_peeling_spectrum()              # one curve per observer
+out.plot_peeling_radial_profile()        # azimuthally averaged
+out.plot_velocity_moment_map(po, mode='v_los')   # single observer
+\end{lstlisting}
+The \texttt{plot\_peel\_jmu\_compare()} method overlays each observer's
+peel-off spectrum on the matching $J(\mu, x)$ slice as an isotropy
+diagnostic, and \texttt{plot\_clump\_slice()} draws the 2D cross-section
+of the clumpy medium at a chosen plane (it opens the matching
+\texttt{<stem>\_clumps.h5} / \texttt{.fits.gz} file automatically).  All
+plotting methods accept \texttt{ax=}, \texttt{savefig=}, and
+\texttt{xlim/ylim} (or \texttt{xmin/xmax/ymin/ymax}) the same way as
+\texttt{plot\_jmu}.
+
+\smallskip\noindent\textbf{Command-line usage.}
+
+\begin{lstlisting}[language=bash]
+python read_lart.py t1tau2          # auto-resolves to t1tau2.in
+python read_lart.py t1tau2.in
+python read_lart.py t1tau2.h5       # HDF5 output
+python read_lart.py t1tau2.fits.gz  # FITS output
+\end{lstlisting}
+\begin{sloppypar}
+prints a one-screen summary of which arrays are present and, when
+\texttt{Jmu} is in the file, the $\max_x J(x;\mu)\,/\,\max_x J_{\rm out}(x)$
+ratio in each bin (a quick isotropy sanity check for
+homogeneous models).
+\end{sloppypar}
+
+\smallskip\noindent\textbf{Standalone clump access:
+\texttt{read\_clumps} / \texttt{read\_clump}.}
+The clump population can also be loaded independently of any radiative-
+transfer output via the top-level helper:
+
+\begin{lstlisting}[language=Python]
+from read_lart import read_clumps      # alias: read_clump
+co = read_clumps('foo_clumps.h5')      # direct clump file
+co = read_clumps('run.in')             # via par%clump_input_file
+co = read_clumps('run')                # stem -> tries .in, then _clumps.*
+print(co.summary())
+co.plot_clump_slice(axis='z')
+\end{lstlisting}
+The returned \texttt{ClumpsOutput} dataclass exposes the clump
+arrays (\texttt{x, y, z, vx, vy, vz, radius, rhokap, density, temp},
+plus the convenience attributes \texttt{pos}, \texttt{vel},
+\texttt{n\_clumps}, \texttt{sphere\_r}, \texttt{f\_vol}, \texttt{f\_cov},
+\texttt{distance\_unit}, \texttt{distance2cm}), the case-insensitive
+attribute dict \texttt{attrs} (with \texttt{co.attr(name)} helper), and
+the \texttt{plot\_clump\_slice()} method.  The opacity column in the
+file is auto-detected with priority \texttt{RHOKAP} $\to$
+\texttt{DENSITY} $\to$ \texttt{DENS}: \texttt{RHOKAP} populates
+\texttt{co.rhokap} (opacity per code unit), while \texttt{DENSITY} /
+\texttt{DENS} populate \texttt{co.density} ($n_{HI}$ [cm$^{-3}$]);
+\texttt{co.opacity\_col} records which column was found.
+\texttt{co.distance\_unit} / \texttt{co.distance2cm} expose the
+\texttt{DISTUNIT} / \texttt{DIST\_CM} attributes from the file (LaRT's
+\parm{distance\_unit} / \parm{distance2cm} at write time).  When the
+\texttt{F\_VOL} / \texttt{F\_COV} attributes are missing from the file,
+the \texttt{f\_vol} / \texttt{f\_cov} properties fall back to
+\texttt{compute\_f\_vol()} / \texttt{compute\_f\_cov()}, which evaluate
+the same formulas as LaRT's \texttt{write\_clumps\_fits()} from-file
+branch in \texttt{clump\_mod.f90}:
+\(f_{\rm vol} = \sum r_i^3 / (R^3 - r_{\rm min}^3)\) and
+\(f_{\rm cov} = \tfrac{3}{4}\sum r_i^2 / (R^2 + R\,r_{\rm min} + r_{\rm min}^2)\),
+with \(R\) taken from \texttt{SPHERE\_R} (or \texttt{RMAX}) and
+\(r_{\rm min}\) from \texttt{RMIN} (default 0).  The two
+\texttt{compute\_*} methods can also be called explicitly to recompute
+regardless of the stored attribute.  Inside
+\texttt{LaRTOutput} the same dataclass lives at \texttt{out.clumps} (lazy-
+loaded on the first \texttt{plot\_clump\_slice} call, or populated
+eagerly in the clumps-only pre-run state described above).
+
+\paragraph{Other scripts.}
+
+The following plotting helpers are also shipped:
+\begin{itemize}
+  \item \begin{sloppypar}\texttt{plot\_spectrum.py}, \texttt{plot\_map.py},
+        \texttt{plot\_intensity\_profile.py},
+        \texttt{plot\_Pa.py}: standard quick-look plots.\end{sloppypar}
+  \item \texttt{check\_flux.py}, \texttt{flux\_check.py}: flux-conservation
+        diagnostics.
+  \item \begin{sloppypar}\texttt{AMR\_grid/}: helpers for generating generic AMR data files
+        (see \path{AMR_grid/make_amr_grid.py},
+        \path{make_amr_sphere_radial.py}).\end{sloppypar}
+\end{itemize}
+
+\subsection{Format-agnostic reader and FITS\,$\leftrightarrow$\,HDF5 converter: \texttt{lart\_io.py}}
+\label{sec:lart_io}
+
+\path{python/lart_io.py} provides a single \texttt{load\_lart(path)}
+entry point that reads either a FITS or an HDF5 LaRT output and returns
+a uniform \texttt{LartFile} structure (one \texttt{Section} per HDU /
+group, with \texttt{.data} or \texttt{.columns} plus \texttt{.attrs}).
+It also converts between the two formats by extension.  Requires
+\texttt{numpy} plus \texttt{astropy} (for FITS) and/or \texttt{h5py}
+(for HDF5); each backend is only imported when needed.
+
+\smallskip\noindent\textbf{Module API.}
+
+\begin{lstlisting}[language=Python]
+from lart_io import load_lart, convert
+
+f = load_lart('run.h5')           # works on .fits.gz too
+spec = f['Spectrum']              # a Section
+jout = spec.columns['Jout']       # 1-D numpy array
+nph  = spec.attrs['nphotons']
+
+scat = load_lart('run_obs.h5')['Scattered']
+cube = scat.data                  # 3-D array (nxim, nyim, nxfreq)
+
+convert('run.fits.gz', 'run.h5')  # both directions by extension
+convert('run.h5',      'run.fits.gz')
+\end{lstlisting}
+
+The round-trip preserves all numerical data bit-identically; string
+keyword names are normalized to uppercase on the FITS leg (FITS card-name
+convention), which is the only visible difference between the two forms.
+
+\smallskip\noindent\textbf{Command-line usage.}
+
+\begin{lstlisting}[language=bash]
+python lart_io.py info  run.h5
+python lart_io.py info  run.fits.gz
+python lart_io.py convert  run.fits.gz  run.h5
+python lart_io.py convert  run.h5       run.fits.gz
+\end{lstlisting}
+
+%=============================================================================
+\section{Example Input Files}
+\label{sec:examples}
+%=============================================================================
+
+\subsection{Uniform Sphere, Ly$\alpha$, Static}
+
+\begin{lstlisting}
+&parameters
+ par%no_photons     = 1e6
+ par%temperature    = 1.0e4
+ par%taumax         = 1.0e4
+ par%rmax           = 1.0
+ par%nx = 101, par%ny = 101, par%nz = 101
+ par%source_geometry = 'point'
+ par%spectral_type  = 'voigt'
+ par%nxfreq         = 121
+/
+\end{lstlisting}
+
+\subsection{Sphere with Hubble Outflow and Peel-off}
+
+\begin{lstlisting}
+&parameters
+ par%no_photons     = 1e6
+ par%temperature    = 1.0e4
+ par%taumax         = 1.0e4
+ par%rmax           = 1.0
+ par%nx = 101, par%ny = 101, par%nz = 101
+ par%source_geometry = 'point'
+ par%spectral_type  = 'voigt'
+ par%velocity_type  = 'hubble'
+ par%Vexp           = 200.0          ! km/s outflow
+ par%nxfreq         = 121
+ par%nxim = 129, par%nyim = 129
+ par%alpha = 0.0  45.0  90.0
+ par%beta  = 0.0   0.0   0.0
+ par%save_peeloff_2D = .true.
+/
+\end{lstlisting}
+
+\subsection{Realistic Galaxy (FITS Density Field, Stokes Polarization)}
+
+\begin{lstlisting}
+&parameters
+ par%no_photons    = 1e8
+ par%dens_file     = 'galaxy.dens.fits.gz'
+ par%temp_file     = 'galaxy.temp.fits.gz'
+ par%velo_file     = 'galaxy.velo.fits.gz'
+ par%taumax        = 1.0e4           ! rescale to this optical depth
+ par%distance_unit = 'kpc'
+ par%source_geometry = 'exponential'
+ par%source_rscale = 3.0
+ par%source_zscale = 0.5
+ par%spectral_type = 'voigt'
+ par%DGR           = 1.0
+ par%use_stokes    = .true.
+ par%nxfreq        = 121
+ par%nxim = 200, par%nyim = 200
+ par%save_peeloff_2D = .true.
+/
+\end{lstlisting}
+
+\subsection{AMR Sphere (Generic Text Format)}
+
+\begin{lstlisting}
+&parameters
+ par%use_amr_grid   = .true.         ! or par%grid_type = 'amr' in v2.10
+ par%amr_type       = 'generic'
+ par%amr_file       = 'sphere_amr.dat'
+ par%no_photons     = 1e6
+ par%taumax         = 1.0e4
+ par%source_geometry = 'point'
+ par%spectral_type  = 'voigt'
+ par%nxfreq         = 121
+ par%nxim = 100, par%nyim = 100
+ par%save_peeloff_2D = .true.
+ par%save_Jin       = .true.
+/
+\end{lstlisting}
+
+\subsection{Clumpy Sphere with Random Velocities}
+
+\begin{lstlisting}
+&parameters
+ par%use_clump_medium = .true.       ! or par%grid_type = 'clump' in v2.10
+ par%rmax             = 1.0
+ par%clump_radius     = 0.01
+ par%clump_f_cov      = 5.0
+ par%clump_tau0       = 1.0e3
+ par%temperature      = 1.0e4
+ par%clump_sigma_v    = 50.0         ! km/s random dispersion
+ par%no_photons       = 1e6
+ par%spectral_type    = 'voigt'
+ par%nxfreq           = 301
+ par%velocity_min = -200.0
+ par%velocity_max =  200.0
+ par%save_clump_info  = .true.
+/
+\end{lstlisting}
+
+\subsection{Illustris/TNG Galaxy (Diffuse Emissivity)}
+
+After converting a TNG cutout with
+\texttt{convert\_illustris\_to\_generic.py --compute-physics}:
+
+\begin{lstlisting}
+&parameters
+ par%use_amr_grid       = .true.
+ par%amr_type           = 'generic'
+ par%amr_file           = 'galaxy.h5'
+ par%distance_unit      = 'kpc'
+ par%no_photons         = 1e6
+ par%spectral_type      = 'voigt'
+ par%source_geometry    = 'diffuse_emissivity'
+ par%core_skip          = .true.
+ par%nxfreq             = 201
+ par%velocity_min       = -1000.0
+ par%velocity_max       =  1000.0
+ par%save_peeloff       = .true.
+ par%nxim = 128, par%nyim = 128
+ par%distance           = 1e4
+ par%alpha = -90.0
+ par%beta  =   0.0
+/
+\end{lstlisting}
+
+The \texttt{emissivity} column in \texttt{galaxy.h5} is automatically
+used as the photon source distribution.  No \texttt{par\%emiss\_file}
+or \texttt{par\%emissivity\_model} is required.
+
+\subsubsection*{Metal-line Examples (C\,\textsc{iv}, O\,\textsc{vi})}
+
+The converter supports CIE collisional excitation emissivity for metal
+lines via \texttt{--emissivity-line}:
+
+\begin{lstlisting}[language={}]
+# C IV 1548+1550
+python convert_illustris_to_generic.py cutout.hdf5 \
+    -o galaxy_civ.h5 --compute-physics --emissivity-line civ
+
+# O VI 1032+1038
+python convert_illustris_to_generic.py cutout.hdf5 \
+    -o galaxy_ovi.h5 --compute-physics --emissivity-line ovi
+\end{lstlisting}
+
+Then run LaRT with the appropriate \texttt{par\%line\_id}:
+
+\begin{lstlisting}
+&parameters
+ par%use_amr_grid       = .true.
+ par%amr_type           = 'generic'
+ par%amr_file           = 'galaxy_ovi.h5'
+ par%distance_unit      = 'kpc'
+ par%line_id            = 'OVI_1032'
+ par%no_photons         = 1e6
+ par%spectral_type      = 'voigt'
+ par%source_geometry    = 'diffuse_emissivity'
+ par%core_skip          = .true.
+ par%nxfreq             = 201
+ par%velocity_min       = -1500.0
+ par%velocity_max       =  2500.0
+/
+\end{lstlisting}
+
+Note: the O\,\textsc{vi} doublet separation is $\sim 1652$\,km\,s$^{-1}$
+(vs.\ $\sim 500$\,km\,s$^{-1}$ for C\,\textsc{iv}), so a wider velocity
+range is needed.
+
+\end{document}
