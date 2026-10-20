@@ -50,7 +50,22 @@ contains
   par%velocity_type   = strlowcase(par%velocity_type)
   par%distance_unit   = strlowcase(par%distance_unit)
   par%spectral_type   = strlowcase(par%spectral_type)
+  par%grid_type       = strlowcase(par%grid_type)
   par%amr_type        = strlowcase(par%amr_type)
+
+  !--- par%grid_type and the switches par%use_amr_grid / par%use_clump_medium
+  !    select the same thing; either form may be given in the input.
+  select case (trim(par%grid_type))
+  case ('car', 'amr', 'clump')
+  case default
+     if (mpar%p_rank == 0) write(6,'(3a)') 'ERROR: par%grid_type = ''', trim(par%grid_type), &
+                                           ''' (allowed: ''car'', ''amr'', ''clump'')'
+     call MPI_ABORT(MPI_COMM_WORLD, 1, ierr)
+  end select
+  if (par%use_amr_grid     .and. trim(par%grid_type) == 'car') par%grid_type = 'amr'
+  if (trim(par%grid_type) == 'amr')   par%use_amr_grid     = .true.
+  if (par%use_clump_medium .and. trim(par%grid_type) == 'car') par%grid_type = 'clump'
+  if (trim(par%grid_type) == 'clump') par%use_clump_medium = .true.
 
   !--- deprecation: amr_type='ramses' is no longer supported in LaRT.x.
   !    Users must first convert RAMSES data to generic format via

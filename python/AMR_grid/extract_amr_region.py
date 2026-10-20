@@ -144,7 +144,7 @@ def _write_h5(path, cols, boxlen, origin, unit_l):
     for n in mandatory:
         if n not in cols:
             raise SystemExit(f"missing mandatory column '{n}'")
-    with h5py.File(path, "w", libver="latest", track_order=True) as f:
+    with h5py.File(path, "w", libver=("earliest", "v114"), track_order=True) as f:  # LaRT links HDF5 1.14; newer formats are unreadable there
         g = f.create_group("AMRGRID", track_order=True)
         for n in mandatory:
             arr = cols[n]

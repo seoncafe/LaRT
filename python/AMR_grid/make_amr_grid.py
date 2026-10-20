@@ -46,6 +46,24 @@ python make_amr_grid.py --density uniform --n0 1e-2 \\
 python make_amr_grid.py --density gaussian --n0 1e-2 --sigma 25 \\
     --velocity rotating_galaxy_halo --Vrot 200 --rinner 15 \\
     --boxlen 100 --rmax 50 --level_max 6 -o sphere_gal.dat
+
+# Uniform sphere of Kym et al. (2026), Fig. 9: rotation curve of Eq. (1),
+# refined until the velocity changes by at most one Doppler width (T = 1e4 K,
+# H I) across every leaf
+python make_amr_grid.py --density uniform --n0 1.0 \\
+    --velocity rotating_galaxy_halo --Vrot 300 --rinner 0.1 \\
+    --vel_criterion doppler --vel_threshold 1.0 --temperature 1e4 \\
+    --boxlen 2 --rmax 1 --level_min 4 --level_max 9 -o rot_sphere.h5
+
+Velocity refinement criteria (--vel_criterion)
+----------------------------------------------
+  relative  largest component change across the cell as a fraction of the
+            local speed (--vel_threshold, default 0.1).
+  doppler   velocity change across the whole cell in units of the Doppler
+            width b = sqrt(2kT/m + bturb^2) (--vel_threshold, default 1.0;
+            --temperature, --bturb, --atom_mass).  A leaf carries a single
+            velocity, so this bounds the velocity step a resonance-line photon
+            meets between leaves; use it for line transfer in shear or rotation.
 """
 
 import argparse
@@ -57,7 +75,7 @@ import numpy as np
 # Allow running from any working directory
 _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _HERE)
-from AMR_grid import AMRGrid  # noqa: E402
+from AMR_grid import AMRGrid, doppler_width_kms  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -231,6 +249,13 @@ def build_grid(args):
           + (_vel_summary(args)))
     print(f'  T        : {args.temperature:.2e} K')
     print(f'  AMR      : level_min={args.level_min}  level_max={args.level_max}')
+    doppler_b = None
+    if args.vel_criterion == 'doppler':
+        doppler_b = float(doppler_width_kms(args.temperature, args.atom_mass, args.bturb))
+        print(f'  velocity refinement: |dv| > {args.vel_threshold} b,  '
+              f'b = {doppler_b:.3f} km/s  (m = {args.atom_mass} amu, bturb = {args.bturb} km/s)')
+    else:
+        print(f'  velocity refinement: relative, threshold = {args.vel_threshold}')
 
     grid = AMRGrid(args.boxlen)
 
@@ -248,6 +273,8 @@ def build_grid(args):
         level_max      = args.level_max,
         level_min      = args.level_min,
         refine_boundary= force_boundary,
+        vel_criterion  = args.vel_criterion,
+        doppler_b      = doppler_b,
     )
 
     grid.set_density(dens_fn)
@@ -284,7 +311,7 @@ def print_lart_hint(args, rmax, outfile):
     print('Suggested LaRT input snippet:')
     print('─' * 60)
     print(' &parameters')
-    print(f'  par%use_amr_grid    = .true.')
+    print(f'  par%use_amr_grid    = .true.   ! LaRT_v2.10 also: par%grid_type = \'amr\'')
     print(f'  par%amr_type        = \'generic\'')
     print(f'  par%amr_file        = \'{outfile}\'')
     if bu:
@@ -296,7 +323,8 @@ def print_lart_hint(args, rmax, outfile):
     print(f'  par%ys_point        = 0.0')
     print(f'  par%zs_point        = 0.0')
     if args.velocity != 'none':
-        print(f'  ! velocity set in AMR data file; par%velocity_type is ignored')
+        print(f'  ! velocities are read from the AMR file; setting par%velocity_type')
+        print(f'  ! replaces them with that analytic model at the leaf centers')
     print(' /')
     print('─' * 60)
 
@@ -367,10 +395,20 @@ def parse_args():
                    help='Minimum AMR level before gradient scan (default: 2)')
     r.add_argument('--dens_threshold', type=float, default=0.1,
                    help='Density gradient threshold [0,1) for refinement (default: 0.1)')
-    r.add_argument('--vel_threshold', type=float, default=0.1,
-                   help='Per-component velocity variation threshold '
-                        '(largest |dvx|,|dvy|,|dvz| as a fraction of local '
-                        'speed) for refinement (default: 0.1)')
+    r.add_argument('--vel_criterion', choices=['relative', 'doppler'],
+                   default='relative',
+                   help="Velocity refinement criterion (default: relative); "
+                        "see the header")
+    r.add_argument('--vel_threshold', type=float, default=None,
+                   help='relative: largest component change as a fraction of '
+                        'the local speed (default 0.1); doppler: velocity '
+                        'change across a cell in Doppler widths (default 1.0)')
+    r.add_argument('--bturb', type=float, default=0.0,
+                   help='[doppler]  turbulent velocity added in quadrature to '
+                        'the thermal Doppler width [km/s] (default: 0)')
+    r.add_argument('--atom_mass', type=float, default=1.00794,
+                   help='[doppler]  mass of the line atom [amu] '
+                        '(default: 1.00794, hydrogen)')
     r.add_argument('--refine_boundary', action='store_true',
                    help='Force sphere surface cells to level_max '
                         '(auto-enabled for uniform density)')
@@ -445,6 +483,8 @@ def main():
     args = parse_args()
 
     # Defaults that depend on other arguments
+    if args.vel_threshold is None:
+        args.vel_threshold = 1.0 if args.vel_criterion == 'doppler' else 0.1
     if args.rmax is None:
         args.rmax = args.boxlen * 0.5
     if args.density == 'gaussian' and args.sigma is None:

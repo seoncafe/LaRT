@@ -376,6 +376,9 @@ public
      !    layout as `_clumps.fits.gz`: X/Y/Z [code units], VX/VY/VZ [km/s],
      !    R_CLUMP, RHOKAP, TEMP. Header keyword SPHERE_R must match par%rmax.
      character(len=256):: clump_input_file      = ''
+     !--- grid type: 'car' = Cartesian (default), 'amr' = AMR octree, 'clump' = clump
+     !    medium; equivalent to use_amr_grid / use_clump_medium (as in LaRT_v2.10)
+     character(len=8)   :: grid_type       = 'car'
      !--- AMR grid parameters
      logical            :: use_amr_grid    = .false.
      character(len=128) :: amr_type        = 'generic'  ! 'generic' (RAMSES direct read removed; use converter)

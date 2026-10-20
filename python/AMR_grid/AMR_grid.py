@@ -1,6 +1,6 @@
 """
-make_amr_grid.py
-================
+AMR_grid.py
+===========
 Library for building generic-format AMR data files for LaRT v2.00.
 
 Output file format (amr_type = 'generic')
@@ -13,20 +13,23 @@ Output file format (amr_type = 'generic')
                  (origin at box center, range [-boxlen/2, boxlen/2])
   - level      : AMR refinement level (root = 0; minimum leaf level = 1)
   - dens       : total gas number density (including hydrogen) [cm^-3]
-                 (neutral fraction applied in LaRT via par%use_cie_condition)
+                 (neutral fraction in LaRT: the xHI column if present, otherwise
+                 par%ionization_model; its default 'cie_formula' applies the CIE
+                 fraction only when par%use_cie_condition = .true.)
   - T          : gas temperature [K]
   - vx/vy/vz   : bulk gas velocity [km/s]
 
 Corresponding LaRT input file
 ------------------------------
-    par%use_amr_grid  = .true.
+    par%use_amr_grid  = .true.         ! LaRT_v2.10 also accepts par%grid_type = 'amr'
     par%amr_type      = 'generic'
     par%amr_file      = 'my_grid.dat'
-    par%distance_unit = 1.0            ! unit of x,y,z and boxlen in the data file
+    par%distance_unit = 'kpc'          ! unit of x,y,z and boxlen in the data file
+                                       ! ('' = dimensionless code units)
 
 Quick start
 -----------
-    from make_amr_grid import AMRGrid
+    from AMR_grid import AMRGrid
     import numpy as np
 
     boxlen = 2.0                            # code unit
@@ -216,6 +219,20 @@ _OPTIONAL_COLUMNS = ('metallicity', 'xHI', 'n_e', 'n_ion', 'emissivity', 'ndust'
 # ---------------------------------------------------------------------------
 # Cell
 # ---------------------------------------------------------------------------
+
+def doppler_width_kms(temperature, atom_mass_amu=1.00794, bturb=0.0):
+    """
+    Doppler parameter b = sqrt(2 k T / m + b_turb^2) [km/s] of a line of an
+    atom of mass ``atom_mass_amu`` [amu] in gas at ``temperature`` [K], with a
+    turbulent velocity ``bturb`` [km/s] added in quadrature (as par%bturb in
+    LaRT).  Default mass: hydrogen.
+    """
+    k_B = 1.380649e-16          # erg/K
+    amu = 1.66053906660e-24     # g
+    b_th = np.sqrt(2.0 * k_B * np.asarray(temperature, float)
+                   / (atom_mass_amu * amu)) * 1e-5
+    return np.sqrt(b_th**2 + float(bturb)**2)
+
 
 class Cell:
     """
@@ -651,18 +668,24 @@ class AMRGrid:
         )
 
     def refine_by_velocity(self, vel_fn, dens_fn=None, threshold=0.1,
-                           level_max=6, level_min=2, nprobe=2, floor=1e-30):
+                           level_max=6, level_min=2, nprobe=2, floor=1e-30,
+                           vel_criterion='relative', doppler_b=None):
         """
-        Refine cells where the velocity variation in each component exceeds
-        ``threshold``.
+        Refine cells where the velocity varies too much across the cell.
 
-        Component-wise criterion (sensitive to direction changes / sign
-        reversals at constant speed, unlike a |v|-based test):
+        ``vel_criterion='relative'`` (component-wise, sensitive to direction
+        changes / sign reversals at constant speed, unlike a |v|-based test):
 
             delta = max(dvx, dvy, dvz) / (|v|_max + floor),   dvc = c_max - c_min
 
-        Sampling is done at the same sub-grid as :meth:`refine_by_density`.
-        If ``dens_fn`` is supplied, sub-cells with ``dens == 0`` are skipped
+        sampled at the same sub-grid as :meth:`refine_by_density`.
+
+        ``vel_criterion='doppler'``: refine while the velocity change across
+        the whole cell exceeds ``threshold`` Doppler widths ``doppler_b``
+        (see :meth:`_make_doppler_criterion`).  This is the criterion that
+        matters for resonance-line transfer.
+
+        If ``dens_fn`` is supplied, points with ``dens == 0`` are skipped
         (avoids refining voids where the velocity field is undefined).
 
         Parameters
@@ -673,7 +696,8 @@ class AMRGrid:
             Optional density function.  Sub-cells with ``dens_fn(x,y,z) <= 0``
             do not contribute to the velocity gradient.
         threshold : float
-            Gradient threshold ∈ [0, 1).  Default 0.1.
+            'relative': fraction of the local speed (default 0.1).
+            'doppler' : allowed velocity change in units of ``doppler_b``.
         level_max : int
             Maximum refinement level.
         level_min : int, optional (default 2)
@@ -683,17 +707,23 @@ class AMRGrid:
         nprobe : int
             Sub-grid sampling density per axis.  Default 2 (corners).
         floor : float
-            Velocity floor to avoid division by zero.
+            Velocity floor to avoid division by zero ('relative' only).
+        vel_criterion : {'relative', 'doppler'}
+        doppler_b : float or callable
+            Doppler width [km/s] (constant, or ``b(x, y, z)``); required for
+            ``vel_criterion='doppler'``.  See :func:`doppler_width_kms`.
         """
         self.refine_uniform(level_min)
         self.refine(
-            self._make_vel_criterion(vel_fn, dens_fn, threshold, floor, nprobe),
+            self._make_velocity_criterion(vel_fn, dens_fn, vel_criterion,
+                                          threshold, doppler_b, floor, nprobe),
             level_max
         )
 
     def refine_by_physics(self, dens_fn, vel_fn=None,
                           dens_threshold=0.1, vel_threshold=0.1,
-                          level_max=6, level_min=2, nprobe=2, floor=1e-30):
+                          level_max=6, level_min=2, nprobe=2, floor=1e-30,
+                          vel_criterion='relative', doppler_b=None):
         """
         Refine cells satisfying either the density or velocity gradient criterion.
 
@@ -712,7 +742,8 @@ class AMRGrid:
         dens_threshold : float or None
             Density gradient threshold.  Pass ``None`` to skip.
         vel_threshold : float or None
-            Velocity gradient threshold.  Pass ``None`` to skip (or if
+            Velocity threshold (meaning set by ``vel_criterion``, see
+            :meth:`refine_by_velocity`).  Pass ``None`` to skip (or if
             ``vel_fn`` is None).
         level_max : int
             Maximum refinement level.
@@ -724,30 +755,27 @@ class AMRGrid:
             Sub-grid sampling density per axis.  Default 2.
         floor : float
             Floor for division.
+        vel_criterion, doppler_b :
+            See :meth:`refine_by_velocity`.
         """
         self.refine_uniform(level_min)
-        criteria = []
-        if dens_threshold is not None:
-            criteria.append(self._make_dens_criterion(dens_fn, dens_threshold, floor, nprobe))
-        if vel_fn is not None and vel_threshold is not None:
-            criteria.append(self._make_vel_criterion(vel_fn, dens_fn, vel_threshold, floor, nprobe))
-        if not criteria:
-            return
-
-        def combined(c):
-            return any(crit(c) for crit in criteria)
-
-        self.refine(combined, level_max)
+        criterion = self._make_physics_criterion(
+            dens_fn, vel_fn, dens_threshold, vel_threshold, nprobe, floor,
+            vel_criterion, doppler_b)
+        if criterion is not None:
+            self.refine(criterion, level_max)
 
     def _make_physics_criterion(self, dens_fn, vel_fn=None,
                                 dens_threshold=0.1, vel_threshold=0.1,
-                                nprobe=2, floor=1e-30):
+                                nprobe=2, floor=1e-30,
+                                vel_criterion='relative', doppler_b=None):
         """Return the combined density/velocity refinement criterion."""
         criteria = []
         if dens_threshold is not None:
             criteria.append(self._make_dens_criterion(dens_fn, dens_threshold, floor, nprobe))
         if vel_fn is not None and vel_threshold is not None:
-            criteria.append(self._make_vel_criterion(vel_fn, dens_fn, vel_threshold, floor, nprobe))
+            criteria.append(self._make_velocity_criterion(
+                vel_fn, dens_fn, vel_criterion, vel_threshold, doppler_b, floor, nprobe))
         if not criteria:
             return None
         return (lambda c: any(crit(c) for crit in criteria))
@@ -755,7 +783,8 @@ class AMRGrid:
     def refine_sphere_by_physics(self, cx, cy, cz, radius, dens_fn, vel_fn=None,
                                  dens_threshold=0.1, vel_threshold=0.1,
                                  level_max=6, level_min=2, nprobe=2, floor=1e-30,
-                                 refine_boundary=False):
+                                 refine_boundary=False,
+                                 vel_criterion='relative', doppler_b=None):
         """
         Refine inside (or around) a sphere using physics-based gradient criteria.
 
@@ -791,10 +820,13 @@ class AMRGrid:
             If True, additionally force every cell that intersects the sphere
             surface to ``level_max``, ensuring sharp geometric resolution of
             the boundary regardless of the local gradient.
+        vel_criterion, doppler_b :
+            See :meth:`refine_by_velocity`.
         """
         self.refine_uniform(level_min)
         criterion = self._make_physics_criterion(
-            dens_fn, vel_fn, dens_threshold, vel_threshold, nprobe, floor
+            dens_fn, vel_fn, dens_threshold, vel_threshold, nprobe, floor,
+            vel_criterion, doppler_b
         )
         self.refine_sphere_adaptive(cx, cy, cz, radius, level_max, criterion,
                                     refine_boundary=refine_boundary)
@@ -973,7 +1005,8 @@ class AMRGrid:
     def refine_slab_by_physics(self, axis, lo, hi, dens_fn, vel_fn=None,
                                dens_threshold=0.1, vel_threshold=0.1,
                                level_max=6, level_min=2, nprobe=2, floor=1e-30,
-                               refine_boundary=False):
+                               refine_boundary=False,
+                               vel_criterion='relative', doppler_b=None):
         """
         Refine inside (or around) a slab using physics-based gradient criteria.
 
@@ -1006,7 +1039,8 @@ class AMRGrid:
         """
         self.refine_uniform(level_min)
         criterion = self._make_physics_criterion(
-            dens_fn, vel_fn, dens_threshold, vel_threshold, nprobe, floor
+            dens_fn, vel_fn, dens_threshold, vel_threshold, nprobe, floor,
+            vel_criterion, doppler_b
         )
         self.refine_slab_adaptive(axis, lo, hi, level_max, criterion,
                                   refine_boundary=refine_boundary)
@@ -1014,7 +1048,8 @@ class AMRGrid:
     def refine_box_by_physics(self, xlo, xhi, ylo, yhi, zlo, zhi, dens_fn,
                               vel_fn=None, dens_threshold=0.1,
                               vel_threshold=0.1, level_max=6, level_min=2,
-                              nprobe=2, floor=1e-30, refine_boundary=False):
+                              nprobe=2, floor=1e-30, refine_boundary=False,
+                              vel_criterion='relative', doppler_b=None):
         """
         Refine inside (or around) a box using physics-based gradient criteria.
 
@@ -1045,7 +1080,8 @@ class AMRGrid:
         """
         self.refine_uniform(level_min)
         criterion = self._make_physics_criterion(
-            dens_fn, vel_fn, dens_threshold, vel_threshold, nprobe, floor
+            dens_fn, vel_fn, dens_threshold, vel_threshold, nprobe, floor,
+            vel_criterion, doppler_b
         )
         self.refine_box_adaptive(xlo, xhi, ylo, yhi, zlo, zhi, level_max,
                                  criterion, refine_boundary=refine_boundary)
@@ -1189,6 +1225,64 @@ class AMRGrid:
                     return True
             return False
         return criterion
+
+    @staticmethod
+    def _make_doppler_criterion(vel_fn, dens_fn, threshold, doppler_b, nprobe):
+        """
+        Return a cell criterion for resonance-line transfer: refine while the
+        bulk velocity changes across the cell by more than ``threshold``
+        Doppler widths,
+
+            |dv| = sqrt(dvx^2 + dvy^2 + dvz^2) > threshold * b,  dvc = c_max - c_min,
+
+        with the component ranges taken over a lattice of (nprobe+1)^3 points
+        spanning the whole cell (corners, edges, faces and center).  A leaf
+        carries one velocity, so |dv| bounds the line-of-sight velocity step a
+        photon meets between neighboring leaves; keeping it below about one
+        Doppler width keeps the sampled field smooth on the scale of the line
+        profile.  ``doppler_b`` is a constant [km/s] or ``b(x, y, z)`` [km/s];
+        the smallest b over the sampled points is used.  Points with
+        dens <= 0 are ignored when ``dens_fn`` is given.
+        """
+        if doppler_b is None:
+            raise ValueError("vel_criterion='doppler' requires doppler_b")
+        n = max(int(nprobe), 2) + 1
+
+        def at(fn, xx, yy, zz):
+            try:
+                return fn(xx, yy, zz)
+            except Exception:
+                vals = [fn(x, y, z) for x, y, z in zip(xx, yy, zz)]
+                return tuple(np.array(v) for v in zip(*vals)) \
+                    if isinstance(vals[0], tuple) else np.array(vals)
+
+        def criterion(c):
+            s = np.linspace(-c.h, c.h, n)
+            gx, gy, gz = np.meshgrid(c.cx + s, c.cy + s, c.cz + s, indexing='ij')
+            xx, yy, zz = gx.ravel(), gy.ravel(), gz.ravel()
+            if dens_fn is not None:
+                keep = np.asarray(at(dens_fn, xx, yy, zz), float) > 0.0
+                if np.count_nonzero(keep) < 2:
+                    return False
+                xx, yy, zz = xx[keep], yy[keep], zz[keep]
+            vx, vy, vz = (np.broadcast_to(np.asarray(a, float), xx.shape)
+                          for a in at(vel_fn, xx, yy, zz))
+            dv = np.sqrt(np.ptp(vx)**2 + np.ptp(vy)**2 + np.ptp(vz)**2)
+            b = (float(np.min(at(doppler_b, xx, yy, zz)))
+                 if callable(doppler_b) else float(doppler_b))
+            return dv > threshold * b
+        return criterion
+
+    @staticmethod
+    def _make_velocity_criterion(vel_fn, dens_fn, vel_criterion, threshold,
+                                 doppler_b, floor, nprobe):
+        """Dispatch to the 'relative' or 'doppler' velocity criterion."""
+        if vel_criterion == 'relative':
+            return AMRGrid._make_vel_criterion(vel_fn, dens_fn, threshold, floor, nprobe)
+        if vel_criterion == 'doppler':
+            return AMRGrid._make_doppler_criterion(vel_fn, dens_fn, threshold,
+                                                   doppler_b, nprobe)
+        raise ValueError(f"vel_criterion must be 'relative' or 'doppler', got {vel_criterion!r}")
 
     # ------------------------------------------------------------------ #
     # Physical property assignment
@@ -1593,7 +1687,7 @@ class AMRGrid:
 
         if os.path.exists(filename):
             os.remove(filename)
-        with h5py.File(filename, 'w', libver='latest', track_order=True) as f:
+        with h5py.File(filename, 'w', libver=('earliest', 'v114'), track_order=True) as f:  # LaRT links HDF5 1.14; newer formats are unreadable there
             g = f.create_group('AMR_GRID', track_order=True)
 
             for name in data.dtype.names:

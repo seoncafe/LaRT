@@ -910,7 +910,7 @@ def write_generic_hdf5(
 
     if filename.exists():
         filename.unlink()
-    with h5py.File(filename, "w", libver="latest", track_order=True) as f:
+    with h5py.File(filename, "w", libver=("earliest", "v114"), track_order=True) as f:  # LaRT links HDF5 1.14; newer formats are unreadable there
         g = f.create_group("AMRGRID", track_order=True)
         for name, arr in float_cols:
             if name == "level":
