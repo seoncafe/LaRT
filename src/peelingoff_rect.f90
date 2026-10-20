@@ -877,10 +877,10 @@ contains
   ! the integral correctly.  In clump mode that pointer is set to
   ! raytrace_to_edge_clump, but the procedure-pointer interface has no
   ! tau_max argument -- so the integration runs uncapped and wastes CPU on
-  ! photons whose contribution exp(-tau) has long underflowed.  Bypass the
+  ! photons whose contribution exp(-tau) is long negligible.  Bypass the
   ! pointer in clump mode and call raytrace_to_edge_clump_capped directly.
   ! (The cap is correct here because peel-off only needs tau accurately up
-  ! to the exp(-tau) underflow point; the cap is ABSENT in
+  ! to where exp(-tau) becomes negligible; the cap is ABSENT in
   ! raytrace_to_edge_tau_gas_clump where the sight-line FITS output
   ! requires the full integrated tau.)
   !
