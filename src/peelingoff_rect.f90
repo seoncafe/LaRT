@@ -6,7 +6,7 @@ module peelingoff_rect
   use mathlib
   use utility
   use line_mod
-  use raytrace_clump_mod, only: raytrace_to_edge_clump_capped, tau_huge_clump, &
+  use raytrace_clump_mod, only: raytrace_to_edge_clump_capped, &
                                  raytrace_to_edge_clump_overlap_capped
   !--- Clump-mode bulk velocity: when photon is inside a clump
   !    (par%use_clump_medium .and. photon%icell_clump > 0), grid%vfx/y/z = 0
@@ -893,9 +893,9 @@ contains
   real(kind=wp),     intent(out) :: tau
   if (par%use_clump_medium) then
      if (has_overlap) then
-        call raytrace_to_edge_clump_overlap_capped(pobs, grid, tau, tau_max=tau_huge_clump)
+        call raytrace_to_edge_clump_overlap_capped(pobs, grid, tau, tau_max=tau_huge)
      else
-        call raytrace_to_edge_clump_capped(pobs, grid, tau, tau_max=tau_huge_clump)
+        call raytrace_to_edge_clump_capped(pobs, grid, tau, tau_max=tau_huge)
      end if
   else if (pobs%iband /= 1) then
      !--- band 2 (H-alpha, ly_beta line_type = 8): dust-only sightline opacity.

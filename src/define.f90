@@ -35,6 +35,18 @@ public
   real(kind=dp), parameter :: eps_dp = epsilon(0.0_dp)
   real(kind=wp), parameter :: hugest = huge(1.0_wp)
 
+! Early-exit optical depth of the photon-transport tau integrals used by the
+! peel-off (raytrace_to_edge*/raytrace_to_dist* in raytrace_car, raytrace_amr
+! and raytrace_clump).  A peel-off weight carries exp(-tau); beyond tau = 300,
+! exp(-tau) < 5e-131, so further accumulation cannot change any result and
+! only burns CPU.  Until 2026-10-20 the threshold was 745.2, where exp(-tau)
+! underflows in double precision.  Lowering it to 300 (the value RT-scat uses)
+! cut a static clumpy sphere (f_c = 10, N_HI = 1e18, 1e6 photons, 144 ranks)
+! from 76.3 to 42.2 min with the spectra unchanged, since peel-off rays from
+! inside optically thick clumps no longer cross extra clumps between tau = 300
+! and 745.  Sight-line tau outputs are integrated without this cap.
+  real(kind=wp), parameter :: tau_huge = 300.0_wp
+
 ! define NaN
   real(real64),  parameter :: nan64 = transfer(-2251799813685248_int64, 1._real64)
   real(real32),  parameter :: nan32 = transfer(-4194304_int32, 1._real32)

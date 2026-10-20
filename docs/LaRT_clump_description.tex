@@ -1032,9 +1032,10 @@ clump mode and would silently make the Cartesian dispatch return
 $\tau = 0$, leaving every peeled-off photon unattenuated; this was a
 silent regression in the v2.10 class-based refactor vs the v2.00
 procedure-pointer dispatch and is now fixed).  The clump call passes
-the optional argument \texttt{tau\_max\,=\,tau\_huge\_clump}~$\approx 745$
-so the integration bails out once $\exp(-\tau)$ underflows in double
-precision; the sight-line wrappers
+the optional argument \texttt{tau\_max\,=\,tau\_huge}\,$=300$
+(\texttt{define.f90}) so the integration bails out once
+$\exp(-\tau)<5\times10^{-131}$ (745.2, the double-precision underflow
+point, before 2026-10-20); the sight-line wrappers
 \texttt{raytrace\_to\_edge\_tau\_gas\_clump} /
 \texttt{raytrace\_to\_dist\_tau\_gas\_clump} omit \texttt{tau\_max} and
 therefore report the FULL integrated tau (sight-line FITS output is
@@ -1422,7 +1423,8 @@ covering $f_\mathrm{cov} = 1$, $2$, and $5$ confirm that the measured
 \texttt{Scatt/Jmu} reproduces the analytic single-scattering escape
 fraction $1 - \exp(-f_\mathrm{cov})$ to ~1 \% across four observer
 $\beta$ angles.  The $f_\mathrm{cov} = 5$ case in particular validates
-the new \texttt{tau\_huge\_clump = 745.2} cap added to the peel-off
+the peel-off $\tau$ cap (then \texttt{tau\_huge\_clump = 745.2}, now
+\texttt{tau\_huge = 300} in \texttt{define.f90}) added to the peel-off
 raytrace (Sect.~``Peel-off''): even at $\tau_\mathrm{max} \sim 6.7\times10^3$
 the cap preserves the answer because every capped contribution has
 $\exp(-\tau) \approx 0$.

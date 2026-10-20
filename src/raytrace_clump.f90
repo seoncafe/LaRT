@@ -33,11 +33,10 @@ module raytrace_clump_mod
   public :: raytrace_to_dist_clump
   public :: raytrace_to_dist_tau_gas_clump
   public :: raytrace_to_dist_column_clump
-  public :: tau_huge_clump
   ! Capped variants: same algorithm as raytrace_to_edge_clump /
   ! raytrace_to_dist_clump but exit early once tau >= tau_max.  Use these
   ! from photon-transport callers (peeling-off) where exp(-tau) is negligible
-  ! beyond tau_huge_clump; the uncapped originals stay around because their signature
+  ! beyond tau_huge; the uncapped originals stay around because their signature
   ! is locked by the raytrace_to_edge / raytrace_to_dist procedure-pointer
   ! interface in define.f90.
   public :: raytrace_to_edge_clump_capped
@@ -53,17 +52,7 @@ module raytrace_clump_mod
   public :: raytrace_to_dist_tau_gas_clump_overlap
   public :: raytrace_to_dist_column_clump_overlap
 
-  ! Default early-exit threshold for photon-transport callers (peeling, ...).
-  ! A peel-off weight carries exp(-tau); beyond tau = 300, exp(-tau) < 5e-131,
-  ! so further accumulation cannot change any result and only burns CPU.
-  ! Until 2026-10-20 the threshold was 745.2, where exp(-tau) underflows in
-  ! double precision.  Lowering it to 300 (the value RT-scat uses) cut a
-  ! static clumpy sphere (f_c = 10, N_HI = 1e18, 1e6 photons, 144 ranks)
-  ! from 76.3 to 42.2 min with the spectra unchanged, since peel-off rays
-  ! from inside optically thick clumps no longer cross extra clumps between
-  ! tau = 300 and 745.  Sight-line callers DO NOT pass tau_max -- they need
-  ! the full integrated tau, however large.
-  real(kind=wp), parameter :: tau_huge_clump = 300.0_wp
+  ! tau_huge (photon-transport early exit) is defined in define.f90.
 
 contains
 
@@ -491,7 +480,7 @@ contains
   !===========================================================================
   ! Capped variant of raytrace_to_edge_clump for photon-transport callers
   ! (peeling-off).  Same algorithm; bails out as soon as the running tau
-  ! exceeds tau_max (tau_huge_clump = 300, exp(-300) < 5e-131), since any
+  ! exceeds tau_max (tau_huge = 300 from define.f90, exp(-300) < 5e-131), since any
   ! further accumulation cannot change the peel-off weight.  The
   ! uncapped raytrace_to_edge_clump above keeps its 3-arg signature so that
   ! the raytrace_to_edge procedure pointer (define.f90 :: raytrace_edge

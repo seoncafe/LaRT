@@ -87,7 +87,7 @@ If `par%input_field` is given, `(nx,ny,nz)` and `(xmax,ymax,zmax)` are read from
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `grid_type` | `'car'` | `'car'` (Cartesian) or `'amr'` (AMR octree; same as `use_amr_grid = .true.`) |
+| `grid_type` | `'car'` | `'car'` (Cartesian), `'amr'` (AMR octree; same as `use_amr_grid = .true.`) or `'clump'` (same as `use_clump_medium = .true.`); other values stop the run |
 | `use_clump_medium` | `.false.` | Clumpy medium mode (see [Clumpy Medium](#clumpy-medium)) |
 
 ### Distance Unit

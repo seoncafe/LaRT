@@ -223,9 +223,9 @@ determined entirely by \parm{taumax} and the grid geometry; no physical unit is 
 \toprule
 Parameter & Default & Description \\
 \midrule
-\parm{grid\_type}$^{\dagger}$ & \texttt{'car'} & \textbf{v2.10+}: \texttt{'car'} (Cartesian), \texttt{'amr'}, or \texttt{'clump'} \\
-\parm{use\_amr\_grid} & \texttt{.false.} & \textbf{v2.00}: enable AMR (deprecated in v2.10) \\
-\parm{use\_clump\_medium} & \texttt{.false.} & \textbf{v2.00}: enable clump mode (deprecated in v2.10) \\
+\parm{grid\_type}$^{\dagger}$ & \texttt{'car'} & \texttt{'car'} (Cartesian), \texttt{'amr'}, or \texttt{'clump'} (v2.10; v2.00 since 2026-10-20) \\
+\parm{use\_amr\_grid} & \texttt{.false.} & same as \parm{grid\_type}\,$=$\,\texttt{'amr'} \\
+\parm{use\_clump\_medium} & \texttt{.false.} & same as \parm{grid\_type}\,$=$\,\texttt{'clump'} \\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -1613,10 +1613,12 @@ the sky-mean line profile.
 
 \paragraph{tau\_huge cap (sight-line vs.\ photon transport).}
 \begin{sloppypar}
-The AMR raytrace routines used by the photon-transport stage early-exit
-when the running optical depth exceeds the double-precision exp(-$\tau$)
-underflow point ($\tau_{\rm huge} \approx 745.2$); accumulating further
-contributes nothing to the photon's transmission.  The sight-line
+The raytrace routines used by the peel-off (Cartesian, AMR and clump)
+early-exit when the running optical depth exceeds $\tau_{\rm huge}=300$
+(\texttt{tau\_huge} in \texttt{define.f90}); beyond it
+exp(-$\tau$)\,$<5\times10^{-131}$, so accumulating further cannot change
+the peel-off weight.  Until 2026-10-20 the cap was 745.2, the
+double-precision underflow point of exp(-$\tau$).  The sight-line
 variant \texttt{raytrace\_to\_edge\_tau\_gas\_amr} exists precisely to
 \emph{report} the integrated $\tau$, however large, and therefore runs
 without that cap (matching the Cartesian
@@ -2233,9 +2235,9 @@ $\dagger$ are new or changed in v2.10.
 \texttt{par\%distance2cm}   & 1.0 & 1 code unit in cm \\[6pt]
 
 \multicolumn{3}{l}{\textit{Grid mode}} \\[2pt]
-\texttt{par\%grid\_type}$^\dagger$ & \texttt{'car'} & v2.10+: \texttt{'car'}, \texttt{'amr'}, \texttt{'clump'} \\
-\texttt{par\%use\_amr\_grid} & \texttt{.false.} & v2.00 AMR flag \\
-\texttt{par\%use\_clump\_medium} & \texttt{.false.} & v2.00 clump flag \\[6pt]
+\texttt{par\%grid\_type}$^\dagger$ & \texttt{'car'} & \texttt{'car'}, \texttt{'amr'}, \texttt{'clump'} \\
+\texttt{par\%use\_amr\_grid} & \texttt{.false.} & same as \texttt{grid\_type='amr'} \\
+\texttt{par\%use\_clump\_medium} & \texttt{.false.} & same as \texttt{grid\_type='clump'} \\[6pt]
 
 \multicolumn{3}{l}{\textit{Source}} \\[2pt]
 \texttt{par\%source\_geometry} & \texttt{'point'} & See \S\ref{sec:source_geometry} \\
@@ -2568,7 +2570,10 @@ The following plotting helpers are also shipped:
         diagnostics.
   \item \begin{sloppypar}\texttt{AMR\_grid/}: helpers for generating generic AMR data files
         (see \path{AMR_grid/make_amr_grid.py},
-        \path{make_amr_sphere_radial.py}).\end{sloppypar}
+        \path{make_amr_sphere_radial.py}).  For velocity fields,
+        \texttt{make\_amr\_grid.py --vel\_criterion doppler --vel\_threshold 1.0}
+        refines each leaf until the bulk velocity changes across it by at most
+        one Doppler width $b=\sqrt{2kT/m+b_{\rm turb}^2}$.\end{sloppypar}
 \end{itemize}
 
 \subsection{Format-agnostic reader and FITS\,$\leftrightarrow$\,HDF5 converter: \texttt{lart\_io.py}}

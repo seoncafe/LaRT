@@ -66,7 +66,7 @@ module raytrace_amr_mod
   public :: raytrace_to_dist_tau_gas_amr
   public :: raytrace_to_dist_column_amr
 
-  real(wp), parameter :: tau_huge = 745.2_wp  ! exp(-tau_huge) ≈ 0 in double
+  ! tau_huge (photon-transport early exit) is defined in define.f90.
 
 contains
 

@@ -1,0 +1,285 @@
+%% Comparison of LaRT_v2.00 with RT-scat (Kym et al. 2026), and problems found in RT-scat
+%% Author: Kwang-Il Seon
+\documentclass[english,a4paper]{my_memo}
+\synctex=1
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{microtype}
+\usepackage{babel}
+\graphicspath{{figures/}}
+
+\begin{document}
+
+\title{LaRT and RT-scat: Clumpy and Rotating Ly$\alpha$ Models of Kym et al.\ (2026)}
+\author{Kwang-Il Seon}
+\date{\docmoddate}
+\maketitle
+
+\tableofcontents
+\bigskip
+
+%=============================================================================
+\section{Purpose}
+%=============================================================================
+
+Kym, Chang, Gronke \& Seon (2026, arXiv:2609.08396) computed Ly$\alpha$ spectra of
+rotating smooth and clumpy spheres with the code RT-scat (S.-J.~Chang).  While
+recomputing their Figure~9 with LaRT\_v2.00, the two codes were compared directly on
+a static clumpy sphere, and the smooth rotating sphere was examined for numerical
+artifacts.  This note records the setup, the measured results, the problems found in
+RT-scat, and the changes made to LaRT as a consequence.  All numbers below were
+measured in these runs; the inputs, outputs and analysis notebooks are kept in
+\texttt{combine/Models\_for\_HGKym/} (\texttt{static\_fc10/}, \texttt{diag\_peel\_asym/},
+\texttt{diag\_beta899/}).
+
+The RT-scat source used is \texttt{SJChang\_codes/code\_clumpy\_rotating} (clumpy) and
+\texttt{code\_smooth\_rotating\_241201} (smooth).  Its run parameters are set by editing
+the source before each compilation, so the values found in the source are not
+necessarily those used for the paper; only the algorithms are taken from it.
+
+%=============================================================================
+\section{Static clumpy sphere: setup}
+%=============================================================================
+
+Both codes were run for the same model: a sphere of radius $R_o$ filled with clumps of
+radius $r_{\rm cl}=10^{-3}R_o$ at covering factor $f_c=10$ and mean radial column
+$N_{\rm HI}=10^{18}\,{\rm cm^{-2}}$ (clump center-to-surface column
+$N_{\rm HI,cl}=\tfrac34 N_{\rm HI}/f_c=7.5\times10^{16}\,{\rm cm^{-2}}$), $T=10^4$\,K, no dust,
+no bulk motion, the H\,{\sc i} Ly$\alpha$ fine-structure doublet, a central point source
+emitting a Gaussian of $\sigma=1\,{\rm km\,s^{-1}}$ around each doublet member, and
+$10^6$ photon packets.  Without rotation the model is statistically spherically
+symmetric, so every viewing angle must give the same spectrum apart from the scatter of
+one clump realization.
+
+Two estimators were used in each code: the image-summed peel-off spectrum of observers at
+$\theta=0.1^\circ,15^\circ,\dots,75^\circ,89.9^\circ$ (azimuth $\phi=60^\circ$, the RT-scat
+observer set), and escaping photons binned in $\mu=\cos\theta$ over all azimuths
+(40 bins in $[-1,1]$).
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+ & RT-scat & LaRT\_v2.00 \\
+\midrule
+clump centers & within $\pm(\Delta x/2-r_{\rm cl})$ of a cell center & uniform over the sphere \\
+clumps at $r<0.1R_o$ & none & yes \\
+overlap & allowed & not allowed (random sequential adsorption) \\
+clump number & $(4/3)f_c(R_o/r_{\rm cl})^2\times(1-0.1^3)$ & $(4/3)f_c(R_o/r_{\rm cl})^2$ \\
+peel-off $\tau$ cutoff & 300 & 745.2, now 300 (Section~\ref{sec:lart}) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Section~3.2 of the paper states that the clumps are uniformly distributed within the
+sphere and do not overlap, which is what LaRT does.
+
+%=============================================================================
+\section{Static clumpy sphere: results}
+%=============================================================================
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\linewidth]{rtscat_static_fc10_angles}
+\caption{Spectra at seven viewing angles, normalized to unit area and smoothed with a
+25\,km\,s$^{-1}$ boxcar.  Top: LaRT; bottom: RT-scat; left: peel-off; right: $\mu$ bins.}
+\label{fig:angles}
+\end{figure}
+
+Table~\ref{tab:angles} and Figure~\ref{fig:angles} summarize the angle dependence.
+LaRT is isotropic in both estimators, and so are the RT-scat $\mu$ bins.  The RT-scat
+peel-off spectra at $\theta=0.1^\circ$ and $89.9^\circ$ are not: they carry 24\% and 12\%
+more flux than the mean and a filled-in line center, while $15^\circ$--$75^\circ$ agree with
+one another.
+
+\begin{table}[h]
+\centering
+\caption{Angle dependence of the static $f_c=10$ spectra: integrated flux relative to the
+mean over the seven angles, and $\sum|S-\langle S\rangle|/\sum\langle S\rangle$ of the
+unit-area spectra.}
+\label{tab:angles}
+\begin{tabular}{lccc}
+\toprule
+estimator & flux / mean & shape deviation & peaks [km\,s$^{-1}$] \\
+\midrule
+LaRT peel-off      & 0.991--1.010 & 0.1--0.6\% & $-43$, $+47$ \\
+LaRT $\mu$ bins    & 0.991--1.005 & 0.6--1.5\% & $-43$, $+47$ \\
+RT-scat $\mu$ bins & 0.980--1.032 & 1.0--2.6\% & $-43$, $+42$ \\
+RT-scat peel-off, $15^\circ$--$75^\circ$ & 0.928--0.932 & 6.4--6.9\% & $-43$, $+47$ \\
+RT-scat peel-off, $0.1^\circ$  & 1.238 & 22.8\% & $-33$, $+37$ \\
+RT-scat peel-off, $89.9^\circ$ & 1.116 & 10.4\% & $-38$, $+42$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\linewidth]{rtscat_static_fc10_codes}
+\caption{LaRT against RT-scat.  Left: all directions ($\mu$ bins summed),
+$\sum|L-R|/\sum R=0.027$.  Right: peel-off at $\theta=89.9^\circ$, $\sum|L-R|/\sum R=0.201$.}
+\label{fig:codes}
+\end{figure}
+
+The angle-averaged spectra of the two codes agree to 2.7\% (Figure~\ref{fig:codes}), but
+the $\theta=89.9^\circ$ peel-off spectra differ by 20\%.
+
+\paragraph{Scatterings and run time.}
+LaRT scattered $5.92\times10^4$ times per photon, RT-scat $2.85\times10^4$ times
+($2.849\times10^4$ and $2.843\times10^4$ for photons born in the two doublet members).
+RT-scat ran 45.5\,min on 144 ranks of lart2+lart1 (Xeon Gold 6154); LaRT ran 76.3\,min
+with the peel-off cutoff at $\tau=745.2$ and 42.2\,min with it at $\tau=300$, both on 144
+ranks of lart4+lart3 (Xeon Gold 6254).  Per scattering, LaRT took 11.1\,$\mu$s (745.2)
+and 6.2\,$\mu$s (300) against 13.8\,$\mu$s for RT-scat (on different processors).  The
+factor of two in the scattering number is not explained yet; candidates are the empty
+center and the clump-free sheets of RT-scat (Section~\ref{sec:sheets}).
+
+%=============================================================================
+\section{Problems found in RT-scat}
+%=============================================================================
+
+\subsection{Clump-free sheets along the cell faces}
+\label{sec:sheets}
+
+RT-scat assigns each clump to a cell of its $201^3$ Cartesian grid and draws its center
+within $\pm(\Delta x/2-r_{\rm cl})$ of the cell center (\texttt{set\_clumps\_mod.f90}), so no
+clump crosses a cell face.  Thin sheets of width $\sim r_{\rm cl}$ around the planes
+$x,y,z={\rm const}$ are therefore nearly free of clumps.  Lines of sight parallel to those
+sheets ($\theta\approx0^\circ$: the $x$ and $y$ planes; $\theta\approx90^\circ$: the $z$ planes)
+leak more line-center light, which is what the RT-scat peel-off spectra at $0.1^\circ$ and
+$89.9^\circ$ show.  The $\mu$ bins average over all azimuths and a range of $\theta$, which
+dilutes the effect.
+
+The placement was reproduced in a box of $24^3$ cells (about $4.3\times10^4$ clumps,
+\texttt{static\_fc10/rtscat\_clump\_channels.py}); the fraction of rays of length
+$0.12R_o$ ($\phi=60^\circ$) that meet no clump is
+
+\begin{center}
+\begin{tabular}{lccc}
+\toprule
+placement & $\theta=0.1^\circ$ & $45^\circ$ & $89.9^\circ$ \\
+\midrule
+RT-scat (confined to cells) & 0.390 & 0.281 & 0.329 \\
+uniform (same number) & 0.301 & 0.296 & 0.293 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The clumpy spectra of the paper (Figure~9) are the peel-off spectra of the
+$\theta=89.9^\circ$ observer, so they probably contain this leak; this was not checked
+against the RT-scat outputs of the paper.
+
+\subsection{Empty center and overlapping clumps}
+
+RT-scat places no clumps at $r<0.1R_o$ and does not prevent overlaps, whereas the paper
+(Section~3.2) describes uniformly distributed, non-overlapping clumps.  The clump number
+density is that of the whole sphere, so the realized covering factor and mean radial
+column are $0.9f_c$ and $0.9N_{\rm HI}$.
+
+\subsection{Smooth sphere: grid sampling of the rotation field}
+
+The smooth rotating sphere is sampled on a $201^3$ Cartesian grid.  Inside $R_i=0.1R_o$
+the rotation velocity changes by $\Omega\Delta x=30\,{\rm km\,s^{-1}}$ from one cell to the
+next, 2.3 times the thermal width.  Seen from an azimuth that is not a mirror plane of the
+grid ($\phi=60^\circ$, used by RT-scat), this staircase makes the edge-on peel-off spectrum
+lopsided.  The effect is a property of the grid, not of either code; it was measured with
+LaRT (smooth sphere, $N_{\rm HI}=10^{18}\,{\rm cm^{-2}}$, $V_{\rm rot}=300\,{\rm km\,s^{-1}}$,
+$\beta=90^\circ$, $10^6$ photons; the AMR row has the fine structure off, the others on):
+
+\begin{center}
+\begin{tabular}{lcccc}
+\toprule
+grid & step in $R_i$ & red/blue flux, $\phi=30^\circ/60^\circ$ & red/blue peak, $\phi=30^\circ/60^\circ$ & $\phi=0^\circ/90^\circ$ flux \\
+\midrule
+$101^3$ & 59 km\,s$^{-1}$ & 0.936 / 1.071 & 1.054 / 0.958 & 1.007 / 0.998 \\
+$201^3$ & 30 km\,s$^{-1}$ & 0.983 / 1.021 & 1.056 / 0.953 & 1.001 / 1.001 \\
+$401^3$ & 15 km\,s$^{-1}$ & 1.001 / 1.003 & 1.012 / 0.988 & 1.006 / 0.995 \\
+AMR, levels 4--9 & $\le 1.29\,b$ & 0.997 / 0.999 & 0.999 / 0.983 & 1.001 / 0.995 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+At $\phi=0^\circ$ and $90^\circ$ (mirror planes) the $201^3$ spectrum is symmetric but
+rippled (Figure~\ref{fig:grid}); $\phi=30^\circ$ and $60^\circ$ have opposite signs, and
+$S_{120}(V)=S_{60}(-V)$ to 1.5\%, as the $x=0$ mirror symmetry of the grid requires.
+Switching the fine structure off changes nothing.  The AMR grid
+(\texttt{make\_amr\_grid.py --vel\_criterion doppler --vel\_threshold 1.0 --level\_max 9},
+$1.1\times10^7$ leaves) reproduces $401^3$ within 0.6--2.3\% with 1/6 of the cells.
+The RT-scat smooth curve of the paper used $201^3$ and $\phi=60^\circ$ and is therefore
+expected to carry this asymmetry.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\linewidth]{rtscat_diag_azimuth_201}
+\includegraphics[width=\linewidth]{rtscat_diag_resolution}
+\caption{Smooth rotating sphere.  Top: $201^3$ peel-off spectra at six azimuths (solid)
+and their mirror images (dotted).  Bottom: $101^3$, $201^3$, $401^3$ at $\phi=60^\circ$,
+$\phi=0^\circ$ and in the $\mu=0$ bin.}
+\label{fig:grid}
+\end{figure}
+
+\subsection{Direct light seen by a single observer}
+
+The unscattered light of the point source reaches a peel-off observer along one sight
+line.  Moving that line by $0.1^\circ$ shifts it at $r=0.5R_o$ by
+$1.7\times10^{-3}R_o$, more than a clump radius, so for small $f_c$ the direct spike can
+appear in one direction and vanish in the next.  In one LaRT $f_c=1$ realization (same
+photons, same clumps), the direct light was 59\% of the flux at $\theta=89.9^\circ,\phi=0^\circ$
+and zero at $\theta=90^\circ$; the scattered light differed by less than 1\%.
+
+\subsection{Practical issues}
+
+Run parameters (column density, covering factor, rotation speed, photon number, observer
+angles) are set by editing the main program before compiling, so a run cannot be
+reproduced from its outputs alone.  The build script compiles \texttt{*\_mod.f90} in
+alphabetical order and fails unless the modules happen to be compiled after
+\texttt{cons\_mod.f90}; repeating the compile command until all modules are built works.
+The observer angles $0.1^\circ$ and $89.9^\circ$ are not needed: the code already treats
+$|k_z|=1$ separately and has no singularity at $90^\circ$.
+
+%=============================================================================
+\section{Changes made to LaRT}
+\label{sec:lart}
+%=============================================================================
+
+\begin{itemize}
+\item \textbf{Peel-off $\tau$ cutoff.}  The early exit of the photon-transport $\tau$
+  integrals used by the peel-off (Cartesian, AMR and clump) is now a single constant,
+  \texttt{tau\_huge = 300} in \texttt{define.f90}; it was 745.2 (where $e^{-\tau}$ underflows
+  in double precision), defined separately in each routine.  Beyond $\tau=300$,
+  $e^{-\tau}<5\times10^{-131}$, so no peel-off weight changes; the static $f_c=10$ run went
+  from 76.3 to 42.2\,min with the spectra unchanged (Figure~\ref{fig:taumax}).  Sight-line
+  $\tau$ outputs are integrated without the cutoff.
+\item \textbf{AMR refinement for velocity fields.}  \texttt{make\_amr\_grid.py} and
+  \texttt{AMRGrid} accept \texttt{vel\_criterion='doppler'}: a leaf is refined while the bulk
+  velocity changes across it by more than \texttt{vel\_threshold} Doppler widths
+  $b=\sqrt{2kT/m+b_{\rm turb}^2}$.
+\item \textbf{HDF5 format of the Python writers.}  They write the HDF5\,1.14 format
+  (h5py \texttt{libver} upper bound \texttt{'v114'}); with h5py built on HDF5\,2.0,
+  \texttt{libver='latest'} produced files that LaRT (linked with HDF5\,1.14) could not read.
+\item \textbf{\texttt{par\%grid\_type}} (\texttt{'car'}, \texttt{'amr'}, \texttt{'clump'}) is
+  accepted by LaRT\_v2.00 as in LaRT\_v2.10; other values stop the run.
+\end{itemize}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\linewidth]{rtscat_static_fc10_taumax}
+\caption{Static $f_c=10$ spectra with the peel-off cutoff at $\tau=745.2$ and $\tau=300$
+(different random realizations).  Flux ratios 0.993--1.017 at the seven angles, 1.000 over
+all directions; shape differences 0.2--1.3\%.}
+\label{fig:taumax}
+\end{figure}
+
+%=============================================================================
+\section{Open questions}
+%=============================================================================
+
+\begin{itemize}
+\item Why LaRT scatters twice as often as RT-scat in the static $f_c=10$ model.  Running
+  LaRT with the RT-scat placement (empty center, overlaps) would separate the
+  placement from the transport.
+\item Whether the published Figure~9 clumpy curves contain the sheet leak; this needs
+  the RT-scat outputs used for the paper.
+\end{itemize}
+
+\end{document}

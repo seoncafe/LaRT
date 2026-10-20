@@ -100,10 +100,6 @@ contains
   real(kind=wp),    intent(out) :: tau
 
 ! local variables
-  !-- note that exp(-tau_huge) = 0.0
-  !-- at this large optical depth peeling-off contribution is practically zero.
-  !-- Hence, no need to integrate further.
-  real(kind=wp), parameter :: tau_huge = 745.2_wp
   integer       :: icell,jcell,kcell
   integer       :: iold,jold,kold
   integer       :: istep,jstep,kstep
@@ -426,10 +422,6 @@ contains
   real(kind=wp),    intent(out) :: tau
 
 ! local variables
-  !-- note that exp(-tau_huge) = 0.0
-  !-- at this large optical depth peeling-off contribution is practically zero.
-  !-- Hence, no need to integrate further.
-  real(kind=wp), parameter :: tau_huge = 745.2_wp
   integer       :: icell,jcell,kcell
   integer       :: iold,jold,kold
   integer       :: istep,jstep,kstep
@@ -522,7 +514,6 @@ contains
   real(kind=wp),    intent(out) :: tau
 
 ! local variables
-  real(kind=wp), parameter :: tau_huge = 745.2_wp
   integer       :: icell,jcell,kcell
   integer       :: istep,jstep,kstep
   real(kind=wp) :: xp,yp,zp,kx,ky,kz
@@ -598,10 +589,6 @@ contains
   real(kind=wp),    intent(out) :: tau
 
 ! local variables
-  !-- note that exp(-tau_huge) = 0.0
-  !-- at this large optical depth peeling-off contribution is practically zero.
-  !-- Hence, no need to integrate further.
-  real(kind=wp), parameter :: tau_huge = 745.2_wp
   integer       :: icell,jcell,kcell
   integer       :: iold,jold,kold
   integer       :: istep,jstep,kstep
@@ -798,10 +785,6 @@ contains
   real(kind=wp),    intent(out) :: tau
 
 ! local variables
-  !-- note that exp(-tau_huge) = 0.0
-  !-- at this large optical depth peeling-off contribution is practically zero.
-  !-- Hence, no need to integrate further.
-  real(kind=wp), parameter :: tau_huge = 745.2_wp
   integer       :: icell,jcell,kcell
   integer       :: iold,jold,kold
   integer       :: istep,jstep,kstep
@@ -985,10 +968,6 @@ contains
   real(kind=wp),    intent(out) :: tau
 
 ! local variables
-  !-- note that exp(-tau_huge) = 0.0
-  !-- at this large optical depth peeling-off contribution is practically zero.
-  !-- Hence, no need to integrate further.
-  real(kind=wp), parameter :: tau_huge = 745.2_wp
   integer       :: icell,jcell,kcell
   integer       :: iold,jold,kold
   integer       :: istep,jstep,kstep
@@ -1152,10 +1131,6 @@ contains
   real(kind=wp),    intent(out) :: tau
 
 ! local variables
-  !-- note that exp(-tau_huge) = 0.0
-  !-- at this large optical depth peeling-off contribution is practically zero.
-  !-- Hence, no need to integrate further.
-  real(kind=wp), parameter :: tau_huge = 745.2_wp
   integer       :: icell,jcell,kcell
   integer       :: iold,jold,kold
   integer       :: istep,jstep,kstep
@@ -3682,10 +3657,6 @@ contains
   real(kind=wp),    intent(out) :: tau
 
 ! local variables
-  !-- note that exp(-tau_huge) = 0.0
-  !-- at this large optical depth peeling-off contribution is practically zero.
-  !-- Hence, no need to integrate further.
-  real(kind=wp), parameter :: tau_huge = 745.2_wp
   integer       :: icell,jcell,kcell
   integer       :: iold,jold,kold
   integer       :: istep,jstep,kstep

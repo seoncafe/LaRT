@@ -986,12 +986,16 @@ and \texttt{raytrace\_to\_edge\_column\_amr}.
 
 \begin{sloppypar}
 \paragraph{$\tau_\mathrm{huge}$ early-exit (sight-line vs.\ photon
-transport).}  The AMR raytrace routines used by the photon-transport
-stage (\texttt{raytrace\_to\_tau\_amr}, \texttt{raytrace\_to\_edge\_amr},
+transport).}  The AMR raytrace routines used by the peel-off
+(\texttt{raytrace\_to\_edge\_amr}, \texttt{raytrace\_to\_edge\_amr\_dust\_Ha},
 \texttt{raytrace\_to\_dist\_amr}) early-exit when the running optical
-depth exceeds the double-precision $\exp(-\tau)$ underflow point
-($\tau_\mathrm{huge} \approx 745.2$); accumulating further contributes
-nothing to the photon's transmission.  The sight-line variants
+depth exceeds $\tau_\mathrm{huge}=300$ (\texttt{tau\_huge} in
+\texttt{define.f90}, shared with the Cartesian and clump peel-off);
+beyond it $\exp(-\tau)<5\times10^{-131}$ and accumulating further cannot
+change the peel-off weight.  Until 2026-10-20 the cap was 745.2, the
+double-precision underflow point of $\exp(-\tau)$; lowering it left the
+spectra unchanged and shortened a static clumpy run from 76.3 to
+42.2\,min (\texttt{RTscat\_comparison.pdf}).  The sight-line variants
 \texttt{raytrace\_to\_edge\_tau\_gas\_amr} and
 \texttt{raytrace\_to\_dist\_tau\_gas\_amr} exist precisely to
 \emph{report} the integrated $\tau$, however large, and therefore run
