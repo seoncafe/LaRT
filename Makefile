@@ -54,7 +54,7 @@ ifneq ($(CALCPnew), 0)
 endif
 ifneq ($(HDF5), 0)
    FLAGS    += -DHDF5 -I$(HDF5_PREFIX)/include
-   HDF5_LIBS = $(HDF5_PREFIX)/lib/libhdf5_fortran.a $(HDF5_PREFIX)/lib/libhdf5.a -lsz -ldl -lz -lm
+   HDF5_LIBS = $(HDF5_PREFIX)/lib/libhdf5_fortran.a $(wildcard $(HDF5_PREFIX)/lib/libhdf5_f90cstub.a) $(HDF5_PREFIX)/lib/libhdf5.a -lsz -ldl -lz -lm
 endif
 ifneq ($(JPexec),)
    exec := $(exec)_calc$(JPexec)

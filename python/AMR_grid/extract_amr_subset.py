@@ -71,10 +71,14 @@ def _open_table(path: str):
                 "h5py is required to read HDF5 generic AMR files"
             ) from exc
         with h5py.File(path, "r") as f:
-            g = f["amr_grid"] if "amr_grid" in f else f
-            cols = {name: np.asarray(g[name]) for name in g.keys()}
+            # The leaf table is the first group (AMR_GRID from AMRGrid,
+            # amr_grid from this script); columns are its datasets.
+            groups = [k for k in f.keys() if isinstance(f[k], h5py.Group)]
+            g = f[groups[0]] if groups else f
+            cols = {name: np.asarray(g[name]) for name in g.keys()
+                    if isinstance(g[name], h5py.Dataset)}
             header = {key: g.attrs[key] for key in g.attrs.keys()}
-        return cols, header
+        return _rename_density(cols), header
 
     # FITS / FITS.gz
     with fits.open(path) as hdul:
@@ -82,16 +86,24 @@ def _open_table(path: str):
         data = hdu.data
         cols = {name: np.array(data[name]) for name in data.dtype.names}
         header = {k: hdu.header[k] for k in hdu.header.keys()}
-    return cols, header
+    return _rename_density(cols), header
+
+
+def _rename_density(cols):
+    """Name the hydrogen density column 'nH'.  AMRGrid and
+    make_amr_sphere_radial.py write it as 'dens', the Illustris converter as
+    'gasDen'; LaRT itself reads the mandatory columns by position."""
+    if "nH" not in cols:
+        for alias in ("dens", "gasDen"):
+            if alias in cols:
+                cols["nH"] = cols.pop(alias)
+                break
+    return cols
 
 
 def _write_fits(path: str, cols, header_extra) -> None:
     """Write a generic AMR FITS file with one binary-table HDU."""
     names = ["x", "y", "z", "level", "nH", "T", "vx", "vy", "vz"]
-    # Map the conventional 'gasDen' column to 'nH' if needed.
-    src_names = list(cols.keys())
-    if "gasDen" in src_names and "nH" not in src_names:
-        cols["nH"] = cols.pop("gasDen")
     # Re-order mandatory then optional columns.
     out_order = []
     for n in names:
@@ -203,23 +215,29 @@ def _write_hdf5(path: str, cols, header_extra) -> None:
     except ImportError as exc:  # pragma: no cover
         raise SystemExit("h5py is required to write HDF5 output") from exc
 
-    # Map gasDen -> nH if needed
-    if "gasDen" in cols and "nH" not in cols:
-        cols["nH"] = cols.pop("gasDen")
+    order = ["x", "y", "z", "level", "nH", "T", "vx", "vy", "vz"]
+    for n in order:
+        if n not in cols:
+            raise SystemExit(f"missing mandatory column '{n}'")
 
-    with h5py.File(path, "w") as f:
-        g = f.create_group("amr_grid")
-        order = ["x", "y", "z", "level", "nH", "T", "vx", "vy", "vz"]
+    # LaRT reads the 9 mandatory columns by position, in HDF5 creation order,
+    # and takes the row count from NAXIS2; libver caps the format at HDF5 1.14,
+    # the version LaRT links (files written with libver='latest' by h5py on
+    # HDF5 2.0 cannot be opened there).
+    with h5py.File(path, "w", libver=("earliest", "v114"), track_order=True) as f:
+        g = f.create_group("amr_grid", track_order=True)
         for n in order:
-            if n not in cols:
-                raise SystemExit(f"missing mandatory column '{n}'")
-            g.create_dataset(n, data=cols[n])
+            data = np.asarray(cols[n])
+            if n == "level":
+                data = data.astype(np.int32)
+            g.create_dataset(n, data=data)
         for n in OPTIONAL_COLUMNS:
             if n in cols:
                 g.create_dataset(n, data=cols[n])
         for k, v in header_extra.items():
             value = v[0] if isinstance(v, tuple) else v
             g.attrs[k] = value
+        g.attrs["NAXIS2"] = np.int32(len(cols["x"]))
 
 
 def main(argv: Iterable[str] | None = None) -> int:
