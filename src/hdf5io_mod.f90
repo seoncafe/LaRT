@@ -16,7 +16,7 @@ module hdf5io_mod
 ! Current limitations:
 !   - out_merge (read-old + sum + write-new) is not supported when both
 !     ends are HDF5; io_open_old works for plain reads only.
-!   - hsize_t / hid_t are assumed to be 8-byte integers (matches HDF5 1.14).
+!   - hsize_t / hid_t are assumed to be 8-byte integers (HDF5 1.10 and later).
 !
 #ifdef HDF5
   use hdf5

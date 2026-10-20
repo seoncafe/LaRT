@@ -38,7 +38,9 @@ HDF5		= 1
 
 # HDF5 installation prefix (set when HDF5=1). Override on command line if needed:
 #   make HDF5=1 HDF5_PREFIX=/usr/local/hdf5
-HDF5_PREFIX	?= /data/opt/hdf5_intel
+# The 2.x Fortran wrappers need libhdf5_f90cstub.a, added to HDF5_LIBS when present;
+# the HDF5 1.14.6 build at /data/opt/hdf5_intel also works.
+HDF5_PREFIX	?= /data/opt/hdf5_intel_2.2.0
 
 ifneq ($(CALCJ), 0)
    FLAGS  += -DCALCJ
@@ -130,14 +132,25 @@ else
    MODFLAG = -J$(SRCDIR) -I$(SRCDIR)
 endif
 
-$(SRCDIR)/%.o: %.c
+# Compiler settings are part of every object: an IPO object cannot be mixed
+# into a debug link, and CALCJ/CALCP/HDF5 change the compiled code.  The
+# settings are written to $(BUILD_CONFIG); its timestamp changes only when
+# they do, so a changed setting recompiles everything and an unchanged one
+# keeps incremental builds incremental.
+BUILD_CONFIG = $(SRCDIR)/.build_configuration
+
+$(SRCDIR)/%.o: %.c $(BUILD_CONFIG)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
-$(SRCDIR)/%.o: %.f
+$(SRCDIR)/%.o: %.f $(BUILD_CONFIG)
 	$(FC) $(FFLAGS) $(MODFLAG) -c -o $@ $<
 
-$(SRCDIR)/%.o: %.f90
+$(SRCDIR)/%.o: %.f90 $(BUILD_CONFIG)
 	$(FC) $(FFLAGS) $(MODFLAG) -c -o $@ $<
+
+$(BUILD_CONFIG): FORCE
+	@printf '%s\n' '$(FC)' '$(FFLAGS)' '$(MODFLAG)' '$(CC)' '$(CFLAGS)' > $@.tmp
+	@if cmp -s $@.tmp $@; then /bin/rm -f $@.tmp; else /bin/mv -f $@.tmp $@; fi
 
 OBJSB	= $(addprefix $(SRCDIR)/, \
 	define.o \
@@ -188,58 +201,66 @@ OBJSB	= $(addprefix $(SRCDIR)/, \
 	grid_mod_clump.o \
 	setup.o)
 
-default: clean main
-	/bin/rm -rf $(SRCDIR)/*.o $(SRCDIR)/*.mod $(SRCDIR)/*.smod
+# `make` cleans and rebuilds everything (the long-standing default).
+# `make main` (or `make $(exec)`) recompiles only what an edit reaches:
+# src/Makefile.dep (below) makes every object depend on the objects that
+# define the modules it USEs, so e.g. a new component of params_type in
+# define.f90 recompiles every source that sees par, and `make -j` orders
+# itself.  Objects stay in src/ after a build.
+default: clean
+	$(MAKE) main
 
-main:$(OBJSB) $(SRCDIR)/$(MAIN).o
-	$(FC) $(SRCDIR)/$(MAIN).o $(OBJSB) $(LDFLAGS) -o $(exec)
+main: $(exec)
+
+$(exec): $(OBJSB) $(SRCDIR)/$(MAIN).o
+	$(FC) $(SRCDIR)/$(MAIN).o $(OBJSB) $(LDFLAGS) -o $@
 
 # Standalone sight-line optical-depth / column-density map calculator.
-# Reuses the same OBJSB list and the procedure-pointer make_sightline_tau
-# dispatch.  Build via:  make sightline_tau   ->  make_sightline_tau.x
-sightline_tau: clean sightline_tau_link
-	/bin/rm -rf $(SRCDIR)/*.o $(SRCDIR)/*.mod $(SRCDIR)/*.smod
+# Reuses the same OBJSB list and the procedure-pointer make_sightline_tau dispatch.
+# Build via:  make sightline_tau   ->  make_sightline_tau.x
+sightline_tau: make_sightline_tau.x
 
-sightline_tau_link: $(OBJSB) $(SRCDIR)/make_sightline_tau.o
-	$(FC) $(SRCDIR)/make_sightline_tau.o $(OBJSB) $(LDFLAGS) -o make_sightline_tau.x
+make_sightline_tau.x: $(OBJSB) $(SRCDIR)/make_sightline_tau.o
+	$(FC) $(SRCDIR)/make_sightline_tau.o $(OBJSB) $(LDFLAGS) -o $@
 
-# Standalone RAMSES → generic AMR converter.  Output format follows the
+# Standalone RAMSES -> generic AMR converter.  Output format follows the
 # extension of the destination filename (.fits / .fits.gz / .h5 / .hdf5).
 # HDF5 support requires HDF5=1 (and the matching HDF5_PREFIX).  Build via:
 #     make convert_ramses              ->  convert_ramses_to_generic.x
-#     make convert_ramses HDF5=1       ->  same, with HDF5 writes enabled
 # Legacy alias `ramses2fits` is kept for backwards compatibility.
-convert_ramses ramses2fits:
-	$(FC) $(FFLAGS) $(MODFLAG) -c -o $(SRCDIR)/define.o $(SRCDIR)/define.f90
-	$(FC) $(FFLAGS) $(MODFLAG) -c -o $(SRCDIR)/fitsio_mod.o $(SRCDIR)/fitsio_mod.f90
-	$(FC) $(FFLAGS) $(MODFLAG) -c -o $(SRCDIR)/hdf5io_mod.o $(SRCDIR)/hdf5io_mod.f90
-	$(FC) $(FFLAGS) $(MODFLAG) -c -o $(SRCDIR)/iofile_mod.o $(SRCDIR)/iofile_mod.f90
-	$(FC) $(FFLAGS) $(MODFLAG) -c -o $(SRCDIR)/physics_amr_mod.o $(SRCDIR)/physics_amr_mod.f90
-	$(FC) $(FFLAGS) $(MODFLAG) -c -o $(SRCDIR)/read_ramses_amr.o $(SRCDIR)/read_ramses_amr.f90
-	$(FC) $(FFLAGS) $(MODFLAG) -c -o $(SRCDIR)/convert_ramses_to_generic.o $(SRCDIR)/convert_ramses_to_generic.f90
-	$(FC) $(FFLAGS) $(addprefix $(SRCDIR)/, define.o fitsio_mod.o hdf5io_mod.o iofile_mod.o physics_amr_mod.o read_ramses_amr.o convert_ramses_to_generic.o) -lcfitsio -L/usr/local/lib $(HDF5_LIBS) -o convert_ramses_to_generic.x
+convert_ramses ramses2fits: convert_ramses_to_generic.x
+
+convert_ramses_to_generic.x: $(addprefix $(SRCDIR)/, define.o fitsio_mod.o hdf5io_mod.o iofile_mod.o physics_amr_mod.o read_ramses_amr.o convert_ramses_to_generic.o)
+	$(FC) $(FFLAGS) $^ -lcfitsio -L/usr/local/lib $(HDF5_LIBS) -o $@
 
 # Standalone AMR sphere generator (no MPI, no Python dependency)
-make_amr_sphere:
-	$(FC) $(FFLAGS) $(MODFLAG) -c -o $(SRCDIR)/define.o $(SRCDIR)/define.f90
-	$(FC) $(FFLAGS) $(MODFLAG) -c -o $(SRCDIR)/fitsio_mod.o $(SRCDIR)/fitsio_mod.f90
-	$(FC) $(FFLAGS) $(MODFLAG) -c -o $(SRCDIR)/hdf5io_mod.o $(SRCDIR)/hdf5io_mod.f90
-	$(FC) $(FFLAGS) $(MODFLAG) -c -o $(SRCDIR)/iofile_mod.o $(SRCDIR)/iofile_mod.f90
-	$(FC) $(FFLAGS) $(MODFLAG) -c -o $(SRCDIR)/make_amr_sphere_radial.o $(SRCDIR)/make_amr_sphere_radial.f90
-	$(FC) $(FFLAGS) $(addprefix $(SRCDIR)/, define.o fitsio_mod.o hdf5io_mod.o iofile_mod.o make_amr_sphere_radial.o) -lcfitsio -L/usr/local/lib $(HDF5_LIBS) -o make_amr_sphere_radial.x
+make_amr_sphere: make_amr_sphere_radial.x
+
+make_amr_sphere_radial.x: $(addprefix $(SRCDIR)/, define.o fitsio_mod.o hdf5io_mod.o iofile_mod.o make_amr_sphere_radial.o)
+	$(FC) $(FFLAGS) $^ -lcfitsio -L/usr/local/lib $(HDF5_LIBS) -o $@
 
 # Standalone clump generator (no MPI, no namelist input -- CLI args only)
-make_clumps:
-	$(FC) $(FFLAGS) $(MODFLAG) -c -o $(SRCDIR)/define.o $(SRCDIR)/define.f90
-	$(FC) $(FFLAGS) $(MODFLAG) -c -o $(SRCDIR)/fitsio_mod.o $(SRCDIR)/fitsio_mod.f90
-	$(FC) $(FFLAGS) $(MODFLAG) -c -o $(SRCDIR)/hdf5io_mod.o $(SRCDIR)/hdf5io_mod.f90
-	$(FC) $(FFLAGS) $(MODFLAG) -c -o $(SRCDIR)/iofile_mod.o $(SRCDIR)/iofile_mod.f90
-	$(FC) $(FFLAGS) $(MODFLAG) -c -o $(SRCDIR)/voigt_mod.o $(SRCDIR)/voigt_mod.f90
-	$(FC) $(FFLAGS) $(MODFLAG) -c -o $(SRCDIR)/make_clumps.o $(SRCDIR)/make_clumps.f90
-	$(FC) $(FFLAGS) $(addprefix $(SRCDIR)/, define.o fitsio_mod.o hdf5io_mod.o iofile_mod.o voigt_mod.o make_clumps.o) -lcfitsio -L/usr/local/lib $(HDF5_LIBS) -o make_clumps.x
+make_clumps: make_clumps.x
+
+make_clumps.x: $(addprefix $(SRCDIR)/, define.o fitsio_mod.o hdf5io_mod.o iofile_mod.o voigt_mod.o make_clumps.o)
+	$(FC) $(FFLAGS) $^ -lcfitsio -L/usr/local/lib $(HDF5_LIBS) -o $@
+
+# Module dependencies, one rule for every src/*.f90 that USEs a module of
+# another src/*.f90 (tools/fortran_module_dependencies.py).  Regenerated
+# whenever a source changes; a module defined in two sources stops the build.
+$(SRCDIR)/Makefile.dep: $(wildcard $(SRCDIR)/*.f90) tools/fortran_module_dependencies.py
+	python3 tools/fortran_module_dependencies.py $(SRCDIR) > $@.tmp && /bin/mv -f $@.tmp $@
 
 clean:
 	/bin/rm -f $(SRCDIR)/*.o $(SRCDIR)/*.mod $(SRCDIR)/*.smod
 
 cleanall:
-	/bin/rm -f $(SRCDIR)/*.o $(SRCDIR)/*.mod $(SRCDIR)/*.smod *.x
+	/bin/rm -f $(SRCDIR)/*.o $(SRCDIR)/*.mod $(SRCDIR)/*.smod $(SRCDIR)/Makefile.dep $(BUILD_CONFIG) *.x
+
+FORCE:
+
+.PHONY: default main sightline_tau convert_ramses ramses2fits make_amr_sphere make_clumps clean cleanall FORCE
+
+# Last, so that no rule of the generated file becomes the default goal.
+.DEFAULT_GOAL := default
+include $(SRCDIR)/Makefile.dep

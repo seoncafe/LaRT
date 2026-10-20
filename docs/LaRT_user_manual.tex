@@ -91,8 +91,8 @@ make cleanall            # also remove executables
 make convert_ramses      # auxiliary RAMSES converter
 \end{lstlisting}
 
-Every \texttt{make} invocation recompiles all objects (no incremental builds).
-\parm{HDF5\_PREFIX} defaults to \path{/data/opt/hdf5_intel} on this machine; set
+\texttt{make} recompiles all objects; \texttt{make main} recompiles only the sources an edit reaches, following the module dependencies in \path{src/Makefile.dep} (generated from the \texttt{USE} statements), and recompiles everything when a compiler flag changes. \texttt{make -j} is safe.
+\texttt{HDF5\_PREFIX} defaults to \path{/data/opt/hdf5_intel_2.2.0} (HDF5 2.2.0) on this machine; set
 it on the command line or as an environment variable when building elsewhere.
 
 \subsection{Running}
