@@ -3,6 +3,7 @@ module run_simulation_mod
   use grid_mod
   use generate_photon_mod
   use random
+  use qmc_mod, only: qmc_launch, qmc_launch_point, launch_uniform, QMC_D_TAU1
   use scatter_mod
   use utility
   use mpi
@@ -75,6 +76,7 @@ contains
            !--- Main Part of the simulation
            !--- Release photon
            photon%id = ip
+           if (qmc_launch) call qmc_launch_point(ip)
            call generate_photon(grid,photon)
            if (par%save_all_photons) call make_all_initial_photons(photon)
 
@@ -93,7 +95,7 @@ contains
                  !--- tau0 = 0 & wgt1 = 0 occurs when photons are generated at locations where rho = 0. (2025.10.11)
                  !tau        = -log(1.0_wp - rand_number()*wgt1)
                  if (tau0 > 0.0_wp) then
-                    tau = -log(1.0_wp - rand_number()*wgt1)
+                    tau = -log(1.0_wp - launch_uniform(QMC_D_TAU1)*wgt1)
                  else
                     tau = hugest
                  endif
@@ -153,6 +155,7 @@ contains
      !--- Main Part of the simulation
      !--- Release photon
      photon%id = ip
+     if (qmc_launch) call qmc_launch_point(ip)
      call generate_photon(grid,photon)
      if (par%save_all_photons) call make_all_initial_photons(photon)
 
@@ -170,7 +173,7 @@ contains
            photon%wgt = photon%wgt * wgt1
            !tau        = -log(1.0_wp - rand_number()*wgt1)
            if (tau0 > 0.0_wp) then
-              tau = -log(1.0_wp - rand_number()*wgt1)
+              tau = -log(1.0_wp - launch_uniform(QMC_D_TAU1)*wgt1)
            else
               tau = hugest
            endif

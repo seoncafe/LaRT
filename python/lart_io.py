@@ -428,7 +428,7 @@ def _write_hdf5(lf: LartFile, path: str) -> None:
 
     if os.path.exists(path):
         os.remove(path)
-    with h5py.File(path, 'w', libver=('earliest', 'v114'), track_order=True) as f:  # LaRT links HDF5 1.14; newer formats are unreadable there
+    with h5py.File(path, 'w', libver=('earliest', 'v114'), track_order=True) as f:  # readable by LaRT builds linked to HDF5 1.14
         # Root attributes
         for k, v in lf.root_attrs.items():
             _h5_set_attr(f, k, v)

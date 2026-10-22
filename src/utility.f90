@@ -5,7 +5,7 @@ module utility
    public :: strupcase, strlowcase
    public :: array_2D_indices, array_3D_indices
    public :: loop_divide
-   public :: get_base_name, get_base_input_name, get_extension
+   public :: get_output_stem, get_base_input_name, get_extension
    public :: name_for_backup
    public :: is_finite, finite
    public :: copy_file
@@ -217,16 +217,18 @@ contains
    endif
    end subroutine loop_divide_int32
    !------------------------------------------------
-   function get_base_name(filename) result(base_name)
-   !--- Strip the directory prefix and the recognized output extension
-   !--- ('.fits.gz', '.fits', '.h5', '.hdf5') to return the base name.
+   function get_output_stem(filename) result(base_name)
+   !--- Strip the recognized output extension ('.fits.gz', '.fits', '.h5',
+   !--- '.hdf5') and keep the directory, so that every file derived from an
+   !--- output name (peel-off, sight-line, backup, grid dumps, clumps) is
+   !--- written next to it.
    implicit none
    character(len=*), intent(in) :: filename
    character(len(filename))     :: base_name
    integer :: i1, i2, n
-   i1 = index(filename,'/', back=.true.) + 1
+   i1 = 1
    n  = len_trim(filename)
-   i2 = n   ! default: keep everything after the slash
+   i2 = n   ! default: no recognized extension
    if (n >= 8) then
       if (filename(n-7:n) == '.fits.gz') then; i2 = n - 8; goto 100; endif
    endif
@@ -245,7 +247,7 @@ contains
    else
       base_name = filename(i1:i2)
    endif
-   end function get_base_name
+   end function get_output_stem
    !------------------------------------------------
    function get_base_input_name(filename) result(base_name)
    character(len=*), intent(in) :: filename

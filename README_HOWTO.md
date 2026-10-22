@@ -173,6 +173,11 @@ and [-1, +1] otherwise. Normalization: `mean(Jmu, axis=mu) = Jout`.
 |-----------|---------|-------------|
 | `no_photons` | 1e5 | Number of photon packets (double precision, converted to int64) |
 | `use_master_slave` | `.true.` | Master-worker algorithm for load balancing. If `.false.`, equal photon counts per process. |
+| `iseed` | 0 | Mersenne Twister seed; 0 = each rank reads its seed from `/dev/urandom` (fallback: clock and process id) |
+| `launch_sequence` | `'random'` | `'sobol'`: the launch variables and the first-flight optical depth come from an Owen-scrambled Sobol point addressed by the global photon number (`src/qmc_mod.f90`); later draws stay on the Mersenne Twister. See below. |
+| `qmc_seed` | 0 | Sobol scramble seed (same on every rank); 0 = drawn from `/dev/urandom` by rank 0 and written to the output header (`QMCSEED`) |
+
+With `launch_sequence = 'sobol'` the Sobol dimensions are: 1-3 frequency (continuum position; Gaussian by Box-Muller from 1-2; Voigt adds a Cauchy deviate from 3; for `'continuum+gaussian'` dimension 3 picks line or continuum), 4 the upward component of a multiplet, 5-6 the isotropic direction, 7-9 the position of `'uniform_sphere'`, `'uniform_cylinder'`, `'uniform'` and `'uniform_xy'` sources, 10 the first-flight optical depth of the forced first scattering. Alias-table and rejection draws (`line_prof_file`, the downward branch of line types 4 and 5, `star_file`, illumination and emissivity sources) stay on the Mersenne Twister. The launch set does not depend on the number of MPI ranks. Each run is one randomized replicate: estimate errors from runs with different `qmc_seed`, and give successive `out_merge` runs different seeds (the default `qmc_seed = 0` does). A power of 2 for `no_photons` keeps the Sobol net balanced. Measured (2^16 photons, 8 replicates; ratio of variances random/Sobol): Si II 1193 point source with a continuum spectrum, tau = 1: `Jout` 745, direct peel-off spectrum 1761, total scattered peel-off flux 8.4, scattered peel-off spectrum 1.4; tau = 10: 43, 1792, 1.4, 1.1; Ly-alpha, tau = 1e4: no measurable change.
 
 ### Output Control
 
@@ -187,7 +192,7 @@ and [-1, +1] otherwise. Normalization: `mean(Jmu, axis=mu) = Jout`.
 | `save_sightline_tau` | `.false.` | Save sightline optical depth map |
 | `save_dust_scattered` | `.false.` | Save dust-scattered component separately |
 | `save_input_grid` | `.false.` | Save input grid data to the output file |
-| `out_file` | `''` | Output file name (defaults to input file base name) |
+| `out_file` | `''` | Output file name (defaults to input file base name). Derived files (peel-off `_obs`, `_stokes`, `_tau`, `_allph`, backups, grid dumps, `_clumps`) are written next to it, with its directory and stem. |
 | `out_merge` | `.false.` | Merge new results into pre-existing output. Input parameters must match. |
 | `out_bitpix` | 0 | Output precision: 0 = auto, -32 = float32, -64 = float64 |
 | `file_format` | `'hdf5'` | Output format: `'hdf5'` or `'fits'`. Build with `make HDF5=0` to disable HDF5. |

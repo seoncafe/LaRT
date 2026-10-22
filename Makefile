@@ -159,6 +159,7 @@ OBJSB	= $(addprefix $(SRCDIR)/, \
 	healpix.o \
 	random_mt.o \
 	random_sersic.o \
+	qmc_mod.o \
 	memory_mod_mpi.o \
 	fitsio_mod.o \
 	hdf5io_mod.o \

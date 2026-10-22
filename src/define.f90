@@ -224,6 +224,15 @@ public
      real(kind=wp) :: no_photons   = 1e5
      real(kind=wp) :: no_print     = 0
      integer       :: iseed        = 0
+     !--- launch_sequence = 'sobol': the launch variables (frequency, multiplet
+     !--- component, direction, source position) and the first-flight optical
+     !--- depth come from an Owen-scrambled Sobol point addressed by the global
+     !--- photon number (qmc_mod); later draws stay on the Mersenne Twister.
+     !--- 'random' (default) uses the Mersenne Twister throughout.
+     !--- qmc_seed keys the scramble; 0 = drawn from /dev/urandom by rank 0, so
+     !--- successive out_merge runs are independent replicates.
+     character(len=8) :: launch_sequence = 'random'
+     integer          :: qmc_seed        = 0
      real(kind=wp) :: luminosity   = 1.0
      real(kind=wp) :: temperature  = 1d4
      real(kind=wp) :: temperature0 = -999.0
@@ -427,6 +436,8 @@ public
      real(kind=wp)      :: f_ion_dust         = 0.01_wp
        ! Fraction of ionized-gas dust (Laursen+09)
      !--- input/output filename related
+     !--- par%out_file without its extension (directory kept); the stem of
+     !--- every derived output file
      character(len=128) :: base_name       = ''
      character(len=128) :: out_file        = ''
      logical            :: out_merge       = .false.

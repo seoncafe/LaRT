@@ -2019,7 +2019,7 @@ Eq.~\eqref{eq:peel_scatt} provides a clean, deterministic relation.
 Parameter & Default & Description \\
 \midrule
 \parm{file\_format} & \texttt{'hdf5'} & Output container: \texttt{'hdf5'} ($\to$ \texttt{.h5}) or \texttt{'fits'} ($\to$ \texttt{.fits.gz}); see \S\ref{sec:fileformats} \\
-\parm{out\_file}   & \texttt{''} & Output file name (defaults to \texttt{<input>.h5}; extension is corrected to match \parm{file\_format} with a warning) \\
+\parm{out\_file}   & \texttt{''} & Output file name (defaults to \texttt{<input>.h5}; extension is corrected to match \parm{file\_format} with a warning); derived files are written next to it \\
 \parm{out\_merge}  & \texttt{.false.} & Accumulate into existing output instead of overwriting \\
 \parm{save\_backup} & \texttt{.false.} & On merge, copy the prior output to \texttt{<base>\_NN.\{h5,fits.gz\}} before overwriting \\
 \parm{out\_bitpix} & $0$ & Storage precision: $0$\,=\,auto (dynamic-range driven), $-32$\,=\,float32, $-64$\,=\,float64 \\
@@ -2183,10 +2183,28 @@ Parameter & Default & Description \\
 \parm{use\_master\_slave} & \texttt{.true.} & Dynamic load balancing via master--worker algorithm \\
 \parm{num\_send\_at\_once} & 100  & Photons dispatched to each worker per batch \\
 \parm{nprint}  & $10^5$ & Progress-report interval [photons] \\
-\parm{iseed}   & auto   & Random seed; defaults derived from MPI rank and system clock \\
+\parm{iseed}   & 0      & Mersenne Twister seed; 0: each rank reads one from \path{/dev/urandom} (fallback: clock and process id) \\
+\parm{launch\_sequence} & \texttt{'random'} & \texttt{'sobol'}: quasi-random launch and first flight (below) \\
+\parm{qmc\_seed} & 0 & Sobol scramble seed; 0: drawn by rank~0 from \path{/dev/urandom} \\
 \bottomrule
 \end{tabular}
 \end{center}
+
+With \parm{launch\_sequence}~$=$~\texttt{'sobol'} the launch of a photon packet and its
+first flight are drawn from an Owen-scrambled Sobol point (\path{src/qmc_mod.f90}) addressed by the
+global photon number, so the launch set does not depend on the number of MPI ranks; every later draw
+stays on the Mersenne Twister.  The dimensions are: 1--3 the source frequency (continuum position,
+Box--Muller Gaussian, Cauchy part of a Voigt source, or the line/continuum choice of
+\texttt{'continuum+gaussian'}), 4 the upward component of a multiplet, 5--6 the isotropic direction,
+7--9 the position of uniform sphere, cylinder, box and plane sources, and 10 the first-flight optical
+depth of the forced first scattering.  Alias-table and rejection draws stay on the Mersenne Twister.
+Each run is one randomized replicate; errors are estimated from runs with different
+\parm{qmc\_seed}, and successive \parm{out\_merge} runs need different seeds (the default
+\parm{qmc\_seed}~$=0$ draws a new one).  For a Si\,\textsc{ii}~1193 point source with a continuum
+spectrum ($\tau=1$, $2^{16}$ photons, 8 replicates) the variance of \texttt{Jout} fell by a factor 745,
+of the direct peel-off spectrum by 1761 and of the total scattered peel-off flux by 8.4, while the
+scattered peel-off spectrum, set by the atomic velocities drawn at scattering, changed by 1.4; for
+Ly$\alpha$ at $\tau=10^4$ no change was measurable.
 
 With \parm{use\_master\_slave}~$=$~\texttt{.true.}, one MPI rank acts as dispatcher and
 the rest as workers.  This balances workloads when scattering rates vary across photon
@@ -2220,7 +2238,9 @@ $\dagger$ are new or changed in v2.10.
 \multicolumn{3}{l}{\textit{Simulation control}} \\[2pt]
 \texttt{par\%no\_photons}  & $10^6$ & Number of photon packets \\
 \texttt{par\%nprint}       & $10^5$ & Progress interval [photons] \\
-\texttt{par\%iseed}        & auto   & Random seed \\[6pt]
+\texttt{par\%iseed}        & 0      & Mersenne Twister seed \\
+\texttt{par\%launch\_sequence} & \texttt{'random'} & \texttt{'random'} or \texttt{'sobol'} \\
+\texttt{par\%qmc\_seed}     & 0      & Sobol scramble seed \\[6pt]
 
 \multicolumn{3}{l}{\textit{Cartesian grid}} \\[2pt]
 \texttt{par\%nx}, \texttt{par\%ny}, \texttt{par\%nz} & 101 & Cells per axis \\

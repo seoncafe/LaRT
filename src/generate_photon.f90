@@ -5,6 +5,7 @@ contains
   use define
   use random
   use random_sersic
+  use qmc_mod
   use mathlib
   use stellar_illumination_mod
   use point_illumination_mod
@@ -32,35 +33,35 @@ contains
   !--- copies amr_grid geometry into grid before photon generation begins).
   select case(trim(par%source_geometry))
   case ('uniform_sphere','sphere')
-     rp   = (rand_number())**(1.0_wp/3.0_wp) * par%source_rmax
-     cost = 2.0_wp*rand_number()-1.0_wp
+     rp   = (launch_uniform(QMC_D_POS1))**(1.0_wp/3.0_wp) * par%source_rmax
+     cost = 2.0_wp*launch_uniform(QMC_D_POS2)-1.0_wp
      sint = sqrt(1.0_wp-cost*cost)
-     phi  = twopi*rand_number()
+     phi  = twopi*launch_uniform(QMC_D_POS3)
      photon%x = rp*sint*cos(phi)
      photon%y = rp*sint*sin(phi)
      photon%z = rp*cost
      call setup_isotropic_injection(grid,photon)
   case ('uniform_cylinder','cylinder')
-     rp   = sqrt(rand_number()) * par%source_rmax
-     phi  = twopi*rand_number()
+     rp   = sqrt(launch_uniform(QMC_D_POS1)) * par%source_rmax
+     phi  = twopi*launch_uniform(QMC_D_POS2)
      photon%x = rp*cos(phi)
      photon%y = rp*sin(phi)
-     photon%z = grid%zrange*rand_number() + grid%zmin
+     photon%z = grid%zrange*launch_uniform(QMC_D_POS3) + grid%zmin
      call setup_isotropic_injection(grid,photon)
   case ('uniform')
-     photon%x = grid%xrange*rand_number() + grid%xmin
-     photon%y = grid%yrange*rand_number() + grid%ymin
-     photon%z = grid%zrange*rand_number() + grid%zmin
+     photon%x = grid%xrange*launch_uniform(QMC_D_POS1) + grid%xmin
+     photon%y = grid%yrange*launch_uniform(QMC_D_POS2) + grid%ymin
+     photon%z = grid%zrange*launch_uniform(QMC_D_POS3) + grid%zmin
      call setup_isotropic_injection(grid,photon)
   case ('uniform_xy')
      if (par%source_rmax > 0.0_wp) then
-        rp   = sqrt(rand_number()) * par%source_rmax
-        phi  = twopi*rand_number()
+        rp   = sqrt(launch_uniform(QMC_D_POS1)) * par%source_rmax
+        phi  = twopi*launch_uniform(QMC_D_POS2)
         photon%x = rp*cos(phi)
         photon%y = rp*sin(phi)
      else
-        photon%x = grid%xrange*rand_number()+grid%xmin
-        photon%y = grid%yrange*rand_number()+grid%ymin
+        photon%x = grid%xrange*launch_uniform(QMC_D_POS1)+grid%xmin
+        photon%y = grid%yrange*launch_uniform(QMC_D_POS2)+grid%ymin
      endif
      photon%z = 0.0_wp
      call setup_isotropic_injection(grid,photon)
@@ -162,7 +163,7 @@ contains
      case (2)
         !--- two upward transitions
         DnuHK = line%DnuHK_Hz / Dfreq_local
-        if (rand_number() <= one_over_three) then
+        if (launch_uniform(QMC_D_COMP) <= one_over_three) then
            photon%xfreq = photon%xfreq - DnuHK
         endif
      case (3)
@@ -173,7 +174,7 @@ contains
         p1 = p1/(p2 + p1)
 
         !--- Select an atom by which the photon is scattered.
-        if (rand_number() > p1) then
+        if (launch_uniform(QMC_D_COMP) > p1) then
            !--- scattered by an atom at 2 state
            iup = 2
            del_xfreq    = line%delE_Hz(2) / Dfreq_local
@@ -194,7 +195,7 @@ contains
         p1 = p1/(p2 + p1)
 
         !--- Select an atom by which the photon is scattered.
-        if (rand_number() < p1) then
+        if (launch_uniform(QMC_D_COMP) < p1) then
            !--- scattered by an atom at 1 state
            iup = 1
         else
@@ -221,7 +222,7 @@ contains
         pcum2 = (p1 + p2)/ptot
 
         !--- Select an atom by which the photon is scattered.
-        xi = rand_number()
+        xi = launch_uniform(QMC_D_COMP)
         if (xi < pcum1) then
            !--- scattered by an atom at 1 state
            iup = 1
@@ -242,15 +243,15 @@ contains
   !--- xfreq should be expressed in units of the Doppler frequency for the reference temperature (par%temperature).
   select case(trim(par%spectral_type))
   case ('continuum')
-     photon%xfreq = rand_number() * (grid%xfreq_max - grid%xfreq_min) + grid%xfreq_min
+     photon%xfreq = launch_uniform(QMC_D_FREQ1) * (grid%xfreq_max - grid%xfreq_min) + grid%xfreq_min
      !--- xfreq should be transformed into units of local cell (2021-05-18).
      photon%xfreq = photon%xfreq / (Dfreq_local / grid%Dfreq_ref)
   case ('voigt0')
      !--- voigt0 is intended to make photons from a temperature that is independent of the cell temperature.
      !--- xfreq should be transformed into units of local cell (2019-08-18).
-     photon%xfreq = photon%xfreq + rand_voigt(par%voigt_a0) * par%Dfreq0 / Dfreq_local
+     photon%xfreq = photon%xfreq + launch_voigt(par%voigt_a0) * par%Dfreq0 / Dfreq_local
   case ('voigt')
-     photon%xfreq = photon%xfreq + rand_voigt(voigt_a_local)
+     photon%xfreq = photon%xfreq + launch_voigt(voigt_a_local)
   case ('gaussian')
      !--- bug-fixed (2022.05.28)
      !--- gaussian_FWHM_vel takes precedence over gaussian_sigma_vel if > 0.
@@ -261,7 +262,7 @@ contains
         else
            gsig = par%gaussian_sigma_vel
         end if
-        photon%xfreq = photon%xfreq + rand_gauss() * (gsig / (vtherm_total(par%temperature)))
+        photon%xfreq = photon%xfreq + launch_gauss() * (gsig / (vtherm_total(par%temperature)))
      end block
      photon%xfreq = photon%xfreq / (Dfreq_local / grid%Dfreq_ref)
   case ('line_prof_file')
@@ -285,14 +286,14 @@ contains
         dv_range = (grid%xfreq_max - grid%xfreq_min) * vtherm_total(par%temperature)
         !--- line photon fraction
         f_line   = EW_vel / (EW_vel + dv_range)
-        if (rand_number() < f_line) then
+        if (launch_uniform(QMC_D_FREQ3) < f_line) then
            !--- Gaussian line: sigma_x in xfreq units (reference Dfreq)
            sigma_x = fwhm_use * fwhm2sigma &
                    / (vtherm_total(par%temperature))
-           photon%xfreq = photon%xfreq + rand_gauss() * sigma_x
+           photon%xfreq = photon%xfreq + launch_gauss() * sigma_x
         else
            !--- flat continuum
-           photon%xfreq = rand_number() * (grid%xfreq_max - grid%xfreq_min) + grid%xfreq_min
+           photon%xfreq = launch_uniform(QMC_D_FREQ1) * (grid%xfreq_max - grid%xfreq_min) + grid%xfreq_min
         end if
         !--- xfreq should be transformed into units of local cell.
         photon%xfreq = photon%xfreq / (Dfreq_local / grid%Dfreq_ref)
@@ -342,6 +343,7 @@ contains
   subroutine setup_isotropic_injection(grid,photon)
   use define
   use random
+  use qmc_mod
   use octree_mod, only: amr_find_leaf
   implicit none
   type(grid_type),   intent(in)    :: grid
@@ -360,9 +362,9 @@ contains
   endif
 
   !--- isotropic emission
-  cost = 2.0_wp*rand_number()-1.0_wp
+  cost = 2.0_wp*launch_uniform(QMC_D_MU)-1.0_wp
   sint = sqrt(1.0_wp-cost*cost)
-  phi  = twopi*rand_number()
+  phi  = twopi*launch_uniform(QMC_D_PHI)
   cosp = cos(phi)
   sinp = sin(phi)
 

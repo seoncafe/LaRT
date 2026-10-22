@@ -1687,7 +1687,7 @@ class AMRGrid:
 
         if os.path.exists(filename):
             os.remove(filename)
-        with h5py.File(filename, 'w', libver=('earliest', 'v114'), track_order=True) as f:  # LaRT links HDF5 1.14; newer formats are unreadable there
+        with h5py.File(filename, 'w', libver=('earliest', 'v114'), track_order=True) as f:  # readable by LaRT builds linked to HDF5 1.14
             g = f.create_group('AMR_GRID', track_order=True)
 
             for name in data.dtype.names:

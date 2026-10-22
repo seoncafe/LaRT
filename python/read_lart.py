@@ -113,6 +113,62 @@ class PeelObservation:
         """1D spectrum: mean specific intensity over the 2D image pixels."""
         return self.cube.mean(axis=(0, 1))
 
+    def spectrum(self,
+                 component: str = 'all',
+                 mode: str = 'sum',
+                 rin: Optional[float] = None,
+                 rout: Optional[float] = None) -> np.ndarray:
+        """1D spectrum of the pixels at projected radius ``rin <= r <= rout``.
+
+        Parameters
+        ----------
+        component : {'all', 'scatt', 'direct', 'ha'}
+            Cube to reduce: scattered + direct, scattered only, direct
+            only, or the H-alpha cube of a ``par%line_id='ly_beta'`` run.
+        mode : {'sum', 'mean'}
+            ``'sum'`` integrates over the kept pixels; ``'mean'`` returns
+            their mean specific intensity.
+        rin, rout : float, optional
+            Inclusive bounds of the projected radius in code units,
+            measured from the image origin (the projection of the source;
+            CRPIX2/CRPIX3).  Defaults: all pixels.  E.g. ``rin=0.1`` for a
+            sphere of radius 1 keeps the photons whose last scattering
+            projects outside 0.1 R (the "halo" of Kym et al. 2026).
+        """
+        if mode not in ('sum', 'mean'):
+            raise ValueError(f"mode must be 'sum' or 'mean', got {mode!r}")
+        cubes = {'all': self.cube, 'scatt': self.scatt,
+                 'direct': self.direc, 'ha': self.ha}
+        if component not in cubes:
+            raise ValueError(f"component must be one of {tuple(cubes)}, "
+                             f"got {component!r}")
+        cube = cubes[component]
+        if cube is None:
+            raise RuntimeError("component='ha' requires an H-alpha (peel_Ha) "
+                               "cube -- run with par%line_id='ly_beta'.")
+        axes_sum = _spatial_sum_axes(self)
+        if rin is None and rout is None:
+            return cube.sum(axis=axes_sum) if mode == 'sum' else cube.mean(axis=axes_sum)
+        if self.kind == 'heal':
+            raise NotImplementedError(
+                "rin/rout selection is not defined for a HEALPix inside "
+                "observer; omit rin/rout or use a rectangular observer.")
+        rlo = 0.0 if rin is None else float(rin)
+        rhi = np.inf if rout is None else float(rout)
+        if rlo < 0.0:
+            raise ValueError(f"rin must be >= 0, got {rin!r}")
+        if rhi <= rlo:
+            raise ValueError(f"rout ({rout!r}) must exceed rin ({rin!r})")
+        xs, ys, dx, _ = _peel_pixel_coords_code(self)
+        r = np.hypot(xs[None, :], ys[:, None])
+        mask = (r >= rlo) & (r <= rhi)
+        npix = int(mask.sum())
+        if npix == 0:
+            raise ValueError(f"rin={rin}, rout={rout} contains no pixels "
+                             f"(pixel pitch {dx:.3g} code units).")
+        kept = (cube * mask[..., None]).sum(axis=axes_sum)
+        return kept if mode == 'sum' else kept / npix
+
     def velocity_moment_map(self,
                             velocity: np.ndarray,
                             order: int = 1,
@@ -2075,51 +2131,9 @@ class LaRTOutput:
                   if mode == 'sum'
                   else r'$\langle I\rangle_{\rm pix}$')
 
-        rlo = 0.0       if rin  is None else float(rin)
-        rhi = np.inf    if rout is None else float(rout)
-        use_annulus = (rin is not None) or (rout is not None)
-        if rlo < 0.0:
-            raise ValueError(f"rin must be >= 0, got {rin!r}")
-        if rhi <= rlo:
-            raise ValueError(f"rout ({rout!r}) must exceed rin ({rin!r})")
-
-        def _annulus_mask(peel):
-            """Return a (nyim, nxim) bool mask of pixels in rin..rout, or
-            None if no annulus filter was requested."""
-            if not use_annulus:
-                return None
-            if peel.kind == 'heal':
-                raise NotImplementedError(
-                    "rin/rout annulus selection is not defined for a "
-                    "HEALPix inside observer; omit rin/rout or pass a "
-                    "rectangular peel-off observer.")
-            xs, ys, _, _ = _peel_pixel_coords_code(peel)
-            rgrid = np.hypot(xs[None, :], ys[:, None])
-            return (rgrid >= rlo) & (rgrid <= rhi)
-
         def _spec(peel):
-            if component == 'all':
-                cube = peel.cube
-            elif component == 'scatt':
-                cube = peel.scatt
-            elif component == 'ha':
-                cube = peel.ha
-            else:
-                cube = peel.direc
-            mask = _annulus_mask(peel)
-            axes_sum = _spatial_sum_axes(peel)
-            if mask is None:
-                if mode == 'sum':
-                    return cube.sum(axis=axes_sum)
-                return cube.mean(axis=axes_sum)
-            npix = int(mask.sum())
-            if npix == 0:
-                raise ValueError(
-                    f"annulus rin={rin}, rout={rout} contains no pixels for "
-                    f"observer at distance {peel.distance} "
-                    f"(image pixel pitch ~{abs(float(peel.header.get('CD2_2', 1.0)))*np.pi/180*peel.distance:.3g} code units).")
-            weighted = (cube * mask[..., None]).sum(axis=axes_sum)
-            return weighted if mode == 'sum' else weighted / npix
+            return peel.spectrum(component=component, mode=mode,
+                                 rin=rin, rout=rout)
 
         def _label(peel):
             if peel.kind == 'heal':

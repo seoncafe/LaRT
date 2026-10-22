@@ -112,7 +112,7 @@ contains
   if (merge_ok) then
      !--- make a backup file.
      if (par%save_backup) then
-        fname_backup = name_for_backup(get_base_name(trim(filename)))
+        fname_backup = name_for_backup(get_output_stem(trim(filename)))
         filename2    = trim(fname_backup)//trim(io_file_extension(par%file_format))
         call copy_file(trim(par%out_file), trim(filename2), status)
      endif
@@ -496,6 +496,9 @@ contains
 #else
   call io_put_keyword(iofh,'calc_J',   .false.,            'calculated J within media?',status)
 #endif
+  call io_put_keyword(iofh,'LAUNCH', trim(par%launch_sequence), 'photon launch sequence', status)
+  if (trim(par%launch_sequence) == 'sobol') &
+     call io_put_keyword(iofh,'QMCSEED', par%qmc_seed, 'Sobol scramble seed', status)
   if (trim(par%source_geometry) == 'stellar_illumination') then
      call io_put_keyword(iofh,'LimbDark', par%stellar_limb_darkening,'Limb Darkening Function', status)
      call io_put_keyword(iofh,'Raccept',  par%acceptance_rate,'Acceptance Rate', status)
@@ -764,7 +767,7 @@ contains
   endif
 
   !--- Initialize FITS file name.
-  filename1 = trim(get_base_name(filename))//'_obs2D'//trim(filename_end)//trim(io_file_extension(par%file_format))
+  filename1 = trim(get_output_stem(filename))//'_obs2D'//trim(filename_end)//trim(io_file_extension(par%file_format))
 
   !--- check the previous FITS output.
   merge_ok = par%out_merge
@@ -884,7 +887,7 @@ contains
 
   if (par%use_stokes) then
      !--- open new FITS file
-     filename1 = trim(get_base_name(filename))//'_stokes_2D'//trim(filename_end)//trim(io_file_extension(par%file_format))
+     filename1 = trim(get_output_stem(filename))//'_stokes_2D'//trim(filename_end)//trim(io_file_extension(par%file_format))
 
      !--- check the previous FITS output.
      merge_ok = par%out_merge
@@ -1025,7 +1028,7 @@ contains
   endif
 
   !--- Initialize FITS file name.
-  filename1 = trim(get_base_name(filename))//'_obs'//trim(filename_end)//trim(io_file_extension(par%file_format))
+  filename1 = trim(get_output_stem(filename))//'_obs'//trim(filename_end)//trim(io_file_extension(par%file_format))
 
   !--- check the previous FITS output.
   merge_ok = par%out_merge
@@ -1220,7 +1223,7 @@ contains
 
   if (par%use_stokes) then
      !--- open new FITS file
-     filename1 = trim(get_base_name(filename))//'_stokes'//trim(filename_end)//trim(io_file_extension(par%file_format))
+     filename1 = trim(get_output_stem(filename))//'_stokes'//trim(filename_end)//trim(io_file_extension(par%file_format))
 
      !--- check the previous FITS output.
      merge_ok = par%out_merge
@@ -1366,7 +1369,7 @@ contains
   type(all_photons_type)    :: all_ph
 
   !--- Initialize FITS file name.
-  filename1 = trim(get_base_name(filename))//'_allph'//trim(io_file_extension(par%file_format))
+  filename1 = trim(get_output_stem(filename))//'_allph'//trim(io_file_extension(par%file_format))
 
   !--- check the previous FITS output.
   merge_ok = par%out_merge

@@ -221,9 +221,9 @@ def _write_hdf5(path: str, cols, header_extra) -> None:
             raise SystemExit(f"missing mandatory column '{n}'")
 
     # LaRT reads the 9 mandatory columns by position, in HDF5 creation order,
-    # and takes the row count from NAXIS2; libver caps the format at HDF5 1.14,
-    # the version LaRT links (files written with libver='latest' by h5py on
-    # HDF5 2.0 cannot be opened there).
+    # and takes the row count from NAXIS2; libver caps the format at HDF5 1.14
+    # so LaRT builds linked to HDF5 1.14 can open the file (files written with
+    # libver='latest' by h5py on HDF5 2.x cannot be opened there).
     with h5py.File(path, "w", libver=("earliest", "v114"), track_order=True) as f:
         g = f.create_group("amr_grid", track_order=True)
         for n in order:

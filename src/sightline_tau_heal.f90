@@ -310,7 +310,7 @@ contains
   endif
 
   !--- Initialize FITS file name.
-  filename1 = trim(get_base_name(filename))//'_tau'//trim(filename_end)//trim(io_file_extension(par%file_format))
+  filename1 = trim(get_output_stem(filename))//'_tau'//trim(filename_end)//trim(io_file_extension(par%file_format))
 
   !--- open FITS file.
   call io_open_new(iofh,trim(filename1),status)

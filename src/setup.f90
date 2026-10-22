@@ -8,6 +8,7 @@ contains
   use utility
   use line_mod
   use h2_mod, only: h2_init
+  use qmc_mod, only: qmc_setup
   use mpi
   implicit none
 
@@ -52,16 +53,10 @@ contains
   par%spectral_type   = strlowcase(par%spectral_type)
   par%grid_type       = strlowcase(par%grid_type)
   par%amr_type        = strlowcase(par%amr_type)
+  par%launch_sequence = strlowcase(par%launch_sequence)
 
   !--- par%grid_type and the switches par%use_amr_grid / par%use_clump_medium
   !    select the same thing; either form may be given in the input.
-  select case (trim(par%grid_type))
-  case ('car', 'amr', 'clump')
-  case default
-     if (mpar%p_rank == 0) write(6,'(3a)') 'ERROR: par%grid_type = ''', trim(par%grid_type), &
-                                           ''' (allowed: ''car'', ''amr'', ''clump'')'
-     call MPI_ABORT(MPI_COMM_WORLD, 1, ierr)
-  end select
   if (par%use_amr_grid     .and. trim(par%grid_type) == 'car') par%grid_type = 'amr'
   if (trim(par%grid_type) == 'amr')   par%use_amr_grid     = .true.
   if (par%use_clump_medium .and. trim(par%grid_type) == 'car') par%grid_type = 'clump'
@@ -167,6 +162,42 @@ contains
   call MPI_COMM_SIZE(mpar%hostcomm, mpar%h_nproc, ierr)
   call MPI_COMM_SPLIT(MPI_COMM_WORLD, mpar%h_rank, mpar%p_rank, mpar%SAME_HRANK_COMM, ierr)
   call MPI_COMM_SIZE(mpar%SAME_HRANK_COMM, mpar%SAME_HRANK_NPROC, ierr)
+
+  !--- checks that need mpar%p_rank (set just above)
+  select case (trim(par%grid_type))
+  case ('car', 'amr', 'clump')
+  case default
+     if (mpar%p_rank == 0) write(6,'(3a)') 'ERROR: par%grid_type = ''', trim(par%grid_type), &
+                                           ''' (allowed: ''car'', ''amr'', ''clump'')'
+     call MPI_ABORT(MPI_COMM_WORLD, 1, ierr)
+  end select
+
+  !--- quasi-random launch (qmc_mod).  The scramble seed must be the same on
+  !--- every rank: par%qmc_seed = 0 takes a seed from /dev/urandom on rank 0.
+  select case (trim(par%launch_sequence))
+  case ('random')
+  case ('sobol')
+     if (par%qmc_seed == 0) then
+        if (mpar%p_rank == 0) then
+           open(newunit=i, file='/dev/urandom', access='stream', form='unformatted', &
+                action='read', status='old', iostat=status)
+           if (status == 0) then
+              read(i) par%qmc_seed
+              close(i)
+           else
+              call system_clock(par%qmc_seed)
+           endif
+           if (par%qmc_seed == 0) par%qmc_seed = 1
+        endif
+        call MPI_BCAST(par%qmc_seed, 1, MPI_INTEGER, 0, MPI_COMM_WORLD, ierr)
+     endif
+     call qmc_setup(par%qmc_seed)
+     if (mpar%p_rank == 0) write(6,'(a,i0)') 'launch_sequence = sobol, qmc_seed = ', par%qmc_seed
+  case default
+     if (mpar%p_rank == 0) write(6,'(3a)') 'ERROR: par%launch_sequence = ''', trim(par%launch_sequence), &
+                                           ''' (allowed: ''random'', ''sobol'')'
+     call MPI_ABORT(MPI_COMM_WORLD, 1, ierr)
+  end select
 
   !!--- 2022.04.30
   !if (par%no_photons < 5.0 * mpar%nproc * par%num_send_at_once) then
@@ -526,7 +557,7 @@ contains
      par%base_name = trim(get_base_input_name(model_infile))
      par%out_file  = trim(par%base_name)//trim(io_file_extension(par%file_format))
   else
-     par%base_name = trim(get_base_name(trim(par%out_file)))
+     par%base_name = trim(get_output_stem(trim(par%out_file)))
      !--- par%file_format is authoritative.  If par%out_file carries a
      !    different extension than par%file_format implies, rewrite the
      !    extension (preserving the directory prefix) and warn the user.
@@ -534,8 +565,7 @@ contains
      !    in one format and derived files (peeloff, sightline, ...) in
      !    another, since the derived names always use par%file_format.
      block
-       character(len=128) :: expected_ext, current_ext, dir_part, new_out_file
-       integer :: idir
+       character(len=128) :: expected_ext, current_ext, new_out_file
        expected_ext = io_file_extension(par%file_format)
        !-- Determine the current extension by name (incl. compound '.fits.gz').
        if (len_trim(par%out_file) >= 8) then
@@ -555,14 +585,8 @@ contains
           if (par%out_file(len_trim(par%out_file)-2:len_trim(par%out_file)) == '.h5') current_ext = '.h5'
        endif
        if (trim(current_ext) /= trim(expected_ext)) then
-          !-- preserve the directory part of par%out_file
-          idir = index(par%out_file, '/', back=.true.)
-          if (idir > 0) then
-             dir_part = par%out_file(1:idir)
-          else
-             dir_part = ''
-          endif
-          new_out_file = trim(dir_part)//trim(par%base_name)//trim(expected_ext)
+          !-- par%base_name keeps the directory of par%out_file
+          new_out_file = trim(par%base_name)//trim(expected_ext)
           if (mpar%p_rank == 0) then
              write(*,'(a)')  '---'
              write(*,'(4a)') 'WARNING: par%out_file (', trim(par%out_file), &
