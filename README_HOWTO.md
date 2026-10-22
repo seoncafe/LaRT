@@ -173,6 +173,7 @@ and [-1, +1] otherwise. Normalization: `mean(Jmu, axis=mu) = Jout`.
 |-----------|---------|-------------|
 | `no_photons` | 1e5 | Number of photon packets (double precision, converted to int64) |
 | `use_master_slave` | `.true.` | Master-worker algorithm for load balancing. If `.false.`, equal photon counts per process. |
+| `num_send_at_once` | 0 | Photons handed to a worker at a time. 0 (default) = `max(1, no_photons/(nworkers*50))`: about 50 batches for each worker, so the partly filled last round idles the workers for ~1% of the run (`nworkers` = MPI ranks - 1). |
 | `iseed` | 0 | Mersenne Twister seed; 0 = each rank reads its seed from `/dev/urandom` (fallback: clock and process id) |
 | `launch_sequence` | `'random'` | `'sobol'`: the launch variables and the first-flight optical depth come from an Owen-scrambled Sobol point addressed by the global photon number (`src/qmc_mod.f90`); later draws stay on the Mersenne Twister. See below. |
 | `qmc_seed` | 0 | Sobol scramble seed (same on every rank); 0 = drawn from `/dev/urandom` by rank 0 and written to the output header (`QMCSEED`) |

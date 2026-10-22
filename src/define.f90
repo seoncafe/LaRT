@@ -447,8 +447,9 @@ public
      !    when constructing derived filenames (peeloff, sightline, ...).
      character(len=8)   :: file_format     = 'hdf5'
      !--- master-slave mode, dust weighting method, stokes
-     !integer       :: num_send_at_once     = 100
-     integer(int64):: num_send_at_once     = 100
+     !--- photons handed to a worker at a time in master-slave mode;
+     !--- <= 0 (default): chosen in setup from nphotons and the number of workers
+     integer(int64):: num_send_at_once     = 0
      logical       :: use_master_slave     = .true.
      logical       :: use_reduced_wgt      = .false.
      logical       :: use_stokes           = .false.

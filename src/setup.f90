@@ -9,6 +9,7 @@ contains
   use line_mod
   use h2_mod, only: h2_init
   use qmc_mod, only: qmc_setup
+  use, intrinsic :: iso_fortran_env, only: int64
   use mpi
   implicit none
 
@@ -16,6 +17,7 @@ contains
   character(len=128) :: model_infile, arg
   integer :: unit
   integer :: ierr
+  integer(int64), parameter :: nround_master_slave = 50
   integer :: i
   !real(kind=wp) :: dx,dy,dz
   integer       :: nx,ny,nz
@@ -204,11 +206,27 @@ contains
   !   par%num_send_at_once = floor(par%no_photons/(5.0*mpar%nproc))
   !   !if (mpar%p_rank == 0) write(*,*) ' num_send_at_once = ', par%num_send_at_once
   !endif
-  !--- 2023.03.23
+  !--- Master-slave batch size.  num_send_at_once <= 0 (default): every worker
+  !--- (nproc - 1 of them; rank 0 only dispatches) receives about
+  !--- nround_master_slave batches, num_send_at_once = nphotons/(nworkers*nrounds).
+  !--- The workers idle while the last, partly filled round finishes, about
+  !--- 1/(2*nrounds) of the run (1% for 50 rounds) whatever a photon costs,
+  !--- and the master exchanges about nworkers*nrounds messages in all.
+  !--- A fixed batch (e.g. the former default 100) leaves 1e5 photons on 287
+  !--- workers 3.5 rounds, and half of the workers idle in the last one.
   if (mpar%nproc < 2) par%use_master_slave = .false.
+  if (par%num_send_at_once <= 0) then
+     if (par%use_master_slave) then
+        par%num_send_at_once = max(1_int64, par%nphotons/(int(mpar%nproc - 1, int64)*nround_master_slave))
+     else
+        par%num_send_at_once = 1
+     endif
+  endif
   if (par%num_send_at_once * mpar%nproc > par%nphotons) then
      par%use_master_slave = .false.
   endif
+  if (mpar%p_rank == 0 .and. par%use_master_slave) &
+     write(6,'(a,i0)') 'master-slave: photons sent to a worker at a time = ', par%num_send_at_once
 
   if (par%nx == 1 .or. par%ny == 1 .or. par%nz == 1) par%xyz_symmetry = .false.
 
