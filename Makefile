@@ -36,11 +36,22 @@ CALCP		= 0
 DEBUG		= 0
 HDF5		= 1
 
-# HDF5 installation prefix (set when HDF5=1). Override on command line if needed:
-#   make HDF5=1 HDF5_PREFIX=/usr/local/hdf5
-# The 2.x Fortran wrappers need libhdf5_f90cstub.a, added to HDF5_LIBS when present;
-# the HDF5 1.14.6 build at /data/opt/hdf5_intel also works.
-HDF5_PREFIX	?= /data/opt/hdf5_intel_2.2.0
+# HDF5 installation prefix (set when HDF5=1).  The Fortran interface (hdf5.mod)
+# is readable only by the compiler that built it, so each compiler family has its
+# own build; mpif90 wraps gfortran.  Override with  make HDF5_PREFIX=/path/to/hdf5
+ifeq ($(FC), mpif90)
+   HDF5_PREFIX ?= /opt/hdf5_gfortran
+   # A .mod file is readable only by the gfortran version that wrote it, so mpif90
+   # must run the gfortran that built hdf5.mod (recorded in libhdf5.settings), not
+   # whichever gfortran is first in PATH.  I_MPI_F90: Intel MPI; OMPI_FC: Open MPI.
+   HDF5_GFORTRAN := $(shell sed -n 's/^ *Fortran Compiler: *\([^ ]*\).*/\1/p' $(HDF5_PREFIX)/lib/libhdf5.settings 2>/dev/null)
+   ifneq ($(HDF5_GFORTRAN),)
+      export I_MPI_F90 = $(HDF5_GFORTRAN)
+      export OMPI_FC   = $(HDF5_GFORTRAN)
+   endif
+else
+   HDF5_PREFIX ?= /opt/hdf5_intel
+endif
 
 ifneq ($(CALCJ), 0)
    FLAGS  += -DCALCJ
@@ -56,7 +67,7 @@ ifneq ($(CALCPnew), 0)
 endif
 ifneq ($(HDF5), 0)
    FLAGS    += -DHDF5 -I$(HDF5_PREFIX)/include
-   HDF5_LIBS = $(HDF5_PREFIX)/lib/libhdf5_fortran.a $(wildcard $(HDF5_PREFIX)/lib/libhdf5_f90cstub.a) $(HDF5_PREFIX)/lib/libhdf5.a -lsz -ldl -lz -lm
+   HDF5_LIBS = $(HDF5_PREFIX)/lib/libhdf5_fortran.a $(HDF5_PREFIX)/lib/libhdf5.a -lsz -lz
 endif
 ifneq ($(JPexec),)
    exec := $(exec)_calc$(JPexec)

@@ -92,7 +92,10 @@ make convert_ramses      # auxiliary RAMSES converter
 \end{lstlisting}
 
 \texttt{make} recompiles all objects; \texttt{make main} recompiles only the sources an edit reaches, following the module dependencies in \path{src/Makefile.dep} (generated from the \texttt{USE} statements), and recompiles everything when a compiler flag changes. \texttt{make -j} is safe.
-\texttt{HDF5\_PREFIX} defaults to \path{/data/opt/hdf5_intel_2.2.0} (HDF5 2.2.0) on this machine; set
+\texttt{HDF5\_PREFIX} defaults to \path{/opt/hdf5_intel} with the Intel compilers and to
+\path{/opt/hdf5_gfortran} with \texttt{make F90=mpif90} (both HDF5 2.2.0, static; a module file is
+readable only by the compiler that wrote it, so \texttt{mpif90} is pointed at the gfortran that built
+\path{hdf5.mod}); set
 it on the command line or as an environment variable when building elsewhere.
 
 \subsection{Running}
